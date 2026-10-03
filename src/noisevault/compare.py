@@ -879,7 +879,26 @@ class _Fit:
             self._polish(draws, [_window_max(part, draws) for part in parts], climb)
             for parts in ((window, *window.edges) for window in windows)
         ]
+        for gate, readout, narrow in self._kept(windows):
+            top = self.surface.loglik_at([gate], [readout], draws)[0]
+            start = _Best(top, np.full(len(top), gate), np.full(len(top), readout))
+            if narrow:
+                start = _climbed(draws, start, np.flatnonzero(np.isfinite(top)), climb)
+            starts.append(start)
         return _highest(starts)[0]
+
+    def _kept(self, windows: Sequence[_Window]) -> list[tuple[float, float, bool]]:
+        step = [max(_spacing(_grid_line(window, axis)) for window in windows) for axis in _AXES]
+        neighbors = np.array([[-1, 0], [1, 0], [0, -1], [0, 1]]) * step
+        kept = sorted(_retained(self.peaks, self.cutoff), key=lambda peak: -peak.loglik)
+        out: list[tuple[float, float, bool]] = []
+        for gate, readout, top, _ in kept:
+            if any(abs(gate - g) <= _STEP / 8 and abs(readout - r) <= _STEP / 8 for g, r, _ in out):
+                continue
+            gates, readouts = np.clip(np.array([gate, readout]) + neighbors, _LO, _HI).T
+            lowest = self.surface.loglik_at(gates, readouts, self.observed).min()
+            out.append((gate, readout, bool(top - lowest > CHI2_95)))
+        return out
 
     def draw_restricted(
         self, draws: ByCellByDraw, axis: Axis, held: float, windows: Sequence[_Window] = ()
@@ -923,11 +942,7 @@ class _Fit:
         settled = np.array(settled)[pick, np.arange(len(pick))]
         with np.errstate(invalid="ignore"):
             loose = np.flatnonzero(~settled | (np.abs(value - vertex.top) > TIE))
-        if len(loose):
-            climbed = climb(draws[:, loose], _Best(*(field[loose] for field in best)))
-            for field, values in zip(best, climbed, strict=True):
-                field[loose] = values
-        return best
+        return _climbed(draws, best, loose, climb)
 
     def _free_max(
         self, axis: Axis, held: ByColumn, counts: ByCellByDraw, others: ByColumn, span: float
@@ -1056,6 +1071,19 @@ def _highest(found: Sequence[_Best]) -> tuple[_Best, ByColumn]:
     pick = np.argmax([best.top for best in found], axis=0)
     columns = np.arange(len(pick))
     return _Best(*(np.array(field)[pick, columns] for field in zip(*found, strict=True))), pick
+
+
+def _climbed(
+    draws: ByCellByDraw,
+    best: _Best,
+    loose: np.ndarray,
+    climb: Callable[[ByCellByDraw, _Best], _Best],
+) -> _Best:
+    if len(loose):
+        climbed = climb(draws[:, loose], _Best(*(field[loose] for field in best)))
+        for field, values in zip(best, climbed, strict=True):
+            field[loose] = values
+    return best
 
 
 def _grid_line(window: _Window | _Best, axis: Axis) -> np.ndarray:
@@ -1259,6 +1287,9 @@ def _fisher(
     readout: float | None,
 ) -> np.ndarray:
     step = math.exp(FD_STEP)
+    sizes = [2 ** len(c.qubits) for c in circuits]
+    ends = np.cumsum(sizes)[:-1]
+    rounding = np.split(_rounding(circuits), ends)
     slopes = []
     for i, value in enumerate((gate, readout)):
         if value is None:
@@ -1266,9 +1297,14 @@ def _fisher(
             continue
         up, down = [gate, readout], [gate, readout]
         up[i], down[i] = value * step, value / step
-        slopes.append((_exact(base, circuits, *up) - _exact(base, circuits, *down)) / (2 * FD_STEP))
+        rows = np.stack([_exact(base, circuits, *up), _exact(base, circuits, *down)])
+        moves = [
+            _varies(part, bound)
+            for part, bound in zip(np.split(rows, ends, axis=1), rounding, strict=True)
+        ]
+        slopes.append(np.repeat(moves, sizes) * (rows[0] - rows[1]) / (2 * FD_STEP))
     jacobian = np.stack(slopes)
-    weights = np.repeat(shots, [2 ** len(c.qubits) for c in circuits])
+    weights = np.repeat(shots, sizes)
     keep = center > IMPOSSIBLE
     return (jacobian[:, keep] * (weights[keep] / center[keep])) @ jacobian[:, keep].T
 

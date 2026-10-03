@@ -90,7 +90,15 @@ This file lists all notable changes to NoiseVault. Versions follow
     most nine times the interval cutoff. For each drawn set of counts, the fit searches for the
     maximum near every kept peak. Thus a drawn set whose maximum is at a second peak gets that
     maximum. Before, the search was only near the estimate. In an example with two peaks, the
-    p-value was 0.012, and it is now 0.0075.
+    p-value was 0.012, and it is now 0.0075. The fit also computes the likelihood of each drawn
+    set at each kept peak. When the grids are too coarse for a kept peak, the fit climbs from that
+    peak in each set. Thus no drawn maximum is below the likelihood at a kept peak. In an example
+    where one grid spans the whole range, the p-value was 0.586, and it is now 0.564.
+  - The slope of a circuit counts in the Fisher information only when its probabilities 0.1% below
+    and 0.1% above the estimate differ. The difference must be more than the rounding error of the
+    reference. Before, rounding error could remove a degree of freedom. For one circuit that
+    readout error does not move, the fit was not testable. It now has 1 degree of freedom and
+    p = 0.733.
   - `nv compare` reports both factors as not identified only when the smallest eigenvalue of the
     Fisher information is below 4.4e-16 times the largest. That limit is the floating-point
     precision of the eigenvalues. Before, the limit was 1e-6. Thus a circuit with 10^10 shots

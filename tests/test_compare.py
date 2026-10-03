@@ -278,27 +278,68 @@ OTHER_PEAK = (
 )
 
 
-def test_each_drawn_maximum_starts_at_every_peak_the_fit_keeps(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def drawn_maxima(monkeypatch: pytest.MonkeyPatch) -> list[tuple[Any, np.ndarray, np.ndarray]]:
     found = []
     draw_max = fit._Fit.draw_max
 
     def recorded(self: Any, draws: np.ndarray, windows: Any = ()) -> Any:
         best = draw_max(self, draws, windows)
         if not windows:
-            found.append((self.surface, draws, best.top))
+            found.append((self, draws, best.top))
         return best
 
     monkeypatch.setattr(fit._Fit, "draw_max", recorded)
+    return found
+
+
+def test_each_drawn_maximum_starts_at_every_peak_the_fit_keeps(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    found = drawn_maxima(monkeypatch)
     profile, counts = two_peaks(0)
     other = tuple(Op("r", (0,), angles) for angles in OTHER_PEAK)
     r4 = ("r4", counts.circuits[0].ops, {"0": 487757, "1": 512243})
     result = compare(profile, written(profile, [r4, ("other", other, {"0": 516284, "1": 483716})]))
-    ((surface, draws, top),) = found
-    above = surface.loglik(draws).max(axis=(0, 1)) - top
+    ((fitted, draws, top),) = found
+    above = fitted.surface.loglik(draws).max(axis=(0, 1)) - top
     assert above.max() <= 2 * fit.ASCENT_TOL, (int(above.argmax()), above.max())
     assert result.p_value is not None and result.p_value < 0.01, result.p_value
+
+
+NARROW_PEAK = (
+    (2.8772287700302974, 5.607170066284057),
+    (1.4900865844996414, 1.999679683809982),
+    (1.8728307606540497, 3.3559370891061864),
+    (5.555862988709424, 1.1107825236451372),
+)
+
+
+def test_each_drawn_maximum_climbs_a_kept_peak_narrower_than_the_grid_around_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    found = drawn_maxima(monkeypatch)
+    profile = one_qubit("probe", {"r": {"pauli": [0, 0, 0.28236591812141487]}})
+    narrow = tuple(Op("r", (0,), angles) for angles in NARROW_PEAK)
+    eight = (Op("r", (0,), (math.pi / 2, 0)),) * 8
+    counts = written(
+        profile,
+        [("c0", narrow, {"0": 50791, "1": 49209}), ("c1", eight, {"0": 49970, "1": 50030})],
+    )
+    compare(profile, counts)
+    ((fitted, draws, top),) = found
+    above = fitted.surface.loglik(draws).max(axis=(0, 1)) - top
+    assert above.max() <= fit.TIE, (int(above.argmax()), above.max())
+
+
+def test_no_drawn_maximum_is_below_the_likelihood_at_a_kept_peak(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    found = drawn_maxima(monkeypatch)
+    compare(*floor_counts(3999, 1))
+    ((fitted, draws, top),) = found
+    for peak in fit._retained(fitted.peaks, fitted.cutoff):
+        at_peak = fitted.surface.loglik_at([peak.gate], [peak.readout], draws)[0]
+        assert (at_peak <= top).all(), (peak, float((at_peak - top).max()))
 
 
 def zero_error_loops(seed: int) -> tuple[Profile, MeasuredCounts]:
@@ -667,6 +708,14 @@ def test_zero_probability_cells_give_finite_likelihoods_in_the_fit_and_every_dra
     assert "NaN" not in json.dumps(above.to_dict())
 
 
+@pytest.mark.filterwarnings("error::RuntimeWarning")
+def test_a_narrow_peak_that_rules_out_a_drawn_set_gives_no_warning() -> None:
+    profile, counts = floor_counts(100_000_000, 0)
+    (floor,) = fit._floor_factors(profile, counts.circuits)
+    result = compare(profile, counts)
+    assert result.gates.factor == pytest.approx(floor) and result.gates.bound == "lower"
+
+
 @pytest.mark.parametrize(
     ("ref", "dof"),
     [("ibm_kingston@2026-04-15", 38), ("ibm_fez@2025-02-26", 30), ("ibm_boston@2026-04-17", 26)],
@@ -740,6 +789,15 @@ def test_a_change_within_the_rounding_error_does_not_move_a_circuit() -> None:
     ops = (Op("ry", (0,), (1.0,)), *(Op("rz", (0,), (0.3,)),) * 5)
     result = compare(profile, written(profile, [("rz5", ops, {"0": 7702, "1": 2298})]))
     assert result.gates == NoEstimate("no circuit's outcomes move with gate error")
+
+
+def test_a_slope_within_the_rounding_error_takes_no_degree_of_freedom() -> None:
+    readout = {"p1_given_0": 0.01, "p0_given_1": 0.02}
+    profile = one_qubit("stationary", {"ry": {"avg_infidelity": 0.0}}, readout=readout)
+    ops = (Op("ry", (0,), (2 * math.asin(math.sqrt(1 / 3)),)),)
+    result = compare(profile, written(profile, [("third", ops, {"0": 2677, "1": 1323})]))
+    assert result.readout == NoEstimate("only 0 shots respond to readout error")
+    assert result.dof == 1 and result.p_value is not None, (result.dof, result.p_value)
 
 
 def test_x_then_x_counts_identify_neither_factor() -> None:

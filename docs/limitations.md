@@ -191,7 +191,10 @@ outcomes that the profile can produce at some factor in the range. The degrees o
 count minus one for each circuit, minus the rank of the Fisher information. That rank is 2 when the
 counts determine both factors, and less when they do not. The rank counts the eigenvalues above the
 same limit. A circuit whose shots all leave the likelihood adds no degrees of freedom and no Fisher
-information.
+information. The Fisher information uses the slope of each circuit's probabilities, from 0.1% below
+to 0.1% above the estimate. The slope of a circuit counts only when its probabilities at these two
+factors differ by more than the rounding error of the reference. Thus rounding error does not remove
+a degree of freedom.
 
 The p-value ranks the deviance among the deviances of 400 sets of counts drawn from the fitted
 model. The smallest possible p is therefore 1/401, about 0.0025. Below 0.01, `nv compare` reports
@@ -274,10 +277,17 @@ through its two neighbors and makes its step smaller. A climb stops when both ne
 0.001 of its best point. It also stops when the parabola predicts the likelihood at the vertex
 within 0.001 and no neighbor is more than 3.84 lower. Fits with one factor held climb along the
 other factor in the same way. Thus each maximum that the fit reports is the likelihood of the model
-at the reported factors. No reported maximum is above the true maximum. The fit keeps the highest
-result over all grids. A set whose maximum is at a second peak therefore gets that maximum. In an
-example with two peaks, a search near the estimate alone gave p = 0.012. The search near both peaks
-gives p = 0.0075, below the poor-fit limit of 0.01.
+at the reported factors. No reported maximum is above the true maximum. A grid can step over a kept
+peak that is narrower than its step, for example when one grid spans the whole factor range. Thus
+the fit also computes the likelihood of each set at each kept peak. The fit compares each kept peak
+with the points one step of the coarsest grid away. When one of these points is more than 3.84
+lower for the observed counts, the peak is narrower than the grids. The fit climbs from such a peak
+in each set. The fit keeps the highest result over all grids, kept peaks and climbs. Thus no
+reported maximum is below the likelihood at a kept peak, and a set whose maximum is at a second
+peak gets that maximum. In an example with two peaks, a search near the estimate alone gave
+p = 0.012. The search near both peaks gives p = 0.0075, below the poor-fit limit of 0.01. In an
+example where one grid spans the range, the grids alone gave p = 0.586. The climb from the narrow
+peak gives p = 0.564.
 
 On a narrow ridge of the likelihood, the quadratic on the grid misses the maximum, and the climb
 finds it. An example is one qubit with an `x x` circuit of 10^8 shots and a readout circuit of 4000
