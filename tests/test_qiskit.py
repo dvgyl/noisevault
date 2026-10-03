@@ -532,14 +532,15 @@ def test_target_carries_errors_and_durations_per_locus(manila: Profile) -> None:
 
 _TRANSPILE_FIRST = (
     "transpile the circuit for this simulator first: from qiskit import transpile;"
-    " sim.run(transpile(circuit, sim))"
+    " sim.run(transpile(circuit, sim, seed_transpiler=0))"
 )
 
 
 def test_run_rejects_an_untranspiled_circuit_with_the_fix(manila: Profile) -> None:
     sim = quiet_export(manila)
     with pytest.raises(
-        CircuitNotNativeError, match=r"h on qubit 0 is not.*transpile\(circuit, sim\)"
+        CircuitNotNativeError,
+        match=r"h on qubit 0 is not.*transpile\(circuit, sim, seed_transpiler=0\)",
     ) as caught:
         sim.run(ghz(2))
     assert caught.value.hint == _TRANSPILE_FIRST
@@ -552,16 +553,117 @@ def test_run_rejects_an_untranspiled_circuit_with_the_fix(manila: Profile) -> No
         " does not provide cx on that locus)"
     )
     assert caught.value.hint == _TRANSPILE_FIRST
-    assert sim.run(transpile(ghz(2), sim), shots=10).result().success
+    assert sim.run(transpile(ghz(2), sim, seed_transpiler=0), shots=10).result().success
+
+
+def _two_qubits(*ops: str) -> QuantumCircuit:
+    circuit = QuantumCircuit(2, 2, name="two")
+    circuit.h(0)
+    for op in ops:
+        if op == "cx":
+            circuit.cx(0, 1)
+        elif op == "save":
+            circuit.save_statevector()
+        elif op == "delay":
+            circuit.delay(Parameter("t"), 0, unit="ns")
+        else:
+            circuit.measure(range(2), range(2))
+    return circuit
+
+
+def _three_qubits(**sections: Any) -> Profile:
+    device = {"name": "tri", "vendor": "test", "technology": "superconducting", "num_qubits": 3}
+    return Profile.model_validate(toy(device=device, gates=_LINE_GATES, **sections))
+
+
+_LINE = {"edges": [[0, 1], [1, 2]]}
+
+
+@pytest.mark.parametrize(
+    ("profile", "circuit", "failure"),
+    [
+        (
+            Profile.model_validate(
+                toy(
+                    device={
+                        "name": "pair",
+                        "vendor": "test",
+                        "technology": "superconducting",
+                        "num_qubits": 2,
+                    },
+                    connectivity="all_to_all",
+                    gates=_LINE_GATES,
+                    qubits=[{"index": 1, "disabled": True}],
+                )
+            ),
+            _two_qubits("cx", "measure"),
+            BaseException,  # Qiskit panics in Rust (pyo3 PanicException)
+        ),
+        (
+            _three_qubits(connectivity="all_to_all", qubits=[{"index": 0, "disabled": True}]),
+            _two_qubits("cx", "measure"),
+            None,
+        ),
+        (
+            _three_qubits(
+                connectivity=_LINE,
+                calibrations=[
+                    {"gate": "sx", "qubits": [0], "disabled": True},
+                    {"gate": "x", "qubits": [0], "disabled": True},
+                ],
+            ),
+            _two_qubits("cx", "measure"),
+            TranspilerError,
+        ),
+        (_three_qubits(connectivity=_LINE), _two_qubits("cx", "save"), TranspilerError),
+        (_three_qubits(connectivity=_LINE), _two_qubits("delay"), CircuitNotNativeError),
+    ],
+    ids=["one enabled qubit", "a disabled qubit", "a qubit without 1q gates", "save", "delay"],
+)
+def test_the_transpile_fix_is_offered_only_when_it_runs(
+    profile: Profile, circuit: QuantumCircuit, failure: type[BaseException] | None
+) -> None:
+    sim = quiet_export(profile)
+    with pytest.raises(CircuitNotNativeError, match="^circuit 'two': h on qubit 0") as caught:
+        sim.run(circuit)
+    assert caught.value.hint == (None if failure else _TRANSPILE_FIRST)
+    if failure is None:
+        compiled = transpile(circuit, sim, seed_transpiler=0)
+        assert sim.run(compiled, shots=10).result().success
+    else:
+        with pytest.raises(failure):
+            sim.run(transpile(circuit, sim, seed_transpiler=0), shots=10)
 
 
 def _ghz_for_a_line_of_8(n: int) -> QuantumCircuit:
+    return _for_a_line_of_8(ghz(n))
+
+
+def _for_a_line_of_8(circuit: QuantumCircuit) -> QuantumCircuit:
     return transpile(
-        ghz(n),
+        circuit,
         coupling_map=CouplingMap.from_line(8),
         basis_gates=["cx", "rz", "sx", "x"],
         seed_transpiler=1,
     )
+
+
+def _bell_on(width: int, name: str) -> QuantumCircuit:
+    circuit = QuantumCircuit(width, name=name)
+    circuit.h(0)
+    circuit.cx(0, 1)
+    return circuit
+
+
+def _saved_on_all(width: int) -> QuantumCircuit:
+    circuit = _bell_on(width, "saved")
+    circuit.save_statevector()
+    return circuit
+
+
+def _fails(sim: NoiseVaultSimulator, circuit: QuantumCircuit) -> None:
+    with pytest.raises(TranspilerError):
+        transpile(circuit, sim, seed_transpiler=0)
 
 
 def _five_of_eight_qubits() -> QuantumCircuit:
@@ -583,7 +685,7 @@ def _five_qubits() -> QuantumCircuit:
 
 
 def _runs(sim: NoiseVaultSimulator, circuit: QuantumCircuit) -> None:
-    assert sim.run(transpile(circuit, sim, seed_transpiler=1), shots=10).result().success
+    assert sim.run(transpile(circuit, sim, seed_transpiler=0), shots=10).result().success
 
 
 def _runs_on_8_qubits(circuit: QuantumCircuit) -> None:
@@ -591,8 +693,8 @@ def _runs_on_8_qubits(circuit: QuantumCircuit) -> None:
 
 
 _BUILD_NARROWER = (
-    "transpile also counts idle qubits, so build the circuit on at most 5 qubits. Then run"
-    " sim.run(transpile(circuit, sim))"
+    "transpile also counts idle qubits, so remove the idle qubits from the circuit. Then run"
+    " sim.run(transpile(circuit, sim, seed_transpiler=0))"
 )
 
 
@@ -603,15 +705,16 @@ _BUILD_NARROWER = (
             lambda: _ghz_for_a_line_of_8(3),
             "circuit 'ghz3' has 8 qubits but ibm_manila has 5",
             "the circuit is transpiled for a backend with 8 qubits, so transpile the original"
-            " circuit for this simulator instead: sim.run(transpile(original, sim))",
+            " circuit for this simulator instead: sim.run(transpile(original, sim,"
+            " seed_transpiler=0))",
             lambda sim: _runs(sim, ghz(3)),
         ),
         (
             lambda: _ghz_for_a_line_of_8(6),
             "circuit 'ghz6' has 8 qubits but ibm_manila has 5",
             "the circuit is transpiled for a backend with 8 qubits from a circuit with 6."
-            " Transpile the original circuit for a profile with at least 6 qubits (nv list shows"
-            " how many each profile has)",
+            " Transpile the original circuit for a profile with at least 6 enabled qubits (nv list"
+            " shows how many qubits each profile has)",
             lambda sim: _runs_on_8_qubits(ghz(6)),
         ),
         (
@@ -624,14 +727,28 @@ _BUILD_NARROWER = (
             lambda: QuantumCircuit(6, name="empty"),
             "circuit 'empty' has 6 qubits but ibm_manila has 5",
             _BUILD_NARROWER,
-            lambda sim: _runs(sim, QuantumCircuit(5)),
+            lambda sim: _runs(sim, QuantumCircuit(0)),
         ),
         (
             lambda: ghz(6),
             "circuit 'ghz6' has 6 qubits but ibm_manila has 5",
-            "the circuit needs 6 qubits, so run the circuit on a profile with at least 6 qubits"
-            " (nv list shows how many each profile has)",
+            "the circuit acts on 6 qubits, so run the circuit on a profile with at least 6"
+            " enabled qubits (nv list shows how many qubits each profile has)",
             lambda sim: _runs_on_8_qubits(ghz(6)),
+        ),
+        (
+            lambda: _saved_on_all(6),
+            "circuit 'saved' has 6 qubits but ibm_manila has 5",
+            None,
+            lambda sim: _fails(sim, _saved_on_all(2)),
+        ),
+        (
+            lambda: _for_a_line_of_8(_bell_on(6, "bell")),
+            "circuit 'bell' has 8 qubits but ibm_manila has 5",
+            "the circuit is transpiled for a backend with 8 qubits from a circuit with 6."
+            " Transpile the original circuit for a profile with at least 6 enabled qubits (nv list"
+            " shows how many qubits each profile has)",
+            lambda sim: _runs_on_8_qubits(_bell_on(6, "bell")),
         ),
     ],
     ids=[
@@ -640,6 +757,8 @@ _BUILD_NARROWER = (
         "idle qubits",
         "no operations",
         "too many",
+        "saved on idle qubits",
+        "transpiled elsewhere from idle qubits",
     ],
 )
 def test_a_circuit_wider_than_the_device_gets_a_step_that_can_work(
@@ -651,6 +770,61 @@ def test_a_circuit_wider_than_the_device_gets_a_step_that_can_work(
     assert caught.value.message == message
     assert caught.value.hint == hint
     follow(sim)
+
+
+def _chain_on(width: int, length: int) -> QuantumCircuit:
+    circuit = QuantumCircuit(width, length, name="chain")
+    circuit.h(0)
+    for q in range(length - 1):
+        circuit.cx(q, q + 1)
+    circuit.measure(range(length), range(length))
+    return circuit
+
+
+@pytest.mark.parametrize(
+    ("profile", "hint"),
+    [
+        (
+            _three_qubits(connectivity="all_to_all", qubits=[{"index": 2, "disabled": True}]),
+            "the circuit acts on 3 qubits, so run the circuit on a profile with at least 3 enabled"
+            " qubits (nv list shows how many qubits each profile has)",
+        ),
+        (
+            _three_qubits(
+                connectivity=_LINE,
+                calibrations=[{"gate": "cz", "qubits": [0, 1], "disabled": True}],
+            ),
+            None,
+        ),
+    ],
+    ids=["too few enabled qubits", "no chain of 3"],
+)
+def test_a_wide_circuit_gets_no_narrowing_step_that_cannot_run(
+    profile: Profile, hint: str | None
+) -> None:
+    sim = quiet_export(profile)
+    with pytest.raises(CircuitNotNativeError, match="^circuit 'chain' has 4 qubits") as caught:
+        sim.run(_chain_on(4, 3))
+    assert caught.value.hint == hint
+    with pytest.raises(TranspilerError):
+        transpile(_chain_on(3, 3), sim, seed_transpiler=0)
+
+
+_IDLE = "idle time outside explicit delays"
+
+
+def test_the_report_names_alap_scheduling_only_when_every_instruction_has_a_duration() -> None:
+    timed = quiet_export(nv.load("ibm_manila"))
+    assert f"{_IDLE} (insert delays with transpile(circuit, sim, scheduling_method='alap'))" in (
+        timed.report.omitted
+    )
+    scheduled = transpile(_chain_on(3, 3), timed, scheduling_method="alap", seed_transpiler=0)
+    assert any(i.operation.name == "delay" for i in scheduled.data)
+    untimed = quiet_export(_three_qubits(connectivity=_LINE))
+    assert _IDLE in untimed.report.omitted
+    assert not any(e.startswith(f"{_IDLE} (") for e in untimed.report.omitted)
+    with pytest.raises(TranspilerError, match="Duration of"):
+        transpile(_chain_on(3, 3), untimed, scheduling_method="alap", seed_transpiler=0)
 
 
 # reset and delays ----------------------------------------------------------------------------

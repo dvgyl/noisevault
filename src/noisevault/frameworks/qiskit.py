@@ -41,10 +41,21 @@ except ImportError as exc:
         f"the Qiskit export needs Qiskit and Qiskit Aer: {install_hint('qiskit')}"
     ) from exc
 
-from qiskit.circuit import Barrier, Delay, Gate, Measure, Parameter, QuantumCircuit, Reset
+from qiskit.circuit import (
+    Barrier,
+    Delay,
+    Gate,
+    Measure,
+    Operation,
+    Parameter,
+    QuantumCircuit,
+    Qubit,
+    Reset,
+)
 from qiskit.circuit import library as qiskit_gates
 from qiskit.circuit.equivalence_library import SessionEquivalenceLibrary
 from qiskit.circuit.library import CXGate, PauliGate, UnitaryGate, XXPlusYYGate
+from qiskit.compiler import transpile
 from qiskit.providers import QubitProperties
 from qiskit.quantum_info import Kraus
 from qiskit.transpiler import InstructionProperties, PassManager, Target
@@ -116,9 +127,10 @@ _DIRECTIVES = (
     SetSuperOp,
     SetUnitary,
 )
+_SEED = 0
 _TRANSPILE_FIX = (
     "transpile the circuit for this simulator first: from qiskit import transpile;"
-    " sim.run(transpile(circuit, sim))"
+    f" sim.run(transpile(circuit, sim, seed_transpiler={_SEED}))"
 )
 _PAULI = {
     "I": np.eye(2, dtype=complex),
@@ -191,6 +203,7 @@ class NoiseVaultSimulator(AerSimulator):
         )
         self.profile = profile
         self.report = report
+        self._enabled = sum(not profile.table.qubit(q).disabled for q in range(target.num_qubits))
         self._events = {(p.export.name, p.qargs): p.events for p in placements}
         self._passes = PassManager(
             [
@@ -219,21 +232,75 @@ class NoiseVaultSimulator(AerSimulator):
             raise CircuitNotNativeError(
                 f"circuit {circuit.name!r} has {circuit.num_qubits} qubits but {self.profile.id}"
                 f" has {target.num_qubits}",
-                hint=_width_hint(circuit, target.num_qubits),
+                hint=self._width_hint(circuit),
             )
+        found = self._unsupported(circuit)
+        if found is None:
+            return
+        op, qargs = found
+        if isinstance(op, Measure | Reset | Delay):
+            self._refuse_disabled(circuit, op.name, qargs)
+        raise CircuitNotNativeError(
+            f"circuit {circuit.name!r}: {op.name} on {qubit_loci(qargs)} is not"
+            f" available on {self.profile.id} ({self._why(op.name, qargs)})",
+            hint=_TRANSPILE_FIX if self._transpiles(circuit) else None,
+        )
+
+    def _unsupported(self, circuit: QuantumCircuit) -> tuple[Operation, tuple[int, ...]] | None:
+        """The first instruction of ``circuit`` that the Target does not allow, with its qubits."""
         for instruction in circuit.data:
             op = instruction.operation
             if isinstance(op, _DIRECTIVES):
                 continue
             qargs = tuple(circuit.find_bit(q).index for q in instruction.qubits)
-            if not target.instruction_supported(op.name, qargs):
-                if isinstance(op, Measure | Reset | Delay):
-                    self._refuse_disabled(circuit, op.name, qargs)
-                raise CircuitNotNativeError(
-                    f"circuit {circuit.name!r}: {op.name} on {qubit_loci(qargs)} is not"
-                    f" available on {self.profile.id} ({self._why(op.name, qargs)})",
-                    hint=_TRANSPILE_FIX,
+            if not self.target.instruction_supported(op.name, qargs):
+                return op, qargs
+        return None
+
+    def _transpiles(self, circuit: QuantumCircuit) -> bool:
+        """Whether ``run`` accepts ``transpile(circuit, sim, seed_transpiler=_SEED)``."""
+        if len(_acted_on(circuit)) > self._enabled:
+            return False  # transpile can panic in Qiskit's Rust code here instead of raising
+        try:
+            compiled = transpile(circuit, self, seed_transpiler=_SEED)
+            for instruction in compiled.data:
+                if isinstance(instruction.operation, Delay):
+                    _delay_ns(instruction.operation, compiled.find_bit(instruction.qubits[0]).index)
+        except Exception:
+            return False
+        return self._unsupported(compiled) is None
+
+    def _width_hint(self, circuit: QuantumCircuit) -> str | None:
+        narrow = _without_idle_qubits(circuit)
+        fits = narrow is not None and self._transpiles(narrow)
+        larger = "enabled qubits (nv list shows how many qubits each profile has)"
+        if circuit.layout is None:
+            needed = len(_acted_on(circuit))
+            if fits:
+                return (
+                    "transpile also counts idle qubits, so remove the idle qubits from the"
+                    f" circuit. Then run sim.run(transpile(circuit, sim, seed_transpiler={_SEED}))"
                 )
+            if needed > self._enabled:
+                return (
+                    f"the circuit acts on {needed} qubits, so run the circuit on a profile with"
+                    f" at least {needed} {larger}"
+                )
+            return None
+        needed = len(circuit.layout.initial_index_layout(filter_ancillas=True))
+        if fits and needed <= self.target.num_qubits:
+            return (
+                f"the circuit is transpiled for a backend with {circuit.num_qubits} qubits, so"
+                " transpile the original circuit for this simulator instead:"
+                f" sim.run(transpile(original, sim, seed_transpiler={_SEED}))"
+            )
+        if needed > self._enabled:
+            return (
+                f"the circuit is transpiled for a backend with {circuit.num_qubits} qubits from a"
+                f" circuit with {needed}. Transpile the original circuit for a profile with at"
+                f" least {needed} {larger}"
+            )
+        return None
 
     def _refuse_disabled(self, circuit: QuantumCircuit, name: str, qargs: tuple[int, ...]) -> None:
         for q in qargs:
@@ -258,33 +325,25 @@ class NoiseVaultSimulator(AerSimulator):
                 self.report.count(event, key)
 
 
-def _width_hint(circuit: QuantumCircuit, width: int) -> str:
-    if circuit.layout is None:
-        acted_on = {
-            q for i in circuit.data if not isinstance(i.operation, _DIRECTIVES) for q in i.qubits
-        }
-        needed = len(acted_on)
-        if needed <= width:
-            return (
-                f"transpile also counts idle qubits, so build the circuit on at most {width}"
-                " qubits. Then run sim.run(transpile(circuit, sim))"
-            )
-        return (
-            f"the circuit needs {needed} qubits, so run the circuit on a profile with at least"
-            f" {needed} qubits (nv list shows how many each profile has)"
-        )
-    needed = len(circuit.layout.initial_index_layout(filter_ancillas=True))
-    if needed <= width:
-        return (
-            f"the circuit is transpiled for a backend with {circuit.num_qubits} qubits, so"
-            " transpile the original circuit for this simulator instead:"
-            " sim.run(transpile(original, sim))"
-        )
-    return (
-        f"the circuit is transpiled for a backend with {circuit.num_qubits} qubits from a"
-        f" circuit with {needed}. Transpile the original circuit for a profile with at least"
-        f" {needed} qubits (nv list shows how many each profile has)"
-    )
+def _acted_on(circuit: QuantumCircuit) -> set[Qubit]:
+    return {q for i in circuit.data if not isinstance(i.operation, _DIRECTIVES) for q in i.qubits}
+
+
+def _without_idle_qubits(circuit: QuantumCircuit) -> QuantumCircuit | None:
+    """``circuit`` on only the qubits it acts on. Barriers lose their idle qubits.
+
+    None when another directive, such as a save instruction, acts on an idle qubit.
+    """
+    acted = _acted_on(circuit)
+    index = {q: i for i, q in enumerate(q for q in circuit.qubits if q in acted)}
+    out = QuantumCircuit([Qubit() for _ in index], circuit.clbits, *circuit.cregs)
+    for instruction in circuit.data:
+        op, qubits = instruction.operation, instruction.qubits
+        if all(q in index for q in qubits):
+            out.append(op, [index[q] for q in qubits], instruction.clbits)
+        elif not isinstance(op, Barrier):
+            return None
+    return out
 
 
 def to_qiskit(
@@ -333,7 +392,7 @@ def to_qiskit(
     report.events.clear()  # locus bookkeeping. Events count applications as circuits run
     target = _target(profile, placements, enabled, readout)
     noise_model = _noise_model(table, placements, enabled, target, readout)
-    _report_fixed(table, enabled, readout, report)
+    _report_fixed(table, enabled, target, readout, report)
     return NoiseVaultSimulator(
         profile=profile,
         report=report,
@@ -817,7 +876,9 @@ def _aer_unitary_passes(target: Target) -> list[LocalNoisePass]:
 # report -------------------------------------------------------------------------------------
 
 
-def _report_fixed(table: NoiseTable, enabled: Sequence[int], readout: bool, report: Report) -> None:
+def _report_fixed(
+    table: NoiseTable, enabled: Sequence[int], target: Target, readout: bool, report: Report
+) -> None:
     qubits = [table.qubit(q) for q in enabled]
     report.mark_exact(
         "gate noise: channels per exported native and physical locus (Aer QuantumError)"
@@ -840,7 +901,13 @@ def _report_fixed(table: NoiseTable, enabled: Sequence[int], readout: bool, repo
     for q in qubits:
         if q.t2_clamped:
             report.record_t2_clamp(q.index)
-    report.omit(
-        "idle time outside explicit delays (insert delays with"
-        " transpile(circuit, sim, scheduling_method='alap'))"
+    timed = all(
+        props is not None and props.duration is not None
+        for name in target.operation_names
+        if name != "delay"
+        for props in target[name].values()
     )
+    idle = "idle time outside explicit delays"
+    if timed:
+        idle += " (insert delays with transpile(circuit, sim, scheduling_method='alap'))"
+    report.omit(idle)
