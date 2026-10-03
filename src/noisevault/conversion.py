@@ -152,14 +152,11 @@ def _check_qubits(table: NoiseTable, name: str, qubits: tuple[int, ...]) -> None
         if not 0 <= q < table.num_qubits:
             raise LayoutError(
                 f"{name} acts on physical qubit {q}, but the device has qubits"
-                f" 0..{table.num_qubits - 1}",
-                hint="fix the layout",
+                f" 0..{table.num_qubits - 1}"
             )
         if table.qubit(q).disabled:
             raise LayoutError(
-                f"{name} acts on physical qubit {q}, which the profile marks disabled",
-                hint="map the circuit elsewhere (profile.suggest_layout(n) proposes a usable"
-                " chain)",
+                f"{name} acts on physical qubit {q}, which the profile marks disabled"
             )
 
 

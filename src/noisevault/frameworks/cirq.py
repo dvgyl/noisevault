@@ -187,10 +187,7 @@ class _QubitMap:
         for qid, index in zip(qids, indices, strict=True):
             first = owner.setdefault(index, qid)
             if first != qid:
-                raise LayoutError(
-                    f"{first!r} and {qid!r} both map to device qubit {index}",
-                    hint="pass layout= to place them explicitly",
-                )
+                raise LayoutError(f"{first!r} and {qid!r} both map to device qubit {index}")
         return indices
 
     def _one(self, qid: cirq.Qid) -> int:
@@ -204,7 +201,9 @@ class _QubitMap:
             raise LayoutError(
                 f"{qid!r} has dimension {qid.dimension}, but a profile describes qubits"
             )
-        (index,) = normalize_layout([qid], {qid: self._default_index(qid)}, self._profile).values()
+        (index,) = normalize_layout(
+            [qid], {qid: self._default_index(qid)}, self._profile, width=0
+        ).values()
         self._known[qid] = index
         return index
 
@@ -215,10 +214,16 @@ class _QubitMap:
         if isinstance(qid, cirq.GridQubit) and self._coords:
             records = self._coords.get((qid.row, qid.col))
             if records is None:
-                some = ", ".join(f"GridQubit{c}" for c in list(self._coords)[:3])
+                usable = [
+                    f"GridQubit{c}"
+                    for c, found in self._coords.items()
+                    if sum(not r.disabled for r in found) == 1
+                ]
                 raise LayoutError(
                     f"{self._profile.id} has no qubit at coords ({qid.row}, {qid.col})",
-                    hint=f"use the device's coords, for example {some}, or {fix}",
+                    hint=f"use the device's coords, for example {', '.join(usable[:3])}, or {fix}"
+                    if usable
+                    else fix,
                 )
             enabled = [r.index for r in records if not r.disabled]
             if len(enabled) > 1:

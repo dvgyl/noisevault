@@ -39,7 +39,7 @@ except ImportError as exc:
 from .. import gates, metrics
 from ..channels import ChannelSpec, pauli_twirl
 from ..conversion import UnknownGates, idle_channel, native_name, resolve_op
-from ..layout import can_measure, normalize_layout
+from ..layout import can_measure, has_chain, normalize_layout
 from ..profile import Profile
 from ..report import Report
 from ..table import GateNoise, NoiseTable, refuse_disabled
@@ -177,7 +177,9 @@ def to_stim(
     )
     report.record_effects(profile.effects)
     _describe(report, found, readout, tick_ns, existing_noise)
-    exporter = _Exporter(profile, physical, report, readout, tick_ns, existing_noise, unknown_gates)
+    exporter = _Exporter(
+        profile, circuit, physical, report, readout, tick_ns, existing_noise, unknown_gates
+    )
     lines, _ = exporter.block(circuit, set())
     flips = exporter.record_flips(circuit) if readout == "exact" else None
     exporter.finish()
@@ -385,6 +387,7 @@ class _Exporter:
     def __init__(
         self,
         profile: Profile,
+        circuit: stim.Circuit,
         physical: dict[int, int],
         report: Report,
         readout: Readout,
@@ -393,6 +396,7 @@ class _Exporter:
         unknown_gates: UnknownGates,
     ) -> None:
         self.profile = profile
+        self.circuit = circuit
         self.table = profile.table
         self.defined = profile.gates
         self.physical = physical
@@ -629,16 +633,26 @@ class _Exporter:
         both = set(sides) & {side[::-1] for side in sides}
         if not all(pair in both for pair in pairs if self._usable_pair(pair)):
             return f"pass layout= to put {name} on {qubit_loci(sides[0])}, where it runs"
+        n = len(self.physical)
+        chain = has_chain(self.profile, n)
         if not (table.all_to_all or tuple(sorted(wires)) in table.listed_pairs()):
-            return (
-                "pass layout= to put 2-qubit gates on connected pairs"
-                " (profile.suggest_layout(n) proposes a layout, and"
-                " noisevault.stim.layout_from_coords matches the circuit's QUBIT_COORDS)"
-            )
-        return (
-            "pass layout= to put 2-qubit gates on pairs with a usable 2-qubit gate"
-            " (profile.suggest_layout(n) proposes a chain of such pairs)"
-        )
+            step = "pass layout= to put 2-qubit gates on connected pairs"
+            tools = [f"profile.suggest_layout({n}) proposes a layout"] if chain else []
+            if self._fits_coords():
+                tools.append(
+                    "noisevault.stim.layout_from_coords matches the circuit's QUBIT_COORDS"
+                )
+        else:
+            step = "pass layout= to put 2-qubit gates on pairs with a usable 2-qubit gate"
+            tools = [f"profile.suggest_layout({n}) proposes a chain of such pairs"] if chain else []
+        return f"{step} ({', and '.join(tools)})" if tools else step
+
+    def _fits_coords(self) -> bool:
+        try:
+            layout_from_coords(self.circuit, self.profile)
+        except LayoutError:
+            return False
+        return True
 
     def _enabled(self, name: str, wires: tuple[int, ...]) -> bool:
         try:

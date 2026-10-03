@@ -50,7 +50,7 @@ _EVERY_QUBIT = "<physical qubit>, ...} covering every circuit qubit"
             [0],
             {0: 3},
             "disabled",
-            "choose another qubit (profile.suggest_layout(n) proposes a usable chain)",
+            "choose another qubit (profile.suggest_layout(1) proposes a usable chain)",
         ),
     ],
 )
@@ -59,6 +59,22 @@ def test_layout_errors(labels, layout, match, hint) -> None:
     with pytest.raises(LayoutError, match=match) as caught:
         normalize_layout(labels, layout, profile)
     assert caught.value.hint == hint
+
+
+def test_the_disabled_qubit_hint_needs_a_chain_as_wide_as_the_circuit() -> None:
+    profile = _line(5, qubits=[{"index": 2, "disabled": True}])
+    chain_of_2 = "choose another qubit (profile.suggest_layout(2) proposes a usable chain)"
+
+    def hint(labels: list[int], layout: list[int], **kwargs: int) -> str | None:
+        with pytest.raises(LayoutError, match="disabled") as caught:
+            normalize_layout(labels, layout, profile, **kwargs)
+        return caught.value.hint
+
+    assert hint([0, 1], [0, 2]) == chain_of_2
+    assert hint([0, 1, 2], [0, 1, 2]) is None
+    assert hint([0], [2], width=2) == chain_of_2
+    assert hint([0], [2], width=3) is None
+    assert hint([0], [2], width=0) is None
 
 
 def test_adapters_can_supply_their_own_integer_rule() -> None:

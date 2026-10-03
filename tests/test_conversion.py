@@ -181,22 +181,13 @@ def test_typical_may_use_a_reversed_directed_record_and_reports_it() -> None:
 
 
 @pytest.mark.parametrize(
-    ("qubits", "match", "hint"),
-    [
-        ((0, 5), "qubits 0..2", "fix the layout"),
-        ((1, 1), "distinct", None),
-        (
-            (1, 2),
-            "disabled",
-            "map the circuit elsewhere (profile.suggest_layout(n) proposes a usable chain)",
-        ),
-    ],
+    ("qubits", "match"), [((0, 5), "qubits 0..2"), ((1, 1), "distinct"), ((1, 2), "disabled")]
 )
-def test_bad_physical_qubits_are_layout_errors(qubits, match, hint) -> None:
+def test_bad_physical_qubits_are_layout_errors_with_no_layout_step(qubits, match) -> None:
     profile, report = _setup(qubits=[{"index": 2, "disabled": True}])
     with pytest.raises(LayoutError, match=match) as caught:
         _resolve(profile, report, "cz", qubits)
-    assert caught.value.hint == hint
+    assert caught.value.hint is None
 
 
 def test_messages_name_qubits_the_way_the_cli_does() -> None:

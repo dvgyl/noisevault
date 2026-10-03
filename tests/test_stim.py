@@ -349,7 +349,7 @@ def test_a_two_qubit_identity_the_profile_disables_is_refused():
 
 _USABLE_PAIRS = (
     "pass layout= to put 2-qubit gates on pairs with a usable 2-qubit gate"
-    " (profile.suggest_layout(n) proposes a chain of such pairs)"
+    " (profile.suggest_layout(2) proposes a chain of such pairs)"
 )
 
 
@@ -366,7 +366,7 @@ def test_the_layout_hint_names_what_the_pair_lacks():
 
     assert hint(DisabledGateError, "CZ", [0, 1]) == _USABLE_PAIRS
     assert hint(DisabledGateError, "CX", [1, 2]) is None
-    assert hint(MissingCalibrationError, "CZ", [0, 2]) == _CONNECTED_PAIRS
+    assert hint(MissingCalibrationError, "CZ", [0, 2]) == _connected_pairs(2)
     to_stim(profile, "CZ 0 1", layout=profile.suggest_layout(2))
 
 
@@ -471,14 +471,48 @@ def test_a_classically_controlled_pauli_the_profile_disables_is_refused(
         assert str(out) == circuit
 
 
-_CONNECTED_PAIRS = (
-    "pass layout= to put 2-qubit gates on connected pairs (profile.suggest_layout(n) proposes a"
-    " layout, and noisevault.stim.layout_from_coords matches the circuit's QUBIT_COORDS)"
-)
+_CONNECTED = "pass layout= to put 2-qubit gates on connected pairs"
+_FROM_COORDS = "noisevault.stim.layout_from_coords matches the circuit's QUBIT_COORDS"
+
+
+def _connected_pairs(n: int) -> str:
+    return f"{_CONNECTED} (profile.suggest_layout({n}) proposes a layout)"
+
+
 _NATIVE_OR_TYPICAL = (
     "compile to the profile's native gates, or pass unknown_gates='typical' to use the typical"
     " native gate's noise"
 )
+
+
+def test_the_pair_hints_name_only_layout_tools_that_run():
+    star = Profile.model_validate(
+        toy(
+            device={**toy()["device"], "num_qubits": 4},
+            connectivity={"edges": [[0, 1], [0, 2], [0, 3]]},
+        )
+    )
+    with pytest.raises(LayoutError, match="no connected chain of 4"):
+        star.suggest_layout(4)
+    with pytest.raises(MissingCalibrationError) as caught:
+        to_stim(star, "CZ 1 2\nSQRT_X 0 3\nM 0 1 2 3")
+    assert caught.value.hint == _CONNECTED
+    off = {"gate": "cz", "qubits": [0, 1], "disabled": True}
+    star_off = Profile.model_validate({**star.to_dict(), "calibrations": [off]})
+    with pytest.raises(DisabledGateError) as caught:
+        to_stim(star_off, "CZ 0 1\nSQRT_X 2 3\nM 0 1 2 3")
+    assert (
+        caught.value.hint == "pass layout= to put 2-qubit gates on pairs with a usable 2-qubit gate"
+    )
+
+    coords = [{"index": q, "coords": [0, q]} for q in range(3)]
+    line = Profile.model_validate(toy(qubits=coords))
+    circuit = "QUBIT_COORDS(0, 0) 0\nQUBIT_COORDS(0, 2) 1\nQUBIT_COORDS(0, 1) 2\nCZ 0 2\nM 0 1 2"
+    with pytest.raises(MissingCalibrationError) as caught:
+        to_stim(line, circuit)
+    tools = f"profile.suggest_layout(3) proposes a layout, and {_FROM_COORDS}"
+    assert caught.value.hint == f"{_CONNECTED} ({tools})"
+    to_stim(line, circuit, layout=layout_from_coords(circuit, line))
 
 
 def test_unusable_gate_errors_name_the_stim_instruction_and_the_fix():
@@ -486,10 +520,10 @@ def test_unusable_gate_errors_name_the_stim_instruction_and_the_fix():
     cx_1_2 = r"^CX 1 2 \(physical qubits 1-4\)"
     with pytest.raises(MissingCalibrationError, match=cx_1_2) as caught:
         to_stim(_manila(), circuit, layout={0: 0, 1: 1, 2: 4})
-    assert caught.value.hint == _CONNECTED_PAIRS
+    assert caught.value.hint == _connected_pairs(3)
     with pytest.raises(MissingCalibrationError, match=cx_1_2) as caught:
         to_stim(_manila(), "CX 1 2", layout={1: 1, 2: 4}, unknown_gates="error")
-    assert caught.value.hint == _CONNECTED_PAIRS
+    assert caught.value.hint == _connected_pairs(2)
     to_stim(_manila(), circuit, layout=_manila().suggest_layout(3))
     with pytest.raises(MissingCalibrationError, match="^SQRT_Y 0 .*unknown_gates") as caught:
         to_stim(_manila(), "SQRT_Y 0", unknown_gates="error")

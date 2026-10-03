@@ -248,6 +248,44 @@ def _one_disabled() -> Profile:
     return Profile.model_validate(toy(qubits=[{"index": 1, "disabled": True}]))
 
 
+def _qubit_1_disabled(num_qubits: int) -> Profile:
+    device = {**toy()["device"], "num_qubits": num_qubits}
+    disabled = [{"index": 1, "disabled": True}]
+    return Profile.model_validate(toy(device=device, connectivity="all_to_all", qubits=disabled))
+
+
+_CHAIN_OF_2 = "choose another qubit (profile.suggest_layout(2) proposes a usable chain)"
+_CHAIN_OF_3 = "choose another qubit (profile.suggest_layout(3) proposes a usable chain)"
+
+
+@pytest.mark.parametrize(("num_qubits", "hint"), [(2, None), (3, _CHAIN_OF_2)])
+def test_a_disabled_wire_hint_needs_a_chain_as_wide_as_the_circuit(qml, num_qubits, hint) -> None:
+    from noisevault.frameworks.pennylane import to_pennylane
+
+    @qml.qnode(qml.device("default.mixed", wires=2))
+    def circuit():
+        qml.SX(wires=1)
+        return qml.probs(wires=[0])
+
+    with pytest.raises(LayoutError, match="marks disabled") as caught:
+        qml.add_noise(circuit, to_pennylane(_qubit_1_disabled(num_qubits)))()
+    assert caught.value.hint == hint
+
+
+@pytest.mark.parametrize(("num_qubits", "hint"), [(3, None), (4, _CHAIN_OF_3)])
+def test_a_disabled_device_wire_hint_counts_every_device_wire(qml, num_qubits, hint) -> None:
+    from noisevault.frameworks.pennylane import to_pennylane
+
+    @qml.qnode(qml.device("default.mixed", wires=3))
+    def circuit():
+        qml.SX(wires=0)
+        return qml.probs()
+
+    with pytest.raises(LayoutError, match="marks disabled") as caught:
+        qml.add_noise(circuit, to_pennylane(_qubit_1_disabled(num_qubits)))()
+    assert caught.value.hint == hint
+
+
 @pytest.mark.parametrize(
     "prepare",
     [

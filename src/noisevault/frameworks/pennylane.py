@@ -174,13 +174,14 @@ class NoiseVaultPennyLaneModel(qml.NoiseModel):
                 " on. Run each shot count separately or pass readout=False"
             )
         for wire in tape.wires:
-            self.physical_qubit(wire)
+            self._physical(wire, len(tape.wires))
         read = [mp for mp in tape.measurements if _reads_out(mp)]
         measured = [wire for mp in read for wire in _read_wires(mp, tape)]
         if any(not mp.wires for mp in read):
             measured += self._device_wires(frame, tape)
+        width = len({*tape.wires, *measured})
         for wire in measured:
-            qubit = self.physical_qubit(wire)
+            qubit = self._physical(wire, width)
             refuse_disabled(self.profile.table.gate("measure", (qubit,)))
         return tape
 
@@ -212,6 +213,10 @@ class NoiseVaultPennyLaneModel(qml.NoiseModel):
 
     def physical_qubit(self, wire: Hashable) -> int:
         """The device qubit a circuit wire maps to. Integer wire ``i`` is qubit ``i`` by default."""
+        return self._physical(wire, 0)
+
+    def _physical(self, wire: Hashable, width: int) -> int:
+        """``physical_qubit`` for a wire of a circuit with ``width`` wires."""
         if wire not in self._layout:
             if self._list_layout:
                 last = len(self._layout) - 1
@@ -224,7 +229,7 @@ class NoiseVaultPennyLaneModel(qml.NoiseModel):
                     f"wire {wire!r} is not in the layout",
                     hint=f"add the wire: layout={{..., {wire!r}: <physical qubit>}}",
                 )
-            self._layout.update(normalize_layout([wire], None, self.profile))
+            self._layout.update(normalize_layout([wire], None, self.profile, width=width))
         return self._layout[wire]
 
     def _gate_noise(self, op: Operator, **_: Any) -> None:

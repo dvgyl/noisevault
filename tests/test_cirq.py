@@ -528,6 +528,41 @@ def test_grid_qubits_map_through_profile_coords() -> None:
     )
 
 
+def test_coords_examples_are_qubits_a_grid_qubit_can_map_to() -> None:
+    data = _with_coords().to_dict()
+    data["qubits"][0]["disabled"] = True
+    model = to_cirq(Profile.model_validate(data))
+    with pytest.raises(LayoutError, match=r"no qubit at coords \(5, 5\)") as caught:
+        model.noisy_operation(cirq.X(cirq.GridQubit(5, 5)))
+    assert caught.value.hint == (
+        "use the device's coords, for example GridQubit(0.0, 1.0), GridQubit(1.0, 0.0),"
+        " GridQubit(1.0, 1.0), or pass layout={cirq.GridQubit(5, 5): <device qubit>, ...}"
+        " covering every circuit qubit"
+    )
+
+
+def test_a_disabled_qubit_hint_needs_a_chain_as_wide_as_the_layout() -> None:
+    def hint(num_qubits: int, layout: list[int] | None) -> str | None:
+        device = {**toy()["device"], "num_qubits": num_qubits}
+        data = toy(
+            device=device, connectivity="all_to_all", qubits=[{"index": 1, "disabled": True}]
+        )
+        a, b = cirq.LineQubit.range(2)
+        circuit = cirq.Circuit((cirq.X**0.5)(b), cirq.measure(a, key="m"))
+        with pytest.raises(LayoutError, match="disabled") as caught:
+            sim = cirq.DensityMatrixSimulator(
+                noise=to_cirq(Profile.model_validate(data), layout=layout)
+            )
+            sim.run(circuit)
+        return caught.value.hint
+
+    assert hint(3, [0, 1]) == (
+        "choose another qubit (profile.suggest_layout(2) proposes a usable chain)"
+    )
+    assert hint(2, [0, 1]) is None
+    assert hint(3, None) is None
+
+
 def test_default_placement_must_be_injective_within_a_circuit_only() -> None:
     model = to_cirq(_with_coords())
     line, grid = cirq.LineQubit(0), cirq.GridQubit(0, 0)  # both default to device qubit 0
@@ -536,7 +571,7 @@ def test_default_placement_must_be_injective_within_a_circuit_only() -> None:
         assert noisy.all_qubits() == {q}
     with pytest.raises(LayoutError, match="both map to device qubit 0") as caught:
         cirq.Circuit((cirq.X**0.5)(line), (cirq.X**0.5)(grid)).with_noise(model)
-    assert caught.value.hint == "pass layout= to place them explicitly"
+    assert caught.value.hint is None
 
 
 def _shared_coords(*, second_disabled: bool = False) -> Profile:
@@ -618,7 +653,7 @@ _COVERING = ": <device qubit>, ...} covering every circuit qubit"
             cirq.LineQubit(1),
             None,
             "disabled",
-            "choose another qubit (profile.suggest_layout(n) proposes a usable chain)",
+            None,
         ),
     ],
     ids=["grid-no-coords", "named", "out-of-range", "missing-from-layout", "disabled-qubit"],

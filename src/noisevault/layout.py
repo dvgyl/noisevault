@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import operator
+import warnings
 from collections.abc import Callable, Hashable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from itertools import combinations
@@ -56,13 +57,17 @@ def normalize_layout(
     profile: Profile,
     *,
     index_of: Callable[[Hashable], int | None] = _int_label,
+    width: int | None = None,
 ) -> dict[Hashable, int]:
     """Map every circuit qubit label to a usable physical qubit, or raise LayoutError.
 
     With no ``layout``, labels that ``index_of`` turns into integers map to themselves
     (integers by default). An export can pass its own rule, for example for Cirq ``LineQubit``.
     A sequence layout maps label ``i`` to ``layout[i]``. The result must be complete and
-    injective, and use in-range, enabled qubits.
+    injective, and use in-range, enabled qubits. ``width`` is the number of qubits in the
+    circuit, by default ``len(labels)``. A caller that does not know the number passes 0. The
+    hint for a disabled qubit names ``suggest_layout`` only when the search finds a chain of
+    ``width`` qubits.
     """
     labels = list(dict.fromkeys(labels))
     table = profile.table
@@ -99,9 +104,12 @@ def normalize_layout(
                 f" 0..{table.num_qubits - 1}"
             )
         if table.qubit(physical).disabled:
+            n = len(labels) if width is None else width
             raise LayoutError(
                 f"layout maps {label!r} to qubit {physical}, which {profile.id} marks disabled",
-                hint="choose another qubit (profile.suggest_layout(n) proposes a usable chain)",
+                hint=f"choose another qubit (profile.suggest_layout({n}) proposes a usable chain)"
+                if has_chain(profile, n)
+                else None,
             )
         if physical in owner:
             raise LayoutError(
@@ -110,6 +118,17 @@ def normalize_layout(
         owner[physical] = label
         result[label] = physical
     return result
+
+
+def has_chain(profile: Profile, n: int) -> bool:
+    """Whether ``suggest_layout(profile, n)`` finds a chain."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", NoiseVaultWarning)
+        try:
+            suggest_layout(profile, n)
+        except LayoutError:
+            return False
+    return True
 
 
 def suggest_layout(
