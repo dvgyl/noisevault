@@ -427,6 +427,24 @@ def test_an_outcome_counted_twice_is_refused_before_the_second_count_replaces_th
     )
 
 
+@pytest.mark.filterwarnings("ignore::pydantic.PydanticDeprecatedSince20")
+@pytest.mark.parametrize(
+    ("method", "kind"), [("model_validate_json", "json_invalid"), ("parse_raw", "value_error")]
+)
+def test_a_model_json_method_refuses_an_outcome_counted_twice(method: str, kind: str) -> None:
+    text = (Path(__file__).parent / "fixtures" / "compare" / "toy-xx.counts.json").read_text()
+    read = getattr(MeasuredCounts, method)
+
+    with pytest.raises(ValidationError) as caught:
+        read(text.replace('"counts": {"0": 3950,', '"counts": {"0": 1, "1": 50, "0": 3950,'))
+
+    message = "the key circuits[0].counts['0'] appears twice"
+    assert [(e["type"], e["msg"].endswith(message)) for e in caught.value.errors()] == [
+        (kind, True)
+    ]
+    assert read(text) == MeasuredCounts.model_validate(json.loads(text))
+
+
 def test_a_file_nested_deeper_than_the_parser_takes_is_one_counts_error_line(
     tmp_path: Path,
 ) -> None:

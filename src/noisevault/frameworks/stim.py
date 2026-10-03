@@ -221,12 +221,13 @@ def layout_from_coords(circuit: stim.Circuit | str, profile: Profile) -> dict[in
     coords that two enabled device qubits have, the function raises LayoutError.
     """
     circuit = _as_circuit(circuit)
-    found = _scan(circuit)
+    scanned: set[tuple[str, tuple[int, ...]]] = set()
+    found = _scan(circuit, _Scan(operations=scanned))
     table = profile.table
     enabled = sum(not table.qubit(q).disabled for q in range(table.num_qubits))
     placeable = len(found.qubits) <= enabled and all(
         _placeable(table, name, len(qubits))
-        for stim_name, qubits in found.operations
+        for stim_name, qubits in scanned
         for name in _profile_names(stim_name, profile.gates)
     )
     coords = circuit.get_final_qubit_coordinates()
@@ -244,7 +245,7 @@ def layout_from_coords(circuit: stim.Circuit | str, profile: Profile) -> dict[in
     column = {q: i for i, q in enumerate(labels)}
     pairs = np.array([(column[a], column[b]) for a, b in sorted(found.pairs)], dtype=int)
     used: dict[tuple[str, int], list[tuple[int, ...]]] = {}
-    for stim_name, qubits in sorted(found.operations):
+    for stim_name, qubits in sorted(scanned):
         for name in _profile_names(stim_name, profile.gates):
             used.setdefault((name, len(qubits)), []).append(tuple(column[q] for q in qubits))
     operations = [(name, np.array(columns, dtype=int)) for (name, _), columns in used.items()]
@@ -279,7 +280,7 @@ class _Scan:
     herald: str | None = None  # first heralded noise instruction (it adds records)
     feedback: str | None = None  # first gate controlled by a measurement record
     product: str | None = None  # first multi-qubit measurement
-    operations: set[tuple[str, tuple[int, ...]]] = field(default_factory=set)
+    operations: set[tuple[str, tuple[int, ...]]] | None = None
 
 
 def _scan(circuit: stim.Circuit, found: _Scan | None = None) -> _Scan:
@@ -304,7 +305,8 @@ def _scan(circuit: stim.Circuit, found: _Scan | None = None) -> _Scan:
         for group in item.target_groups():
             qubits = [t.qubit_value for t in group if t.qubit_value is not None]
             found.qubits.update(qubits)
-            found.operations.update(_operations(item.name, kind, group))
+            if found.operations is not None:
+                found.operations.update(_operations(item.name, kind, group))
             if any(t.is_measurement_record_target for t in group):
                 found.feedback = found.feedback or _short(item)
             elif kind == "gate" and len(acted := _acted_on(item.name, group)) == 2:

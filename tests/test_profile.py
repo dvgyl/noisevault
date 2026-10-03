@@ -300,6 +300,28 @@ def test_a_gate_defined_twice_is_refused_before_the_second_replaces_the_first(
     )
 
 
+@pytest.mark.filterwarnings("ignore::pydantic.PydanticDeprecatedSince20")
+@pytest.mark.parametrize(
+    ("method", "kind"), [("model_validate_json", "json_invalid"), ("parse_raw", "value_error")]
+)
+def test_a_model_json_method_refuses_a_gate_defined_twice(method: str, kind: str) -> None:
+    data = toy(device={**toy()["device"], "num_qubits": 1}, connectivity={"edges": []})
+    data["gates"] = {"x": {"avg_infidelity": 0.2}}
+    text = json.dumps(data)
+    read = getattr(Profile, method)
+
+    with pytest.raises(ValidationError) as caught:
+        read(text.replace('"gates": {', '"gates": {"x": {"avg_infidelity": 0.01}, '))
+
+    assert [
+        (e["type"], e["msg"].endswith("the key gates.x appears twice"))
+        for e in caught.value.errors()
+    ] == [(kind, True)]
+    assert read(text) == read(text.encode()) == Profile.model_validate(data)
+    with pytest.raises(ValidationError):
+        read(text[:-1])
+
+
 def test_gzip_output_is_reproducible(tmp_path: Path) -> None:
     profile = Profile.model_validate(toy())
     assert (

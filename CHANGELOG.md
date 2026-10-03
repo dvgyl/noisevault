@@ -284,9 +284,12 @@ This file lists all notable changes to NoiseVault. Versions follow
 - **JSON keys that occur two times.** When one JSON object had the same key two times, NoiseVault
   used the second value with no error. Now each JSON input refuses such an object, and the error
   names the key, as in `run.json has the key device.name twice`. The check covers profiles,
-  counts files, importer files, vendor replies and the job file of `scripts/run_on_ibm.py`. For a
-  profile or a counts file that a command reads, the hint says to keep one of the two keys.
-  NoiseVault ignores a vault index with such a key and reads the vault files again.
+  counts files, importer files, vendor replies and the job file of `scripts/run_on_ibm.py`. The
+  `model_validate_json()` and `parse_raw()` methods of each NoiseVault model, such as `Profile`
+  and `MeasuredCounts`, also refuse such JSON text. They raise the same pydantic
+  `ValidationError` as for JSON that is not valid. For a profile or a counts file that a command
+  reads, the hint says to keep one of the two keys. NoiseVault ignores a vault index with such a
+  key and reads the vault files again.
 - **A vault file saved during `nv pull`.** `nv pull` never replaces or deletes a vault file that
   another process saves during the pull, also on exFAT and FAT drives. The pull applies the usual
   vault rules to that file. If another process replaces the hidden copy that `profile.save`

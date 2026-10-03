@@ -21,7 +21,7 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from itertools import permutations
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, Any, Literal, NamedTuple
+from typing import TYPE_CHECKING, Annotated, Any, Literal, NamedTuple, Self
 
 from pydantic import (
     AfterValidator,
@@ -38,6 +38,7 @@ from pydantic import (
     model_serializer,
     model_validator,
 )
+from pydantic_core import PydanticCustomError, ValidationError
 
 from . import __version__, compat, gates, metrics
 from .errors import (
@@ -146,6 +147,35 @@ class _Model(BaseModel):
     model_config = ConfigDict(
         extra="forbid", frozen=True, allow_inf_nan=False, revalidate_instances="always"
     )
+
+    @classmethod
+    def model_validate_json(cls, json_data: str | bytes | bytearray, **kwargs: Any) -> Self:
+        if repeat := _repeated_key(json_data):
+            raise ValidationError.from_exception_data(
+                cls.__name__,
+                [{"type": "json_invalid", "loc": (), "input": json_data, "ctx": {"error": repeat}}],
+            )
+        return super().model_validate_json(json_data, **kwargs)
+
+    @classmethod
+    def parse_raw(cls, b: str | bytes, **kwargs: Any) -> Self:
+        if repeat := _repeated_key(b):
+            error = PydanticCustomError("value_error", repeat)
+            raise ValidationError.from_exception_data(
+                cls.__name__, [{"type": error, "loc": ("__root__",), "input": b}]
+            )
+        return super().parse_raw(b, **kwargs)
+
+
+def _repeated_key(text: str | bytes | bytearray) -> str | None:
+    """Pydantic keeps the last of two equal keys, so its JSON methods check with ``parse_json``."""
+    try:
+        parse_json(text.encode("utf-8", "surrogatepass") if isinstance(text, str) else bytes(text))
+    except DuplicateKeyError as exc:
+        return str(exc)
+    except ValueError:
+        pass
+    return None
 
 
 class FrozenDict(dict):
