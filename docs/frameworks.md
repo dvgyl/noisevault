@@ -18,7 +18,7 @@ Each framework installs with the extra of the same name. These extras are `qiski
 no framework.
 
 ```bash
-pip install "noisevault[qiskit] @ git+https://github.com/Kyoshiki-Murasaki/noisevault"
+pip install "noisevault[qiskit] @ git+https://github.com/dvgyl/noisevault"
 ```
 
 Every export takes `unknown_gates`. With `"typical"` (the default), a gate the profile does not
@@ -134,6 +134,16 @@ What the report can list:
 
 `readout=False` leaves measurements noiseless. The `Target` then gives `measure` an error of 0,
 so `transpile` does not place circuits by a readout error that the simulator does not apply.
+
+Qiskit Aer 0.17.0 to 0.17.2 can stop Python with a segmentation fault or a bus error during
+`sim.run`. The fault occurs with the `statevector` method, which Aer selects for small shot
+counts and for wide circuits. With this method, Aer converts each gate error to Kraus operators
+with the LAPACK routine `zheevx`. For some valid noise channels, `zheevx` does not converge.
+A change of a few parts per million in one T1 value can cause or remove the fault. The
+`density_matrix` method does not use this conversion. To avoid the fault, run
+`sim.run(transpile(ghz, sim), shots=1000, method="density_matrix")`. The `density_matrix` method
+needs 16 x 4^n bytes for n qubits, for example 16 MiB for 10 qubits. Aer issue
+[#2455](https://github.com/Qiskit/qiskit-aer/issues/2455) records the `zheevx` failure.
 
 On a profile with disabled qubits or gates, transpile with
 `initial_layout=list(profile.suggest_layout(n).values())`. Qiskit's `optimization_level=0`

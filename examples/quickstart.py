@@ -2,7 +2,7 @@
 
 Fez has a bundled profile, so the script works offline.
 
-Needs: pip install "noisevault[qiskit] @ git+https://github.com/Kyoshiki-Murasaki/noisevault"
+Needs: pip install "noisevault[qiskit] @ git+https://github.com/dvgyl/noisevault"
 """
 
 import textwrap

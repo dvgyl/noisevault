@@ -548,9 +548,9 @@ changes. The 0.1 profile files still load.
 ### Changed
 
 - To install from GitHub with the extra for your framework, run
-  `pip install "noisevault[qiskit] @ git+https://github.com/Kyoshiki-Murasaki/noisevault"`.
+  `pip install "noisevault[qiskit] @ git+https://github.com/dvgyl/noisevault"`.
   To try the command line without installing, run
-  `uvx --from git+https://github.com/Kyoshiki-Murasaki/noisevault nv show ibm_fez`.
+  `uvx --from git+https://github.com/dvgyl/noisevault nv show ibm_fez`.
 - The core install needs only numpy, pydantic, typer and rich. Qiskit, Cirq, PennyLane and
   Stim are extras, and importing `noisevault` imports none of them.
 - Minimum versions are pennylane 0.43.3, stim 1.15, typer 0.27 and rich 13.8. CI installs

@@ -2082,7 +2082,7 @@ def test_an_unexpected_failure_is_one_error_and_a_hint_unless_debugging(monkeypa
     assert result.exit_code == 1
     assert result.stderr.splitlines() == [
         "error: unexpected KeyError: 'provider'",
-        "hint: report this bug at https://github.com/Kyoshiki-Murasaki/noisevault/issues"
+        "hint: report this bug at https://github.com/dvgyl/noisevault/issues"
         " (NOISEVAULT_DEBUG=1 shows the traceback)",
     ]
     debug = runner.invoke(app, ["show", "ibm_fez"], env={"NOISEVAULT_DEBUG": "1"})

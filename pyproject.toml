@@ -65,10 +65,10 @@ noisevault = "noisevault.cli:app"
 nv = "noisevault.cli:app"
 
 [project.urls]
-Homepage = "https://github.com/Kyoshiki-Murasaki/noisevault"
-Documentation = "https://github.com/Kyoshiki-Murasaki/noisevault/tree/main/docs"
-Issues = "https://github.com/Kyoshiki-Murasaki/noisevault/issues"
-Changelog = "https://github.com/Kyoshiki-Murasaki/noisevault/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/dvgyl/noisevault"
+Documentation = "https://github.com/dvgyl/noisevault/tree/main/docs"
+Issues = "https://github.com/dvgyl/noisevault/issues"
+Changelog = "https://github.com/dvgyl/noisevault/blob/main/CHANGELOG.md"
 
 [tool.hatch.metadata.hooks.fancy-pypi-readme]
 content-type = "text/markdown"
@@ -80,19 +80,19 @@ path = "README.md"
 # GitHub file view. Absolute URLs, anchors and root paths are left alone. Images run first.
 [[tool.hatch.metadata.hooks.fancy-pypi-readme.substitutions]]
 pattern = '(!\[[^\]]*\]\()(?![a-zA-Z][a-zA-Z0-9+.-]*:|[#/])'
-replacement = '\g<1>https://raw.githubusercontent.com/Kyoshiki-Murasaki/noisevault/main/'
+replacement = '\g<1>https://raw.githubusercontent.com/dvgyl/noisevault/main/'
 
 [[tool.hatch.metadata.hooks.fancy-pypi-readme.substitutions]]
 pattern = '''(\s(?:src|srcset)=["'])(?![a-zA-Z][a-zA-Z0-9+.-]*:|[#/])'''
-replacement = '\g<1>https://raw.githubusercontent.com/Kyoshiki-Murasaki/noisevault/main/'
+replacement = '\g<1>https://raw.githubusercontent.com/dvgyl/noisevault/main/'
 
 [[tool.hatch.metadata.hooks.fancy-pypi-readme.substitutions]]
 pattern = '''(\shref=["'])(?![a-zA-Z][a-zA-Z0-9+.-]*:|[#/])'''
-replacement = '\g<1>https://github.com/Kyoshiki-Murasaki/noisevault/blob/main/'
+replacement = '\g<1>https://github.com/dvgyl/noisevault/blob/main/'
 
 [[tool.hatch.metadata.hooks.fancy-pypi-readme.substitutions]]
 pattern = '(\]\()(?![a-zA-Z][a-zA-Z0-9+.-]*:|[#/])'
-replacement = '\g<1>https://github.com/Kyoshiki-Murasaki/noisevault/blob/main/'
+replacement = '\g<1>https://github.com/dvgyl/noisevault/blob/main/'
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/noisevault"]

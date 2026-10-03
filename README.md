@@ -9,7 +9,7 @@
 
 **Calibrated noise from real quantum computers, as one file that works in Qiskit, Cirq, PennyLane and Stim.**
 
-[![CI](https://github.com/Kyoshiki-Murasaki/noisevault/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Kyoshiki-Murasaki/noisevault/actions/workflows/ci.yml)
+[![CI](https://github.com/dvgyl/noisevault/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/dvgyl/noisevault/actions/workflows/ci.yml)
 [![license](https://img.shields.io/badge/license-Apache%202.0-1f1f1f.svg)](LICENSE)
 [![python](https://img.shields.io/badge/python-3.11%20to%203.14-1f1f1f.svg)](pyproject.toml)
 
@@ -28,7 +28,7 @@ errors to match the counts.
 To try NoiseVault without an install, use [uv](https://docs.astral.sh/uv/):
 
 ```bash
-uvx --from git+https://github.com/Kyoshiki-Murasaki/noisevault nv show ibm_fez
+uvx --from git+https://github.com/dvgyl/noisevault nv show ibm_fez
 ```
 
 <img src="assets/cli-show.svg" alt="Terminal output of nv show ibm_fez. The output shows a 156-qubit Heron r2 device and its native gates, with the median average infidelity and duration of each gate. It also shows the median T1, T2 and readout error, the data source, the license and the profile fingerprint." width="830">
@@ -38,7 +38,7 @@ uvx --from git+https://github.com/Kyoshiki-Murasaki/noisevault nv show ibm_fez
 In a virtual environment with Python 3.11 to 3.14, install NoiseVault from GitHub:
 
 ```bash
-pip install "noisevault[qiskit] @ git+https://github.com/Kyoshiki-Murasaki/noisevault"
+pip install "noisevault[qiskit] @ git+https://github.com/dvgyl/noisevault"
 ```
 
 For another framework, use `cirq`, `pennylane` or `stim` in place of `qiskit`. For several
@@ -174,7 +174,7 @@ lists what no export models.
 To run the check on all four frameworks with uv and no install, use this command:
 
 ```bash
-uvx --from "noisevault[qiskit,cirq,pennylane,stim] @ git+https://github.com/Kyoshiki-Murasaki/noisevault" nv check ibm_fez
+uvx --from "noisevault[qiskit,cirq,pennylane,stim] @ git+https://github.com/dvgyl/noisevault" nv check ibm_fez
 ```
 
 ## Compare with hardware
@@ -188,7 +188,7 @@ bundled Kingston profile on example counts. A simulation with gate errors x1.8 a
 x1.3 made these counts. First, download the counts file:
 
 ```bash
-curl -O https://raw.githubusercontent.com/Kyoshiki-Murasaki/noisevault/main/examples/kingston-simulated.counts.json
+curl -O https://raw.githubusercontent.com/dvgyl/noisevault/main/examples/kingston-simulated.counts.json
 ```
 
 ```text
@@ -214,7 +214,7 @@ error beyond T1 and T2. The profile from -o applies the factors to every qubit.
 
 Both intervals contain the factors that the simulation used. `nv compare` needs no framework. To
 run it with no install, put
-`uvx --from git+https://github.com/Kyoshiki-Murasaki/noisevault` in front of `nv compare`.
+`uvx --from git+https://github.com/dvgyl/noisevault` in front of `nv compare`.
 
 `nv compare ... -o fitted.json` saves the profile with the fitted factors. Every export of the
 saved profile applies the factors.
@@ -223,7 +223,7 @@ To measure an IBM device yourself, put your IBM Quantum API key in `IBM_QUANTUM_
 uv to run the `nv compare` circuits on the device. The script needs no clone or install:
 
 ```bash
-uv run https://raw.githubusercontent.com/Kyoshiki-Murasaki/noisevault/main/scripts/run_on_ibm.py ibm_kingston -o kingston.counts.json
+uv run https://raw.githubusercontent.com/dvgyl/noisevault/main/scripts/run_on_ibm.py ibm_kingston -o kingston.counts.json
 ```
 
 The script shows IBM's estimate of the QPU time and asks before it submits the job. It also prints

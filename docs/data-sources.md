@@ -146,7 +146,7 @@ To get the file, install the `hf` extra and the Hugging Face command line. Then 
 data folder. The file is about 66 MB.
 
 ```bash
-pip install "noisevault[hf] @ git+https://github.com/Kyoshiki-Murasaki/noisevault" huggingface_hub
+pip install "noisevault[hf] @ git+https://github.com/dvgyl/noisevault" huggingface_hub
 hf download phanerozoic/qiskit-calibration-drift --repo-type dataset --include "data/*"
 ```
 

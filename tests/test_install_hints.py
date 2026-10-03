@@ -40,7 +40,7 @@ def test_missing_framework_names_the_install_command(
 
 def test_install_hint_is_a_pip_command_for_the_extra() -> None:
     assert install_hint("qiskit") == (
-        'pip install "noisevault[qiskit] @ git+https://github.com/Kyoshiki-Murasaki/noisevault"'
+        'pip install "noisevault[qiskit] @ git+https://github.com/dvgyl/noisevault"'
     )
 
 

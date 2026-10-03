@@ -3,7 +3,7 @@
 The ansatz uses Fez's native gates (RZ, SX, CZ), so every gate gets its own calibrated noise and
 none needs the typical-noise approximation. Gradients flow through the noise channels.
 
-Needs: pip install "noisevault[pennylane] @ git+https://github.com/Kyoshiki-Murasaki/noisevault"
+Needs: pip install "noisevault[pennylane] @ git+https://github.com/dvgyl/noisevault"
 """
 
 import textwrap

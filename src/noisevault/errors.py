@@ -249,7 +249,7 @@ class MigrationWarning(NoiseVaultWarning):
     """NoiseVault upgraded a file in an older format in memory."""
 
 
-REPOSITORY = "https://github.com/Kyoshiki-Murasaki/noisevault"
+REPOSITORY = "https://github.com/dvgyl/noisevault"
 
 
 def install_hint(extra: str) -> str:

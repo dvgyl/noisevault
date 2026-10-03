@@ -5,7 +5,7 @@ trapped-ion devices) and one hypothetical neutral-atom device. The script writes
 compare_devices.svg in the current folder, or at the path given as the first argument.
 
 Needs:
-    pip install "noisevault[qiskit] @ git+https://github.com/Kyoshiki-Murasaki/noisevault"
+    pip install "noisevault[qiskit] @ git+https://github.com/dvgyl/noisevault"
     pip install matplotlib
 """
 

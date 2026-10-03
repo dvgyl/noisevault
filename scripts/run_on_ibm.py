@@ -1,11 +1,11 @@
 # /// script
 # requires-python = ">=3.11"
-# dependencies = ["noisevault[ibm] @ git+https://github.com/Kyoshiki-Murasaki/noisevault"]
+# dependencies = ["noisevault[ibm] @ git+https://github.com/dvgyl/noisevault"]
 # ///
 r"""Run the nv compare circuits on an IBM device and save the counts for nv compare.
 
     uv run \
-      https://raw.githubusercontent.com/Kyoshiki-Murasaki/noisevault/main/scripts/run_on_ibm.py \
+      https://raw.githubusercontent.com/dvgyl/noisevault/main/scripts/run_on_ibm.py \
       ibm_kingston --shots 4000 -o kingston-0416.counts.json
 
 uv installs the dependencies listed at the top of this file. In a clone with the ``ibm`` extra,

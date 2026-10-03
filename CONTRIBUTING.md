@@ -117,6 +117,6 @@ nv schema > docs/schema/profile-1.0.json
 
 The tag starts `.github/workflows/release.yml`, which builds the wheel and sdist and uploads
 them to PyPI with trusted publishing. Before the first release, add a trusted publisher on PyPI
-for this repository. Use owner `Kyoshiki-Murasaki`, repository `noisevault`, workflow
+for this repository. Use owner `dvgyl`, repository `noisevault`, workflow
 `release.yml` and environment `pypi`. Then create the `pypi` environment in the GitHub
 repository settings. Until both exist, the upload step fails and publishes nothing.

@@ -7,7 +7,7 @@ simulator and extrapolates back to zero noise.
 Mitiq supports Python up to 3.12. Mitiq's Qiskit conversion imports ply.
 
 Needs:
-    pip install "noisevault[qiskit] @ git+https://github.com/Kyoshiki-Murasaki/noisevault"
+    pip install "noisevault[qiskit] @ git+https://github.com/dvgyl/noisevault"
     pip install mitiq ply
 """
 

@@ -3,7 +3,7 @@
 The script exports to Stim, then decodes with PyMatching.
 
 Needs:
-    pip install "noisevault[stim] @ git+https://github.com/Kyoshiki-Murasaki/noisevault"
+    pip install "noisevault[stim] @ git+https://github.com/dvgyl/noisevault"
     pip install pymatching
 """
 

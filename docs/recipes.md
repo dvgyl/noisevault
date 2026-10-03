@@ -100,7 +100,7 @@ without cancelling them.
 Mitiq is optional and supports Python up to 3.12. Its Qiskit conversion also needs `ply`:
 
 ```bash
-pip install "noisevault[qiskit] @ git+https://github.com/Kyoshiki-Murasaki/noisevault" mitiq ply
+pip install "noisevault[qiskit] @ git+https://github.com/dvgyl/noisevault" mitiq ply
 ```
 
 ```python
@@ -302,7 +302,7 @@ On an IBM device, `scripts/run_on_ibm.py` runs the circuits and saves the counts
 lines and installs them, so the script needs no clone or install:
 
 ```bash
-uv run https://raw.githubusercontent.com/Kyoshiki-Murasaki/noisevault/main/scripts/run_on_ibm.py ibm_kingston --shots 4000 -o kingston-0416.counts.json
+uv run https://raw.githubusercontent.com/dvgyl/noisevault/main/scripts/run_on_ibm.py ibm_kingston --shots 4000 -o kingston-0416.counts.json
 ```
 
 The script pulls the calibration in effect now through your account and plans the circuits from
