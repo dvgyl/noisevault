@@ -69,12 +69,12 @@ class Report:
     framework: str
     framework_version: str | None
     noisevault_version: str
-    unmodeled_error: str | None = None
+    unmodeled_error: LociText | None = None
     options: dict[str, Any] = field(default_factory=dict)
     exact: list[str] = field(default_factory=list)
     approximated: list[Approximation] = field(default_factory=list)
-    omitted: list[str] = field(default_factory=list)
-    unknown: list[str] = field(default_factory=list)
+    omitted: list[LociText] = field(default_factory=list)
+    unknown: list[LociText] = field(default_factory=list)
     clamped: list[Clamp] = field(default_factory=list)
     events: dict[str, Counter[str]] = field(default_factory=dict)
     _warned: set[str] = field(default_factory=set, repr=False, compare=False)
@@ -85,13 +85,14 @@ class Report:
     ) -> Report:
         from . import __version__
 
+        note = unmodeled_note(profile)
         return cls(
             profile_id=profile.id,
             fingerprint=profile.fingerprint,
             framework=framework,
             framework_version=framework_version,
             noisevault_version=__version__,
-            unmodeled_error=LociText("; ").join(unmodeled_note(profile)) or None,
+            unmodeled_error=LociText("; ").join(note) if note else None,
             options=options,
         )
 
@@ -103,11 +104,11 @@ class Report:
     def approximate(self, what: str, how: str, detail: str = "") -> None:
         _append_new(self.approximated, Approximation(what, how, detail))
 
-    def omit(self, what: str) -> None:
-        _append_new(self.omitted, what)
+    def omit(self, what: str | LociText) -> None:
+        _append_new(self.omitted, LociText(what))
 
-    def mark_unknown(self, what: str) -> None:
-        _append_new(self.unknown, what)
+    def mark_unknown(self, what: str | LociText) -> None:
+        _append_new(self.unknown, LociText(what))
 
     def count(self, event: str, key: str, n: int = 1) -> None:
         self.events.setdefault(event, Counter())[key] += n
@@ -171,7 +172,7 @@ class Report:
     # output ---------------------------------------------------------------------------------
 
     def to_dict(self) -> dict[str, Any]:
-        unmodeled = {"unmodeled_error": str(self.unmodeled_error)} if self.unmodeled_error else {}
+        unmodeled = {"unmodeled_error": self.unmodeled_error.full} if self.unmodeled_error else {}
         return {
             "profile_id": self.profile_id,
             "fingerprint": self.fingerprint,
@@ -182,8 +183,8 @@ class Report:
             "options": _jsonable(self.options),
             "exact": list(self.exact),
             "approximated": [a.__dict__.copy() for a in self.approximated],
-            "omitted": [str(what) for what in self.omitted],
-            "unknown": [str(what) for what in self.unknown],
+            "omitted": [what.full for what in self.omitted],
+            "unknown": [what.full for what in self.unknown],
             "clamped": [
                 {
                     "gate": c.gate,
@@ -203,7 +204,7 @@ class Report:
             f" {self.profile_id} (nv:{self.fingerprint[:12]})"
         ]
         if self.unmodeled_error:
-            lines.append(f"unmodeled error: {LociText(self.unmodeled_error).short}")
+            lines.append(f"unmodeled error: {self.unmodeled_error.short}")
         if self.options:
             lines.append("options: " + ", ".join(f"{k}={v!r}" for k, v in self.options.items()))
         if self.exact:
@@ -212,11 +213,10 @@ class Report:
             detail = f" ({a.detail})" if a.detail else ""
             lines.append(f"approximated: {a.what}: {a.how}{detail}")
         if self.omitted:
-            lines.append("omitted: " + ", ".join(LociText(what).short for what in self.omitted))
+            lines.append("omitted: " + ", ".join(what.short for what in self.omitted))
         if self.unknown:
             lines.append(
-                "unknown (no noise applied): "
-                + ", ".join(LociText(what).short for what in self.unknown)
+                "unknown (no noise applied): " + ", ".join(what.short for what in self.unknown)
             )
         noisier = [c for c in self.clamped if c.achieved > c.requested]
         quieter = [c for c in self.clamped if c.achieved < c.requested]

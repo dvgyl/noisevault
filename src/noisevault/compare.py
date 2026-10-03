@@ -128,7 +128,7 @@ class Comparison:
     dof: int
     p_value: float | None
     ruled_out: tuple[str, ...]
-    notes: tuple[str, ...]
+    notes: tuple[LociText, ...]
 
     @property
     def impossible_shots(self) -> int:
@@ -229,7 +229,7 @@ class Comparison:
             "resamples": RESAMPLES,
             "impossible_shots": self.impossible_shots,
             "ruled_out": list(self.ruled_out),
-            "notes": [str(note) for note in self.notes],
+            "notes": [note.full for note in self.notes],
             "note": " ".join(NOTE) if self._fitted else None,
         }
 
@@ -306,7 +306,7 @@ class Comparison:
         if _SAME_WAY in (gate_reason, readout_reason):
             entries.append(("next", list(NEXT_READOUT)))
         if self.notes:
-            entries.append(("note", [LociText(note).short for note in self.notes]))
+            entries.append(("note", [note.short for note in self.notes]))
         lines = []
         for label, values in entries:
             for i, value in enumerate(values):
@@ -1379,7 +1379,7 @@ def _ruled_out(
     return tuple(phrases)
 
 
-def _notes(base: Profile, circuits: Sequence[PlannedCircuit]) -> tuple[str, ...]:
+def _notes(base: Profile, circuits: Sequence[PlannedCircuit]) -> tuple[LociText, ...]:
     table = base.table
     gates_left = [
         (found.gate, found.qubits, reason)
@@ -1408,9 +1408,12 @@ def _notes(base: Profile, circuits: Sequence[PlannedCircuit]) -> tuple[str, ...]
     report = Report.start(base, "reference", None)
     report.record_effects(base.effects)
     if report.omitted:
+        left_out = joined([what.full for what in report.omitted])
         notes.append(
-            f"the reference simulator leaves out {joined(report.omitted)}, because the profile"
-            " sets allow to 'omit'"
+            LociText(
+                f"the reference simulator leaves out {left_out}, because the profile"
+                " sets allow to 'omit'"
+            )
         )
     return tuple(notes)
 

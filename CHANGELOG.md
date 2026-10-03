@@ -191,6 +191,9 @@ This file lists all notable changes to NoiseVault. Versions follow
   `qml.probs(op=qml.I(0) @ qml.I(1))`, also counts as such a third word.
 - The repository moved to https://github.com/dvgyl/noisevault. Install commands, links and the
   bug-report hint use the new address.
+- `Report.omitted`, `Report.unknown`, `Report.unmodeled_error` and `Comparison.notes` now hold
+  `LociText` values, not strings. Use `.full` to get every qubit and `.short` to get at most four.
+  `to_dict()` and the printed summaries do not change.
 
 ### Fixed
 

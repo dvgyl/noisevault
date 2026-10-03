@@ -127,6 +127,15 @@ def test_qubit_loci_names_four_loci_and_counts_the_rest_unless_the_limit_is_none
 def test_joined_loci_text_names_every_locus_and_its_short_form_counts_the_rest() -> None:
     six = [(q,) for q in range(6)]
     text = LociText("; ").join(["gate errors x2", LociText("readout of ", six, " is not scaled")])
-    assert text == "gate errors x2; readout of qubits 0, 1, 2, 3, 4 and 5 is not scaled"
+    assert text.full == "gate errors x2; readout of qubits 0, 1, 2, 3, 4 and 5 is not scaled"
     assert text.short == "gate errors x2; readout of qubits 0, 1, 2 and 3 more is not scaled"
-    assert LociText("; ").join([]) == ""
+    assert LociText("; ").join([]).full == ""
+
+
+def test_loci_text_used_as_plain_text_fails_or_names_no_list() -> None:
+    text = LociText("readout of ", [(q,) for q in range(6)])
+    with pytest.raises(TypeError):
+        "; ".join([text])
+    with pytest.raises(TypeError):
+        json.dumps(text)
+    assert "0, 1, 2, 3, 4 and 5" not in f"{text}"

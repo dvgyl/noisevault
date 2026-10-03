@@ -129,7 +129,7 @@ def test_coherent_fsim_errors_are_carried_and_reported_omitted() -> None:
     assert all(e.allow == "omit" and e.gate == "cz" and 0 <= e.prob < 0.01 for e in effects)
     assert len(willow.extensions["cirq_google"]["fsim_errors"]["cz"]) == 182
     model = willow.to_cirq(unknown_gates="error")
-    assert "effect coherent_overrotation on cz" in model.report.omitted
+    assert "effect coherent_overrotation on cz" in model.report.to_dict()["omitted"]
 
 
 def _exact_infidelity(mpmath: Any, theta: float, zeta: float, gamma: float, phi: float) -> Any:

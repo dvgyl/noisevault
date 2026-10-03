@@ -462,7 +462,10 @@ def test_sums_get_readout_in_their_shared_basis_and_conflicts_are_reported(qml) 
     x0_ideal = probabilities(profile, ops + [Op("h", (0,))], 2, readout=False) @ [1, 1, -1, -1]
     z0_ideal = probabilities(profile, ops, 2, readout=False) @ [1, 1, -1, -1]
     assert mixed == pytest.approx(x0_ideal + z0_ideal, abs=1e-12)
-    assert "readout on observables not measured in one product basis" in model.report.omitted
+    assert (
+        "readout on observables not measured in one product basis"
+        in model.report.to_dict()["omitted"]
+    )
 
     split = qml.add_noise(qml.transforms.split_non_commuting(circuit), to_pennylane(profile))
     with warnings.catch_warnings():
@@ -517,7 +520,7 @@ def test_shadow_measurements_are_reported_and_warned_without_readout(qml, measur
     model = to_pennylane(profile)
     with pytest.warns(NoiseApproximationWarning, match="random measurement basis"):
         got = run(model)
-    assert "readout on classical shadow measurements" in model.report.omitted
+    assert "readout on classical shadow measurements" in model.report.to_dict()["omitted"]
     np.testing.assert_array_equal(got, run(to_pennylane(profile, readout=False)))
 
 
@@ -808,7 +811,10 @@ def test_a_zero_coefficient_term_does_not_hide_the_measured_basis(qml) -> None:
 
     in_x0 = probabilities(profile, [Op("h", (0,)), Op("h", (0,))], 1)
     assert float(qml.add_noise(circuit, model)()) == pytest.approx(in_x0 @ [1, -1], abs=1e-12)
-    assert "readout on observables not measured in one product basis" not in model.report.omitted
+    assert (
+        "readout on observables not measured in one product basis"
+        not in model.report.to_dict()["omitted"]
+    )
 
 
 def test_shot_vectors_with_readout_raise_instead_of_dropping_results(qml) -> None:
@@ -942,7 +948,7 @@ def test_unknown_readout_is_reported_not_invented(qml) -> None:
     assert got == pytest.approx(
         probabilities(profile, [Op("x", (0,))], 1, readout=False), abs=1e-12
     )
-    assert "readout on qubit 0" in model.report.unknown
+    assert "readout on qubit 0" in model.report.to_dict()["unknown"]
 
 
 def test_reset_gets_the_preparation_error(qml) -> None:
@@ -961,7 +967,7 @@ def test_reset_gets_the_preparation_error(qml) -> None:
 
     unknown = to_pennylane(Profile.model_validate(toy()), readout=False)
     assert np.asarray(qml.add_noise(circuit, unknown)()) == pytest.approx([1, 0], abs=1e-12)
-    assert "reset error on qubit 0" in unknown.report.unknown
+    assert "reset error on qubit 0" in unknown.report.to_dict()["unknown"]
 
 
 @pytest.mark.parametrize("where", ["record", "definition"])
@@ -1186,9 +1192,9 @@ def test_readout_on_a_wire_with_only_zero_terms_is_not_unknown(qml) -> None:
     )
     model = to_pennylane(Profile.model_validate(data))
     assert _wire_0_reads(qml, model, "expval", qml.X(0) + 0 * qml.Z(1)) == pytest.approx(0.8)
-    assert model.report.unknown == []
+    assert model.report.to_dict()["unknown"] == []
     _wire_0_reads(qml, model, "expval", qml.X(0) + qml.Z(1))
-    assert model.report.unknown == ["readout on qubit 1"]
+    assert model.report.to_dict()["unknown"] == ["readout on qubit 1"]
 
 
 @pytest.mark.parametrize("shots", [None, 100])
@@ -1325,7 +1331,10 @@ def test_effects_that_cannot_be_omitted_refuse_to_convert(qml) -> None:
     with pytest.raises(UnsupportedEffect, match="pennylane"):
         to_pennylane(Profile.model_validate(data))
     data["effects"][0]["allow"] = "omit"
-    assert "effect leakage on cz" in to_pennylane(Profile.model_validate(data)).report.omitted
+    assert (
+        "effect leakage on cz"
+        in to_pennylane(Profile.model_validate(data)).report.to_dict()["omitted"]
+    )
 
 
 # operator arithmetic, identities and state preparation ---------------------------------------

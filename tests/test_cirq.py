@@ -422,7 +422,7 @@ def test_measurement_gets_cirq_confusion_matrix_per_qubit() -> None:
 
     plain = to_cirq(profile, layout=NONCONTIGUOUS, readout=False)
     assert _ops(plain.noisy_operation(original)) == [original]
-    assert "readout error (readout=False)" in plain.report.omitted
+    assert "readout error (readout=False)" in plain.report.to_dict()["omitted"]
 
 
 def test_existing_confusion_map_is_refused() -> None:
@@ -438,7 +438,7 @@ def test_unknown_readout_is_reported_and_left_noiseless() -> None:
     model = to_cirq(profile)
     op = cirq.measure(cirq.LineQubit(1), key="m")
     assert _ops(model.noisy_operation(op)) == [op]
-    assert model.report.unknown == ["readout of qubit 1"]
+    assert model.report.to_dict()["unknown"] == ["readout of qubit 1"]
 
 
 # reset, wait ---------------------------------------------------------------------------------
@@ -457,7 +457,7 @@ def test_reset_gets_the_preparation_error() -> None:
 
     manila = to_cirq(migrated(MANILA_V01))
     assert _ops(manila.noisy_operation(cirq.reset(q))) == [cirq.reset(q)]
-    assert "preparation error of qubit 0" in manila.report.unknown
+    assert "preparation error of qubit 0" in manila.report.to_dict()["unknown"]
 
 
 def test_wait_gate_relaxes_with_t1_and_t2() -> None:
@@ -476,7 +476,7 @@ def test_wait_without_coherence_times_is_reported() -> None:
     model = to_cirq(Profile.model_validate(toy()))
     wait = cirq.wait(cirq.LineQubit(2), nanos=500)
     assert _ops(model.noisy_operation(wait)) == [wait]
-    assert model.report.unknown == ["T1 and T2 of qubit 2 (no WaitGate relaxation)"]
+    assert model.report.to_dict()["unknown"] == ["T1 and T2 of qubit 2 (no WaitGate relaxation)"]
 
 
 def test_wait_clamps_t2_above_2_t1_and_reports_it() -> None:
@@ -812,7 +812,7 @@ def test_report_describes_the_conversion() -> None:
     assert (report.profile_id, report.fingerprint) == (profile.id, profile.fingerprint)
     assert report.options == {"layout": NONCONTIGUOUS, "unknown_gates": "typical", "readout": True}
     assert any(e.startswith("readout assignment error") for e in report.exact)
-    assert "effect leakage on cz" in report.omitted
+    assert "effect leakage on cz" in report.to_dict()["omitted"]
     assert report.to_dict()["framework"] == "cirq"
 
     strict = _distinct(effects=[{"type": "leakage", "gate": "cz", "prob": 1e-4, "allow": "exact"}])

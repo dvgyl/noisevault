@@ -383,7 +383,7 @@ def to_qiskit(
     report.record_effects(profile.effects)
     table = profile.table
     enabled = [q for q in range(table.num_qubits) if not table.qubit(q).disabled]
-    omitted: dict[str, str] = {}  # canonical native -> why the export leaves it out
+    omitted: dict[str, str | LociText] = {}  # canonical native -> why the export leaves it out
     exports = _exports(profile, report, omitted)
     placements = _placements(table, exports, enabled, unknown_gates, report, omitted)
     for name, why in omitted.items():
@@ -405,7 +405,7 @@ def to_qiskit(
 # natives ------------------------------------------------------------------------------------
 
 
-def _exports(profile: Profile, report: Report, omitted: dict[str, str]) -> list[Export]:
+def _exports(profile: Profile, report: Report, omitted: dict[str, str | LociText]) -> list[Export]:
     """Qiskit instructions for the profile's unitary natives, aliases after real gates."""
     table = profile.table
     names = [n for n in profile.gates if _is_unitary(n)]
@@ -464,7 +464,7 @@ def _placements(
     enabled: Sequence[int],
     unknown_gates: UnknownGates,
     report: Report,
-    omitted: dict[str, str],
+    omitted: dict[str, str | LociText],
 ) -> list[Placement]:
     """Every native on every locus that gets noise. Uncalibrated loci drop out in error mode."""
     loci = _loci(table, enabled)
@@ -565,7 +565,7 @@ def _relabel(built: GateChannels, gate: GateNoise, qargs: tuple[int, ...]) -> Ga
 def _require_natives(
     profile: Profile,
     placements: Sequence[Placement],
-    omitted: dict[str, str],
+    omitted: dict[str, str | LociText],
     enabled: Sequence[int],
 ) -> None:
     """Refuse a simulator that could not run any circuit needing a gate of some arity."""

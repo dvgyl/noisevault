@@ -21,7 +21,7 @@ def _report(**sections) -> tuple[Profile, Report]:
 def test_effects_are_omitted_by_default() -> None:
     profile, report = _report(effects=[{"type": "leakage", "gate": "cz", "prob": 1e-4}])
     report.record_effects(profile.effects)
-    assert report.omitted == ["effect leakage on cz"]
+    assert report.to_dict()["omitted"] == ["effect leakage on cz"]
 
 
 @pytest.mark.parametrize("allow", ["approximate", "exact"])
@@ -191,7 +191,7 @@ def test_a_report_states_unmodeled_error_on_its_second_line_only_when_the_profil
     )
     kingston = nv.load("ibm_kingston@2026-04-15")
     scaled = kingston.model_copy(update={"unmodeled_error": {"readout": {"factor": 1.58}}})
-    assert Report.start(scaled, "stim", None).unmodeled_error == (
+    assert Report.start(scaled, "stim", None).to_dict()["unmodeled_error"] == (
         "readout errors x1.58; T1, T2 and preparation error are not scaled;"
         " readout of qubit 146 is not scaled (no better than chance)"
     )

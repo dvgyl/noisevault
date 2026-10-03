@@ -1546,7 +1546,7 @@ def test_summary_shortens_a_long_qubit_list_that_the_unmodeled_note_keeps_whole(
         toy(device=device, readout={"error": 0.5}, unmodeled_error={"readout": {"factor": 1.3}})
     )
     chance = "is not scaled (no better than chance)"
-    assert unmodeled_note(profile)[-1] == f"readout of qubits 0, 1, 2, 3, 4 and 5 {chance}"
+    assert unmodeled_note(profile)[-1].full == f"readout of qubits 0, 1, 2, 3, 4 and 5 {chance}"
     assert profile.summary().endswith(f"; readout of qubits 0, 1, 2 and 3 more {chance}")
 
 

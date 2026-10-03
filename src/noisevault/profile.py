@@ -1216,10 +1216,10 @@ def _profile_issues(profile: Profile) -> list[str]:
 _NOT_PHYSICS = ("provenance", "extensions")
 
 
-def unmodeled_note(profile: Profile) -> tuple[str, ...]:
+def unmodeled_note(profile: Profile) -> tuple[LociText, ...]:
     if profile.unmodeled_error is None:
         return ()
-    return (*profile.unmodeled_error.lines(), *profile.table.unscaled())
+    return (*map(LociText, profile.unmodeled_error.lines()), *profile.table.unscaled())
 
 
 # helpers ----------------------------------------------------------------------------------

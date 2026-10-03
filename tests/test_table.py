@@ -328,7 +328,9 @@ def test_a_readout_factor_scales_each_readout_pair_and_names_the_pairs_it_cannot
     assert table.qubit(146).readout == kingston.table.qubit(146).readout
     assert table.qubit(149).readout != kingston.table.qubit(149).readout
     assert table.gate("cz", (148, 149)) == kingston.table.gate("cz", (148, 149))
-    assert table.unscaled() == ("readout of qubit 146 is not scaled (no better than chance)",)
+    assert tuple(p.full for p in table.unscaled()) == (
+        "readout of qubit 146 is not scaled (no better than chance)",
+    )
     assert kingston.table.unscaled() == ()
     toy_table = table_of(unmodeled_error={"readout": {"factor": 1.58}}, **QUBIT_FIELDS)
     scaled = metrics.scale_readout((0.01, 0.03), 1.58)
@@ -343,7 +345,7 @@ def test_unscaled_names_every_qubit_and_its_short_form_counts_the_rest() -> None
         "0, 14, 18, 37, 39, 52, 56, 57, 71, 75, 76, 78, 90, 94, 95, 96, 97, 101, 109, 113, 114,"
         " 115, 116, 117, 118, 119 and 120"
     )
-    assert phrase == f"readout of qubits {every} is not scaled (no better than chance)"
+    assert phrase.full == f"readout of qubits {every} is not scaled (no better than chance)"
     assert phrase.short == (
         "readout of qubits 0, 14, 18 and 24 more is not scaled (no better than chance)"
     )
@@ -384,13 +386,13 @@ def test_a_gate_error_with_no_valid_power_stays_as_stated_and_is_named(factor: f
     assert table.gate("sx", (2,)).avg_infidelity == 0.5
     assert table.gate("sx", (0,)).pauli == (0.5, 0, 0)
     assert table.gate("cz", (1, 2)).avg_infidelity == metrics.scale_avg_infidelity(1e-2, 2, factor)
-    assert table.unscaled() == (
+    assert tuple(p.full for p in table.unscaled()) == (
         "cz on qubits 0-1 is not scaled (it has a negative Pauli-Lindblad rate)",
         "sx on qubits 0 and 2 is not scaled (at or past full depolarization)",
     )
     gates = {**toy()["gates"], "cz": {"avg_infidelity": 0.75}}
     default = table_of(gates=gates, unmodeled_error={"gates": {"factor": factor}})
-    assert default.unscaled() == (
+    assert tuple(p.full for p in default.unscaled()) == (
         "default cz error is not scaled (at or past full depolarization)",
     )
 
@@ -403,7 +405,9 @@ def test_unscaled_leaves_out_disabled_qubits_and_their_records() -> None:
         calibrations=[{"gate": "sx", "qubits": [0], "avg_infidelity": 0.5}],
         unmodeled_error={"gates": {"factor": 2.0}, "readout": {"factor": 2.0}},
     )
-    assert table.unscaled() == ("readout of qubit 2 is not scaled (no better than chance)",)
+    assert tuple(p.full for p in table.unscaled()) == (
+        "readout of qubit 2 is not scaled (no better than chance)",
+    )
 
 
 def test_unscaled_names_a_record_only_when_the_record_leaves_its_gate_enabled() -> None:
@@ -414,7 +418,9 @@ def test_unscaled_names_a_record_only_when_the_record_leaves_its_gate_enabled() 
         {"gate": "cz", "qubits": [1, 2], "avg_infidelity": 0.78},
     ]
     table = table_of(gates=gates, calibrations=records, unmodeled_error={"gates": {"factor": 2.0}})
-    assert table.unscaled() == ("cz on qubits 0-1 is not scaled (at or past full depolarization)",)
+    assert tuple(p.full for p in table.unscaled()) == (
+        "cz on qubits 0-1 is not scaled (at or past full depolarization)",
+    )
 
 
 @pytest.mark.timing

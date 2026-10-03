@@ -831,10 +831,10 @@ def test_notes_name_what_the_factors_cannot_scale_or_charge() -> None:
     ops = (Op("x", (0,)), Op("x", (1,)), Op("x", (2,)), Op("delay", (0,), (100.0,)))
     counts = {"111": 3400, "011": 200, "101": 200, "110": 200}
     result = compare(profile, written(profile, [("three_x", ops, counts)]))
-    assert result.notes == (
+    assert result.to_dict()["notes"] == [
         "x on qubits 0, 1 and 2 is not scaled (it has a negative Pauli-Lindblad rate)",
         "delays on qubit 0 add no idle error (no T1 or T2 stated)",
-    )
+    ]
     assert result.gates == NoEstimate("no circuit's outcomes move with gate error")
     lines = str(result).split("\n")
     note = lines.index("note            x on qubits 0, 1 and 2 is not scaled")
@@ -1295,7 +1295,6 @@ def test_an_omitted_effect_is_named_in_the_notes_and_the_summary() -> None:
         "the reference simulator leaves out effect coherent_overrotation on x, because the"
         " profile sets allow to 'omit'"
     )
-    assert result.notes == (note,)
     assert result.to_dict()["notes"] == [note]
     lines = layout(result)
     start = next(i for i, line in enumerate(lines) if line.startswith("note "))

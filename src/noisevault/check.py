@@ -718,21 +718,20 @@ def _merged(reports: Sequence[Report]) -> tuple[Report, ...]:
     return tuple(merged)
 
 
-def _merge_loci(entries: Sequence[str], more: Sequence[str]) -> list[str]:
+def _merge_loci(entries: Sequence[LociText], more: Sequence[LociText]) -> list[LociText]:
     out = list(entries)
-    for entry in more:
-        new = LociText(entry)
+    for new in more:
         i = next((i for i, old in enumerate(out) if _template(old) == _template(new)), None)
         if i is None:
-            out.append(entry)
+            out.append(new)
         else:
-            parts = zip(LociText(out[i]).parts, new.parts, strict=True)
+            parts = zip(out[i].parts, new.parts, strict=True)
             out[i] = LociText(*(a if isinstance(a, str) else sorted({*a, *b}) for a, b in parts))
     return out
 
 
-def _template(text: str) -> tuple[str | None, ...]:
-    return tuple(part if isinstance(part, str) else None for part in LociText(text).parts)
+def _template(text: LociText) -> tuple[str | None, ...]:
+    return tuple(part if isinstance(part, str) else None for part in text.parts)
 
 
 def _compare(

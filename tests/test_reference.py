@@ -294,7 +294,7 @@ def test_a_delay_on_a_qubit_without_relaxation_data_adds_no_noise_and_is_unknown
     assert probabilities(profile, _RAMSEY, 1, layout=[2], report=report) == pytest.approx(
         [1, 0], abs=1e-15
     )
-    assert report.unknown == ["T1 and T2 of qubit 2 (no delay relaxation)"]
+    assert report.to_dict()["unknown"] == ["T1 and T2 of qubit 2 (no delay relaxation)"]
 
 
 def test_a_delay_clamps_t2_above_2_t1_and_reports_it() -> None:
@@ -375,7 +375,7 @@ def test_the_reference_leaves_out_an_omitted_effect_and_reports_it() -> None:
     got = probabilities(profile, [Op("sx", (0,))], 1, report=report)
     plain = probabilities(nv.Profile.model_validate(toy()), [Op("sx", (0,))], 1)
     assert np.array_equal(got, plain)
-    assert report.omitted == ["effect atom_loss on readout"]
+    assert report.to_dict()["omitted"] == ["effect atom_loss on readout"]
 
 
 @pytest.mark.parametrize("allow", ["exact", "approximate"])

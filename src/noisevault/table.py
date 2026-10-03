@@ -205,7 +205,7 @@ class NoiseTable:
         recorded = (qubits for _, qubits in self._records if len(qubits) == 2)
         return sorted({(min(p), max(p)) for p in (*self._edges, *recorded)})
 
-    def unscaled(self) -> tuple[str, ...]:
+    def unscaled(self) -> tuple[LociText, ...]:
         """What the profile's unmodeled-error factors leave as stated, one phrase each."""
         phrases = []
         loci: list[tuple[str, tuple[int, ...], str]] = []
@@ -215,7 +215,7 @@ class NoiseTable:
                     continue
                 reason = _unscalable(spec.metric, self.arity(name))
                 if reason:
-                    phrases.append(f"default {name} error is not scaled ({reason})")
+                    phrases.append(LociText(f"default {name} error is not scaled ({reason})"))
             for record in self.profile.calibrations:
                 reason = _unscalable(record.metric, len(record.qubits))
                 if reason is None or self._target_problem(record.gate, record.qubits):

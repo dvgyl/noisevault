@@ -616,7 +616,10 @@ def test_idle_noise_at_tick_goes_to_qubits_left_idle_in_that_layer(layout):
     assert emitted == pytest.approx(_idle_twirl(profile, physical[2], 200.0))
     assert emitted != pytest.approx(_idle_twirl(profile, 2 if layout else 4, 200.0))
     assert "idle noise" in [a.what for a in timed.report.approximated]
-    assert any("idle noise (pass tick_ns=" in o for o in to_stim(profile, circuit).report.omitted)
+    assert any(
+        "idle noise (pass tick_ns=" in o
+        for o in to_stim(profile, circuit).report.to_dict()["omitted"]
+    )
 
 
 def test_idle_noise_reports_qubits_without_relaxation_data_as_unknown():
@@ -625,7 +628,7 @@ def test_idle_noise_reports_qubits_without_relaxation_data_as_unknown():
     qubits = [{"index": q, **c} for q, c in enumerate(coherence)]
     profile = Profile.model_validate(toy(device=device, qubits=qubits))
     out = to_stim(profile, "TICK\nM 0 1 2 3", readout="none", tick_ns=40.0)
-    assert out.report.unknown == ["T1/T2 for idle noise of physical qubit 3"]
+    assert out.report.to_dict()["unknown"] == ["T1/T2 for idle noise of physical qubit 3"]
     idle = [t.value for inst in out if inst.name == "PAULI_CHANNEL_1" for t in inst.targets_copy()]
     assert sorted(idle) == [0, 1, 2]
 
@@ -659,7 +662,7 @@ def test_existing_noise_keep_and_strip():
     assert list(kept)[1].gate_args_copy() == pytest.approx([0.01 + 0.06 - 2 * 0.01 * 0.06])
     stripped = to_stim(profile, "DEPOLARIZE1(0.01) 0\nM(0.01) 0", existing_noise="strip")
     assert str(stripped) == "M(0.06) 0"
-    assert "noise already in the circuit (stripped)" in stripped.report.omitted
+    assert "noise already in the circuit (stripped)" in stripped.report.to_dict()["omitted"]
 
 
 def test_kept_noise_targets_are_laid_out_and_idle_like_other_qubits():
@@ -890,19 +893,19 @@ def test_a_reset_or_measurement_where_the_profile_allows_it_keeps_its_noise(gate
 def test_readout_none_adds_nothing_and_reports_it():
     out = to_stim(_readout_profile(), "X 0\nM 0 1", readout="none")
     assert str(out) == "X 0\nM 0 1"
-    assert "readout error (readout='none')" in out.report.omitted
+    assert "readout error (readout='none')" in out.report.to_dict()["omitted"]
 
 
 def test_unknown_readout_is_reported_not_zeroed_silently():
     out = to_stim(Profile.model_validate(toy()), "M 0 1")
     assert str(out) == "M 0 1"
-    assert out.report.unknown == ["readout error of physical qubits 0 and 1"]
+    assert out.report.to_dict()["unknown"] == ["readout error of physical qubits 0 and 1"]
 
 
 def test_unknown_readout_is_reported_for_exact_readout_too():
     out = to_stim(Profile.model_validate(toy()), "M 0 1", readout="exact")
     assert out.readout_flips.tolist() == [[0.0, 0.0], [0.0, 0.0]]
-    assert out.report.unknown == ["readout error of physical qubits 0 and 1"]
+    assert out.report.to_dict()["unknown"] == ["readout error of physical qubits 0 and 1"]
 
 
 def test_a_saved_report_names_every_qubit_without_readout():
@@ -1056,7 +1059,7 @@ def test_layout_errors_name_the_qubit():
 def test_effects_are_omitted_or_refused():
     effect = {"type": "leakage", "gate": "cz", "prob": 1e-4}
     omitted = to_stim(Profile.model_validate(toy(effects=[effect])), "CZ 0 1")
-    assert "effect leakage on cz" in omitted.report.omitted
+    assert "effect leakage on cz" in omitted.report.to_dict()["omitted"]
     refused = Profile.model_validate(toy(effects=[{**effect, "allow": "approximate"}]))
     with pytest.raises(UnsupportedEffect):
         to_stim(refused, "CZ 0 1")

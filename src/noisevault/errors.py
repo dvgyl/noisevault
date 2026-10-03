@@ -5,6 +5,7 @@ import json
 import re
 from collections import Counter
 from collections.abc import Iterable, Sequence
+from dataclasses import dataclass
 from typing import Any, NoReturn
 
 
@@ -204,10 +205,14 @@ def qubit_loci(*loci: Sequence[int], limit: int | None = 4) -> str:
 _Loci = tuple[tuple[int, ...], ...]
 
 
-class LociText(str):
+@dataclass(frozen=True, init=False)
+class LociText:
+    """Text that names qubit loci. ``full`` names every locus and goes into saved data, such as
+    ``to_dict()``. ``short`` names at most four loci and goes into printed output."""
+
     parts: tuple[str | _Loci, ...]
 
-    def __new__(cls, *parts: str | Iterable[Sequence[int]]) -> LociText:
+    def __init__(self, *parts: str | LociText | Iterable[Sequence[int]]) -> None:
         flat: list[str | _Loci] = []
         for part in parts:
             if isinstance(part, LociText):
@@ -216,16 +221,18 @@ class LociText(str):
                 flat.append(part)
             else:
                 flat.append(tuple(tuple(locus) for locus in part))
-        text = super().__new__(cls, _render(flat, None))
-        text.parts = tuple(flat)
-        return text
+        object.__setattr__(self, "parts", tuple(flat))
+
+    @property
+    def full(self) -> str:
+        return _render(self.parts, None)
 
     @property
     def short(self) -> str:
         return _render(self.parts, 4)
 
-    def join(self, texts: Iterable[str]) -> LociText:
-        parts: list[str] = []
+    def join(self, texts: Iterable[str | LociText]) -> LociText:
+        parts: list[str | LociText] = []
         for text in texts:
             parts += [self, text] if parts else [text]
         return LociText(*parts)

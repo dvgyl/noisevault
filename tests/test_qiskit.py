@@ -815,14 +815,15 @@ _IDLE = "idle time outside explicit delays"
 
 def test_the_report_names_alap_scheduling_only_when_every_instruction_has_a_duration() -> None:
     timed = quiet_export(nv.load("ibm_manila"))
-    assert f"{_IDLE} (insert delays with transpile(circuit, sim, scheduling_method='alap'))" in (
-        timed.report.omitted
+    assert (
+        f"{_IDLE} (insert delays with transpile(circuit, sim, scheduling_method='alap'))"
+        in (timed.report.to_dict()["omitted"])
     )
     scheduled = transpile(_chain_on(3, 3), timed, scheduling_method="alap", seed_transpiler=0)
     assert any(i.operation.name == "delay" for i in scheduled.data)
     untimed = quiet_export(_three_qubits(connectivity=_LINE))
-    assert _IDLE in untimed.report.omitted
-    assert not any(e.startswith(f"{_IDLE} (") for e in untimed.report.omitted)
+    assert _IDLE in untimed.report.to_dict()["omitted"]
+    assert not any(e.startswith(f"{_IDLE} (") for e in untimed.report.to_dict()["omitted"])
     with pytest.raises(TranspilerError, match="Duration of"):
         transpile(_chain_on(3, 3), untimed, scheduling_method="alap", seed_transpiler=0)
 
@@ -1127,7 +1128,7 @@ def _coherence_on_qubit_0(**coherence: float) -> Profile:
 def test_delays_report_each_qubit_without_relaxation_data_as_unknown() -> None:
     sim = quiet_export(_coherence_on_qubit_0(t1_us=50, t2_us=40), readout=False)
     sim.set_options(method="density_matrix")
-    assert sim.report.unknown == []
+    assert sim.report.to_dict()["unknown"] == []
     circuit = QuantumCircuit(3)
     circuit.x([0, 1])
     circuit.delay(100_000, [0, 1], unit="ns")
@@ -1138,12 +1139,15 @@ def test_delays_report_each_qubit_without_relaxation_data_as_unknown() -> None:
     sim.run(circuit).result()
     sim.run([circuit, circuit]).result()
     unknown_1 = "T1 and T2 of qubit 1 (no delay relaxation)"
-    assert sim.report.unknown == [unknown_1]
+    assert sim.report.to_dict()["unknown"] == [unknown_1]
     assert "delay: thermal relaxation and dephasing over its duration" in sim.report.exact
     other = QuantumCircuit(3)
     other.delay(500, 2, unit="ns")
     sim.run(other).result()
-    assert sim.report.unknown == [unknown_1, "T1 and T2 of qubit 2 (no delay relaxation)"]
+    assert sim.report.to_dict()["unknown"] == [
+        unknown_1,
+        "T1 and T2 of qubit 2 (no delay relaxation)",
+    ]
     assert f"unknown (no noise applied): {unknown_1}, T1 and T2 of qubit 2" in (
         sim.report.summary()
     )
@@ -1169,7 +1173,7 @@ def test_delays_relax_with_partial_coherence_data_and_report_nothing_unknown(
     circuit.save_density_matrix([0])
     rho = np.asarray(sim.run(circuit).result().data()["density_matrix"])
     assert abs(rho[0, 1]) == pytest.approx(0.5 * factor, rel=1e-9)
-    assert sim.report.unknown == []
+    assert sim.report.to_dict()["unknown"] == []
 
 
 # report --------------------------------------------------------------------------------------
@@ -1211,8 +1215,8 @@ def test_report_lists_what_the_export_did() -> None:
     approximated = {a.what: a.how for a in report.approximated}
     assert approximated["gate x"] == "noise of the typical 1-qubit native gate"
     assert approximated["gate zz"] == "exported as Qiskit rzz"
-    assert "effect leakage on cz" in report.omitted
-    assert "readout error of qubits 0, 1 and 2" in report.unknown
+    assert "effect leakage on cz" in report.to_dict()["omitted"]
+    assert "readout error of qubits 0, 1 and 2" in report.to_dict()["unknown"]
     assert {(c.gate, c.qubits) for c in report.clamped} >= {("cz", (0, 1)), ("cz", (1, 2))}
     assert report.events == {}
 
@@ -1233,7 +1237,7 @@ def test_unknown_gates_error_leaves_uncalibrated_natives_to_transpile_around() -
         "native x: no error metric on qubits 0, 1, 2 and 3, and unknown_gates='error', so"
         " transpile does not use this native there (unknown_gates='typical' gives those loci"
         " the typical native's noise)"
-    ) in sim.report.omitted
+    ) in sim.report.to_dict()["omitted"]
     circuit = QuantumCircuit(2)
     circuit.x(0)
     circuit.cx(0, 1)
@@ -1423,7 +1427,11 @@ def test_the_report_offers_typical_noise_only_when_unknown_gates_typical_runs(
         toy(gates={**_ONE_QUBIT_NATIVES, "cz": {"avg_infidelity": 1e-2}, **extra})
     )
     sim = to_qiskit(profile, unknown_gates="error")
-    entries = [e for e in sim.report.omitted if e.startswith(tuple(f"native {n}:" for n in extra))]
+    entries = [
+        e
+        for e in sim.report.to_dict()["omitted"]
+        if e.startswith(tuple(f"native {n}:" for n in extra))
+    ]
     assert len(entries) == len(extra)
     assert all(e.endswith(_TYPICAL_FITS) is offered for e in entries), entries
     if offered:
@@ -1443,7 +1451,7 @@ def test_the_report_names_a_native_that_no_listed_pair_allows() -> None:
         "native ms: ms has no calibration on qubits 0-1, and the connectivity does not allow ms"
         " there"
     )
-    assert omission in sim.report.omitted
+    assert omission in sim.report.to_dict()["omitted"]
 
 
 def _line(num_qubits: int, **sections: Any) -> Profile:
@@ -1516,7 +1524,7 @@ def test_effects_that_demand_modelling_are_refused() -> None:
 def test_profile_method_forwards_options(manila: Profile) -> None:
     sim = manila.to_qiskit(readout=False)
     assert isinstance(sim, NoiseVaultSimulator) and sim.profile is manila
-    assert "readout error (readout=False)" in sim.report.omitted
+    assert "readout error (readout=False)" in sim.report.to_dict()["omitted"]
     assert not [e for e in sim.noise_model.to_dict()["errors"] if e["type"] == "roerror"]
 
 
@@ -1613,7 +1621,7 @@ def test_google_profiles_export_sqrt_iswap_and_report_the_gate_count_cost() -> N
     assert any(a.what == "gate count of transpiled circuits" for a in sim.report.approximated)
     assert (
         "native sycamore: the Qiskit export has no instruction for this native"
-        in sim.report.omitted
+        in sim.report.to_dict()["omitted"]
     )
     (qiskit,) = nv.load("google_weber").check(frameworks=["qiskit"]).frameworks
     assert qiskit.passed and not qiskit.not_run
