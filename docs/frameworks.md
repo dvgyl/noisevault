@@ -125,8 +125,9 @@ What the report can list:
   Each `cx` takes two `sqrt_iswap`. A general two-qubit block therefore costs six `sqrt_iswap`
   where three are enough. The report states this cost. The initial state is ideal. When the
   profile has a preparation error, the report notes that the initial state is ideal.
-- **Omitted.** Idle time outside explicit delays. Transpile with `scheduling_method="alap"` to
-  insert delays on idle qubits. Effects. `to_qiskit()` leaves natives that Qiskit cannot target,
+- **Omitted.** Idle time outside explicit delays. When the profile gives every instruction a
+  duration, transpile with `scheduling_method="alap"` to insert delays on idle qubits. The report
+  names this step only then. Effects. `to_qiskit()` leaves natives that Qiskit cannot target,
   such as Google's `sycamore`, out of the simulator. The report names these natives.
 - **Unknown.** Values the profile lacks. The bundled IBM profiles have no preparation error, so
   resets add none. A `delay` on a qubit with no T1, T2 or dephasing rate adds no noise, and the

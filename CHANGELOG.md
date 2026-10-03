@@ -148,6 +148,9 @@ This file lists all notable changes to NoiseVault. Versions follow
   `noisevault.layout.suggest_layout(profile, n, usable_pair=f)` takes a function `f(a, b)` of two
   qubits, with `a < b`. The chain then has no neighbors `a` and `b` for which `f(a, b)` is false.
   See [Choose qubits](docs/frameworks.md#choose-qubits).
+- [docs/frameworks.md](docs/frameworks.md) names a Qiskit Aer defect that can stop Python with
+  a segmentation fault during `sim.run`. The note gives the `density_matrix` method as a
+  workaround.
 
 ### Changed
 
@@ -178,6 +181,8 @@ This file lists all notable changes to NoiseVault. Versions follow
   word shares. The hint says to wrap the QNode in `qml.transforms.split_non_commuting`.
   `qml.probs(op=...)` of an identity or zero observable, such as
   `qml.probs(op=qml.I(0) @ qml.I(1))`, also counts as such a third word.
+- The repository moved to https://github.com/dvgyl/noisevault. Install commands, links and the
+  bug-report hint use the new address.
 
 ### Fixed
 
@@ -385,6 +390,33 @@ This file lists all notable changes to NoiseVault. Versions follow
     has check circuits, as in `use qubits that can measure, such as layout=[0, 1, 2, 3]`. When
     no layout has check circuits, the hint says to use a profile that calibrates a 1-qubit
     native gate with a known unitary.
+  - A layout that puts a circuit qubit on a disabled qubit raises `LayoutError`. The hint said
+    to choose another qubit, also when the profile has too few usable qubits for the circuit.
+    The hint now names `profile.suggest_layout(n)` with the number of circuit qubits as `n`. It
+    does so only when that call finds a chain. The Cirq simulator gives the noise model one part
+    of the circuit at a time. Thus, with no `layout=`, the Cirq export cannot count the circuit
+    qubits, and its error for a disabled qubit has no hint.
+  - A Stim refusal on a 2-qubit gate names `profile.suggest_layout(n)` only when that call finds
+    a chain. It names `noisevault.stim.layout_from_coords` only when that function places the
+    circuit.
+  - A Cirq `GridQubit` at coords that the profile does not have gets a hint with example coords.
+    The examples now include only coords with one enabled qubit. Sometimes two Cirq qubits map
+    to the same device qubit by default. That error now has no hint, because the export cannot
+    count the circuit qubits.
+  - The Qiskit simulator refuses a circuit with an instruction that the device does not provide.
+    The hint said to transpile the circuit first, but `transpile` sometimes could not compile
+    the circuit. For example, Qiskit stopped with a Rust panic when the circuit used more qubits
+    than the profile has enabled. The simulator now transpiles the circuit with
+    `seed_transpiler=0` and checks the result before it gives the hint. When that step fails,
+    the error has no hint. The hint now includes `seed_transpiler=0`, so it names the exact step
+    that the simulator checked.
+  - A Qiskit circuit wider than the device gets a hint for the qubit count. The hint compared the
+    qubits that the circuit uses with all device qubits, also the disabled qubits. It now names
+    a narrower circuit only when that circuit transpiles for the simulator. Otherwise, it names a
+    profile with enough enabled qubits, or it gives no hint.
+  - The Qiskit report said to insert idle delays with `scheduling_method='alap'`. That step
+    fails when the profile gives no duration for an instruction, such as `measure`. The report
+    now names the step only when every instruction in the `Target` has a duration.
 - **Braket device names that are not a profile id.** A Braket file name or `device=` can give a
   name that is not a valid profile id. The hint then says to rename the file or to pass `device=`
   with another name.
