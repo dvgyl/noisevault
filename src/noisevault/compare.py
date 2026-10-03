@@ -46,7 +46,8 @@ WINDOW_POINTS = 33
 END_TOL = 0.02
 IMPOSSIBLE = 1e-12
 MIN_INFORMATIVE_SHOTS = 100
-SEPARABLE = 2 * float(np.finfo(float).eps)
+EPS = float(np.finfo(float).eps)
+SEPARABLE = 2 * EPS
 FLAT = 1e-6
 FD_STEP = 1e-3
 REFINE_TOL = 0.04
@@ -450,6 +451,7 @@ class _Surface:
         gate: np.ndarray | None,
         readout: np.ndarray | None,
         run: Callable[[float], ByCell],
+        rounding: ByCell,
     ) -> None:
         self.gate_nodes = gate_nodes
         self.before_readout = before_readout
@@ -458,6 +460,7 @@ class _Surface:
         self.gate = gate
         self.readout = readout
         self.run = run
+        self.rounding = rounding
         reads = _grid(readout)
         peaks = [self.probs_at(np.full(len(reads), x), reads).max(axis=0) for x in gate_nodes]
         self.supported = np.max(peaks, axis=0) > IMPOSSIBLE
@@ -496,7 +499,8 @@ class _Surface:
             return runs[log_gate]
 
         before_readout = np.array([run(x) for x in nodes])
-        if not any(_varies(before_readout[:, part]) for part in slices):
+        rounding = _rounding(circuits)
+        if not any(_varies(before_readout[:, part], rounding[part]) for part in slices):
             gate, nodes, before_readout = None, np.zeros(1), run(0.0)[None, :]
         else:
             gate = np.unique(np.concatenate([fine, nodes]))
@@ -508,7 +512,8 @@ class _Surface:
             for per_circuit in pairs
             for pair in per_circuit
         )
-        return cls(nodes, before_readout, pairs, slices, gate, fine if scales else None, run)
+        readout = fine if scales else None
+        return cls(nodes, before_readout, pairs, slices, gate, readout, run, rounding)
 
     def axis(self, axis: Axis) -> np.ndarray | None:
         return self.gate if axis == "gate" else self.readout
@@ -567,8 +572,7 @@ class _Surface:
             peaks = surface.peaks(counts, values) if peaks is None else peaks
             near = _runs(2 * (values.max() - values.max(axis=1)) <= REGION * cutoff)
             region = [(self.gate[a], self.gate[b - 1]) for a, b in near]
-            top = max(peak.loglik for peak in peaks)
-            region += [(x.gate, x.gate) for x in peaks if 2 * (top - x.loglik) <= REGION * cutoff]
+            region += [(x.gate, x.gate) for x in _retained(peaks, cutoff)]
             finer = surface._split(region, weights)
             if finer is surface:
                 break
@@ -663,7 +667,10 @@ class _Surface:
         probs = self.probs_at(np.repeat(nodes, 2), np.tile(ends, len(nodes)))
         probs = probs.reshape(len(nodes), 2, -1)
         lines = probs.transpose(1, 0, 2) if axis == "gate" else probs
-        return [any(_varies(line[:, part]) for line in lines) for part in self.slices]
+        return [
+            any(_varies(line[:, part], self.rounding[part]) for line in lines)
+            for part in self.slices
+        ]
 
     def _before_readout_at(self, log_gate: ByPoint) -> ByPointByCell:
         nodes, unread = self.gate_nodes, self.before_readout
@@ -868,8 +875,11 @@ class _Fit:
             readout, top, gate = _climb(profile, start.readout, top, gate, readout_span)
             return _Best(top, gate, readout)
 
-        found = [_window_max(window, draws) for window in _with_edges(windows)]
-        return self._polish(draws, found, climb)
+        starts = [
+            self._polish(draws, [_window_max(part, draws) for part in parts], climb)
+            for parts in ((window, *window.edges) for window in windows)
+        ]
+        return _highest(starts)[0]
 
     def draw_restricted(
         self, draws: ByCellByDraw, axis: Axis, held: float, windows: Sequence[_Window] = ()
@@ -883,20 +893,22 @@ class _Fit:
             top, others = self._free_max(axis, fixed, counts, _grid_line(start, free), span)
             return _Best(top, *_point(axis, held, others))
 
-        found = []
-        for window in _with_edges(windows):
+        def found(window: _Window) -> tuple[_Best, _Best, np.ndarray]:
             line = _grid_line(window, free)
             values = self._line(axis, held, line, draws)
             k = np.argmax(values, axis=0)
             top, vertex = values[k, np.arange(len(k))], _refine(values, k, line)
-            found.append(
-                (
-                    _Best(top, *_point(axis, held, line[k])),
-                    _Best(top + vertex.gain, *_point(axis, held, line[k] + vertex.shift)),
-                    vertex.settled,
-                )
+            return (
+                _Best(top, *_point(axis, held, line[k])),
+                _Best(top + vertex.gain, *_point(axis, held, line[k] + vertex.shift)),
+                vertex.settled,
             )
-        return self._polish(draws, found, climb).top
+
+        starts = [
+            self._polish(draws, [found(part) for part in (window, *window.edges)], climb)
+            for window in windows
+        ]
+        return _highest(starts)[0].top
 
     def _polish(
         self,
@@ -930,7 +942,11 @@ class _Fit:
 
     def windows(self) -> tuple[_Window, ...]:
         if not self._windows:
-            self._windows = (self._window_at(self.at["gate"], self.at["readout"]),)
+            windows = [self._window_at(self.at["gate"], self.at["readout"])]
+            for peak in _retained(self.peaks, self.cutoff):
+                if not any(_spans(window, peak.gate, peak.readout) for window in windows):
+                    windows.append(self._window_at(peak.gate, peak.readout))
+            self._windows = tuple(windows)
         return self._windows
 
     def _window_at(self, gate: float, readout: float) -> _Window:
@@ -1021,10 +1037,6 @@ def _binomial(cell: ByCell, shots: int) -> tuple[ByCellByDraw, ByColumn] | None:
 
 def _unreached(line: np.ndarray) -> np.ndarray:
     return np.array([x for x in (_LO, _HI) if len(line) > 1 and not line[0] <= x <= line[-1]])
-
-
-def _with_edges(windows: Sequence[_Window]) -> list[_Window]:
-    return [part for window in windows for part in (window, *window.edges)]
 
 
 def _spans(window: _Window, gate: float, readout: float) -> bool:
@@ -1459,6 +1471,11 @@ class _Peak(NamedTuple):
     along: Axis = "gate"
 
 
+def _retained(peaks: Sequence[_Peak], cutoff: float) -> list[_Peak]:
+    top = max(peak.loglik for peak in peaks)
+    return [peak for peak in peaks if 2 * (top - peak.loglik) <= REGION * cutoff]
+
+
 def _estimate(peaks: Sequence[_Peak]) -> _Peak:
     top = max(peak.loglik for peak in peaks)
     tied = [peak for peak in peaks if peak.loglik >= top - TIE]
@@ -1614,8 +1631,13 @@ def _bisect(
     return inside
 
 
-def _varies(rows: ByPointByCell) -> bool:
-    return bool(0.5 * np.abs(rows - rows[0]).sum(axis=1).max() > 1e-9)
+def _varies(rows: ByPointByCell, rounding: ByCell) -> bool:
+    return bool((np.abs(rows - rows[0]) > rounding).any())
+
+
+def _rounding(circuits: Sequence[PlannedCircuit]) -> ByCell:
+    steps = [(len(c.ops) + len(c.qubits) + 1) * EPS for c in circuits]
+    return np.repeat(steps, [2 ** len(c.qubits) for c in circuits])
 
 
 def _tvd(p: np.ndarray, q: np.ndarray) -> float:

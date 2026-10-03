@@ -164,7 +164,11 @@ no gates, so only readout error moves it, and that circuit separates the two fac
 
 - No circuit moves with the factor. The fit compares the outcome probabilities at every exact run
   of the reference. A response can be equal at the two ends of the range and different between
-  them.
+  them. A change counts as a move when it is more than the rounding error of the reference. For a
+  circuit with n operations on q qubits, that limit is (n + q + 1) times 2.2e-16. The likelihood
+  of the counts then shows how much a small change constrains the factor. An example is ten
+  circuits of 10^10 shots each, where the probabilities change by 8e-10 over the range. Their
+  counts give a gate factor of at least 8.5.
 - Fewer than 100 shots fall in circuits that move with the factor.
 - The interval of the factor reaches both ends of the search range.
 
@@ -252,23 +256,28 @@ The estimate is the highest peak. When two peaks differ by at most 0.02 in log-l
 counts cannot order them, and the estimate is the peak nearest factor 1.
 
 Most listed and drawn sets have their maximum near the factor that made them. The fit finds those
-maxima on a small grid around the estimate and around each factor that it tests. The same grid
-gives the maximum of the observed counts. The grid step is a quarter of the interval half-width.
-For a one-sided interval, the step is at least 0.0125 in log factor. The grid also holds the two
-ends of the factor range. A set with no error shots has its maximum at the lower end, which a grid
-around a larger estimate does not reach.
+maxima on a small grid around the estimate and around each factor that it tests. The fit also keeps
+each other peak where the likelihood-ratio statistic is at most nine times the interval cutoff. Each
+kept peak that no earlier grid holds gets a grid of its own. The same grids give the maximum of the
+observed counts. The grid step is a quarter of the interval half-width. For a one-sided interval,
+the step is at least 0.0125 in log factor. The grid also holds the two ends of the factor range. A
+set with no error shots has its maximum at the lower end, which a grid around a larger estimate does
+not reach.
 
-From the best grid point, the fit builds a quadratic from the nine grid points around it. The
-quadratic includes the term that couples the two factors. The fit then computes the likelihood at
-the vertex of the quadratic. It keeps that value when the quadratic predicts it within 0.02 and no
-neighboring grid point is more than 3.84 lower. Otherwise, the fit climbs from the best point. At
-each readout factor, it finds the best gate factor, and it then moves the readout factor. Each
-climb steps to a better neighbor, or it computes the vertex of a parabola through its two neighbors
-and makes its step smaller. A climb stops when both neighbors are within 0.001 of its best point.
-It also stops when the parabola predicts the likelihood at the vertex within 0.001 and no neighbor
-is more than 3.84 lower. Fits with one factor held climb along the other factor in the same way.
-Thus each maximum that the fit reports is the likelihood of the model at the reported factors. No
-reported maximum is above the true maximum.
+On each grid, the fit starts from the best grid point and builds a quadratic from the nine grid
+points around it. The quadratic includes the term that couples the two factors. The fit then
+computes the likelihood at the vertex of the quadratic. It keeps that value when the quadratic
+predicts it within 0.02 and no neighboring grid point is more than 3.84 lower. Otherwise, the fit
+climbs from the best point. At each readout factor, it finds the best gate factor, and it then moves
+the readout factor. Each climb steps to a better neighbor, or it computes the vertex of a parabola
+through its two neighbors and makes its step smaller. A climb stops when both neighbors are within
+0.001 of its best point. It also stops when the parabola predicts the likelihood at the vertex
+within 0.001 and no neighbor is more than 3.84 lower. Fits with one factor held climb along the
+other factor in the same way. Thus each maximum that the fit reports is the likelihood of the model
+at the reported factors. No reported maximum is above the true maximum. The fit keeps the highest
+result over all grids. A set whose maximum is at a second peak therefore gets that maximum. In an
+example with two peaks, a search near the estimate alone gave p = 0.012. The search near both peaks
+gives p = 0.0075, below the poor-fit limit of 0.01.
 
 On a narrow ridge of the likelihood, the quadratic on the grid misses the maximum, and the climb
 finds it. An example is one qubit with an `x x` circuit of 10^8 shots and a readout circuit of 4000

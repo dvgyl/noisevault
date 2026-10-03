@@ -33,7 +33,12 @@ This file lists all notable changes to NoiseVault. Versions follow
   The function returns the IBM calibration of `ibm_fez`, `ibm_kingston`, `ibm_marrakesh` or
   `ibm_torino` that was in effect at `at`. A provenance note names the values calibrated more
   than 7 days before `at`, or before the newest calibration when you give no `at`. The note
-  leaves out values that the profile does not use, such as the duration of a disabled gate.
+  leaves out values that the profile does not use, such as the duration of a disabled gate. It
+  also leaves out each T1 or T2 that the import treats as missing and each archive row with no
+  value. The zero errors that `virtual: true` replaces are not in the note. The note names an
+  old `rz` value when that value calibrates or disables `rz`. The importer reads the file once.
+  Thus the values of a profile and its `source_hash` come from the same file, also when
+  another program replaces the file during the import.
   `nv.calibration_archive_devices(path)` gives the times `first` and `last` of each device.
   `first` is the earliest `at` that gives a profile. An earlier `at` raises `nv.SourceDataError`,
   which names that time. Install
@@ -56,12 +61,59 @@ This file lists all notable changes to NoiseVault. Versions follow
     `SAMPLER_V2_OPTIONS` maps each Qiskit Runtime `SamplerV2` option that `load_counts` checks,
     such as `twirling.enable_gates`, to the value that `load_counts` requires. The map is for
     code that runs the circuits through `SamplerV2` itself.
+  - `plan()` uses only qubits where the profile allows `measure`. A layout with another qubit
+    raises `LayoutError`. When a circuit must wait on a qubit where the profile disables
+    `delay`, `plan()` raises `LayoutError`. The hint says to pass `layout=` with qubits that
+    allow `delay`.
   - `load_counts` raises `nv.CountsError` for a file it refuses. The message names the file and
     the field, and `hint` says how to correct the file.
   - A circuit in a counts file has at most 10^10 shots. `simulate` refuses more shots.
+  - `simulate` and `nv compare` use the reference simulator, which follows the rule of the exports
+    for profile effects. The reference simulator leaves out an effect with `allow` set to
+    `"omit"`, and `nv compare` names that effect in a note. An example is `the reference simulator
+    leaves out effect coherent_overrotation on x, because the profile sets allow to 'omit'`. For
+    any other `allow` value, `simulate` and `nv compare` refuse the profile with
+    `UnsupportedEffect`. The hint says `set allow to 'omit' to leave the effect out`.
+  - The reference simulator refuses a delay or a measurement on a qubit where the profile
+    disables that operation, as the exports do. `simulate` names the circuit in the error.
+    `nv compare` refuses counts whose circuits use such a delay or measurement.
   - The fit finds the maximum and each interval end to within 0.001 in log-likelihood, at every
     number of shots that a counts file accepts. At each interval end, the fit finds the other
-    factor to the same limit.
+    factor to the same limit. The search for the maximum stops only when every neighboring point
+    is less than 0.001 below the best point. Thus a factor that the counts do not constrain cannot
+    stop the search early.
+  - Each maximum that the fit reports is the likelihood at the reported factors, so no reported
+    maximum is above the true maximum. Before, a circuit with many more shots than the others
+    could give wrong intervals. For one qubit with a circuit of 10^8 shots and a readout circuit
+    of 4000 shots, the readout interval ended at 2.56. It now ends at 1.35.
+  - The fit keeps each other peak of the likelihood where the likelihood-ratio statistic is at
+    most nine times the interval cutoff. For each drawn set of counts, the fit searches for the
+    maximum near every kept peak. Thus a drawn set whose maximum is at a second peak gets that
+    maximum. Before, the search was only near the estimate. In an example with two peaks, the
+    p-value was 0.012, and it is now 0.0075.
+  - `nv compare` reports both factors as not identified only when the smallest eigenvalue of the
+    Fisher information is below 4.4e-16 times the largest. That limit is the floating-point
+    precision of the eigenvalues. Before, the limit was 1e-6. Thus a circuit with 10^10 shots
+    beside a circuit with 4000 shots removed the estimates of both factors.
+  - A circuit moves with a factor when its outcome probabilities change by more than the
+    rounding error of the reference. For a circuit with n operations on q qubits, that limit is
+    (n + q + 1) times 2.2e-16. Before, a change of at most 1e-9 in total variation distance did
+    not count, and `nv compare` reported the factor as not identified. An example is ten
+    circuits of 10^10 shots each, where the probabilities change by 8e-10 over the range. Their
+    counts now give a gate factor of at least 8.5.
+  - Each interval end gets a second test with the distribution of the likelihood-ratio statistic
+    at that end. The test uses the exact probability of each combination of counts when two
+    conditions hold. Each circuit has at most two outcomes, and the counts give at most 4096
+    likely combinations. Otherwise, the test draws 400 sets of counts. A set whose best factor is
+    at an end of the 0.05 to 20 range gets its statistic at that end. In the one-qubit examples of
+    the docs, an interval from a few error shots contains the true factor with a probability of
+    0.95 or more.
+  - `-o` saves each factor and interval end with six significant digits, or with more when six
+    would save two different values alike.
+  - With no degrees of freedom left, `nv compare` reports the fit as not testable, with two
+    exceptions. A factor at an end of the 0.05 to 20 range, or a deviance above 3.84, shows that
+    the fit misses the measured frequencies. Such a fit gets the test and a p-value, and the
+    verdict says that no factors from 0.05 to 20 give the measured frequencies.
   - When a command that takes a profile gets a counts file, the error says that the file is a
     counts file and not a profile. When the two arguments are in the wrong order, `nv compare`
     names the correct order.
@@ -73,12 +125,29 @@ This file lists all notable changes to NoiseVault. Versions follow
     job. If the script cannot save a job id, `--job-id JOB_ID` collects that job. A failed IBM
     request while the script opens the device gives an error and a retry hint, not a traceback.
   - If the job file exists when the script starts, the same command collects that job and never
-    submits another. If another program changes the job file while the script submits the job,
-    the script saves the job to `<stem>.<job id>.job.json` and prints the `--collect` command.
+    submits another. Before it opens a saved job, the script checks the whole saved plan. The
+    check includes unique circuit names and the limit on outcomes. The script also checks the
+    plan against its profile. A qubit that the device does not have, or a gate that the profile
+    does not define, stops the script before it opens the job. A damaged job file gives
+    an error, and if the file names a job, the hint names that job. If another program rewrites
+    the job file or puts a link in its place, the script keeps that file or link. The script
+    writes the job id in parts when one write does not hold all of it. Before each part, the
+    script checks the job file again, so it also keeps a file that changes between two parts.
+  - In two cases, the script saves the job to `<stem>.<job id>.job.json` and prints the
+    `--collect` command. In the first case, another program replaces or rewrites the job file
+    while the script submits the job or adds the job id. In the second case, a failed write
+    leaves a part of the job id in the job file, and the script cannot remove that part.
+  - The commands that the script prints quote each path, and they work for a file name that
+    starts with a hyphen. After a failed collection, the hint first says how to collect the job
+    again, then how to submit a new job.
 
   See [Counts format](docs/counts-format.md),
   [Measure a profile against hardware](docs/recipes.md#measure-a-profile-against-hardware) and
   [How nv compare fits the factors](docs/limitations.md#how-nv-compare-fits-the-factors).
+- **A filter on the qubit pairs of a suggested layout.**
+  `noisevault.layout.suggest_layout(profile, n, usable_pair=f)` takes a function `f(a, b)` of two
+  qubits, with `a < b`. The chain then has no neighbors `a` and `b` for which `f(a, b)` is false.
+  See [Choose qubits](docs/frameworks.md#choose-qubits).
 
 ### Changed
 
@@ -107,6 +176,8 @@ This file lists all notable changes to NoiseVault. Versions follow
   different bases while a third word commutes with both. The PennyLane noise model now raises
   `NoiseVaultError` for such measurements, because `default.mixed` decides which shots the third
   word shares. The hint says to wrap the QNode in `qml.transforms.split_non_commuting`.
+  `qml.probs(op=...)` of an identity or zero observable, such as
+  `qml.probs(op=qml.I(0) @ qml.I(1))`, also counts as such a third word.
 
 ### Fixed
 
@@ -195,7 +266,12 @@ This file lists all notable changes to NoiseVault. Versions follow
     to pass an earlier one. For an IBM CSV, a Braket file or a Quantinuum spec sheet, the hint
     says to correct the value in the file. Before, `nv pull` said that the profile was not valid
     and to run `nv validate FILE`, but a pull has no file. The importers raised pydantic's
-    `ValidationError`.
+    `ValidationError`. Every IBM path now checks each value before any vendor rule runs. It
+    refuses a value that is not finite, such as a gate error of `inf`, and an error or a
+    probability outside 0 to 1. It also refuses a negative duration and, in `BackendProperties`
+    data, an `operational` flag that is not 0 or 1. Before, a vendor rule for a disabled gate or
+    for readout could remove such a value with no error. A gate error of `inf` disabled the gate,
+    and an `operational` flag of `nan` kept the qubit enabled.
   - An IonQ record whose qubit count is missing from the record and from IonQ's backend listing.
     The error names the record, and the hint says to pass an earlier `--at`.
   - An IonQ backend listing with no `qpu.` backend in it. The error ended with "it lists" and
@@ -205,19 +281,113 @@ This file lists all notable changes to NoiseVault. Versions follow
   gate two different values, `nv pull` and the importers used the last value. They now raise
   `nv.SourceDataError`, which names the parameter, the qubit or gate, and both values. An
   identical repeat counts once.
+- **JSON keys that occur two times.** When one JSON object had the same key two times, NoiseVault
+  used the second value with no error. Now each JSON input refuses such an object, and the error
+  names the key, as in `run.json has the key device.name twice`. The check covers profiles,
+  counts files, importer files, vendor replies and the job file of `scripts/run_on_ibm.py`. For a
+  profile or a counts file that a command reads, the hint says to keep one of the two keys.
+  NoiseVault ignores a vault index with such a key and reads the vault files again.
 - **A vault file saved during `nv pull`.** `nv pull` never replaces or deletes a vault file that
   another process saves during the pull, also on exFAT and FAT drives. The pull applies the usual
   vault rules to that file. If another process replaces the hidden copy that `profile.save`
   writes first, `profile.save` writes nothing and raises a `NoiseVaultError`, which is also a
-  `FileExistsError`.
+  `FileExistsError`. A pull that moves an older import of its calibration aside deletes that
+  import only after the pull saves its own file. Before, a failed save lost both files. If the
+  save fails, the pull puts the import back. If another file is at that path, the pull keeps the
+  import under a hidden name, and the error names that file. A pull that finds its profile in the
+  vault reads that file again before it reports the result.
 - **Cirq placement next to a disabled qubit.** When a disabled qubit has the same coords as an
   enabled qubit, `GridQubit` placement now uses the enabled qubit.
 - **Correlated PennyLane samples.** With shots, Pauli words that commute on each wire, such as
   `qml.sample(qml.Z(0))` and `qml.sample(qml.X(1))`, now share one set of readout operations and
-  one tape. Their samples stay correlated.
+  one tape. Their samples stay correlated. `qml.probs(op=...)` of an identity or zero observable
+  shares shots with such words in `default.mixed`. The model now reads such a measurement in the
+  basis of that shot group.
+- **PennyLane Pauli words with a zero coefficient.** PennyLane drops a Pauli word with a
+  coefficient of at most 1e-8 before it groups measurements. The PennyLane noise model kept such
+  words. As a result, `qml.sample(qml.X(0) + 0*qml.Y(1))` and `qml.sample(qml.X(1))` got
+  separate shots, and `qml.dot([1, 0], [qml.X(0), qml.Z(0)])` got no readout error. The model now
+  drops these words before it picks the measured basis and the shot groups.
+- **Disabled measurements, resets and delays.** Every export now refuses a measurement, a reset
+  or a delay on a qubit where the profile disables that operation. A disabled gate gets the same
+  refusal. Before, some exports ran such an operation with the noise of an allowed operation.
+  - The Cirq and Stim exports raise `DisabledGateError` for a reset, a measurement or a Cirq
+    `WaitGate` on such a qubit. The Stim `MR`, `MRX` and `MRY` instructions need both `measure`
+    and `reset`. Stim has no delay instruction.
+  - The Stim export also refuses `II` when the profile disables `ii`. A measurement record or a
+    sweep bit can control a Pauli. The Stim export refuses such a Pauli when the profile
+    disables `x`, `y` or `z` on its qubit. `noisevault.stim.layout_from_coords` does not choose
+    a placement that puts a gate, a measurement or a reset where the profile disables it.
+  - The Qiskit `Target` leaves out `measure`, `delay` and `reset` on a qubit where the profile
+    disables them. `transpile` then refuses a circuit that needs one of them there, and `sim.run`
+    raises `DisabledGateError`.
+  - In the PennyLane export, `qml.measure` and terminal measurements on such a qubit raise
+    `DisabledGateError`. `qml.measure(wire, reset=True)` also needs `reset`. PennyLane has no
+    delay operation.
+  - The PennyLane export checks `measure` and applies readout only on the wires that a
+    measurement reads. A Pauli observable reads only the wires of its simplified words, so
+    `qml.expval(qml.X(0) + 0 * qml.Y(1))` and `qml.expval(qml.X(0) @ qml.I(1))` read only wire
+    0. A measurement without wires, such as `qml.probs()`, reads every device wire, also a wire
+    that the circuit does not use. `qml.add_noise` on a tape cannot see the device. In that
+    case, the export raises `DisabledGateError` when a device wire can map to a qubit that
+    cannot measure. The hint says to pass `wires=` to the measurement or to apply
+    `qml.add_noise` to the QNode.
+  - Each `DisabledGateError` message names qubits in the same form as other messages, as in
+    `cx on qubits 0-1 is disabled in this profile`. Before, the message read `cx on (0, 1)`.
+- **Qiskit `Target` durations and errors.** The `Target` from the Qiskit export gave `reset` no
+  duration, so `transpile` with `scheduling_method="alap"` failed for a circuit with a reset. Each
+  `reset` now has its duration from the profile. The `Target` also gave `reset` no error, so
+  `transpile` could put a reset on the qubit with the higher preparation error. Each `reset` now
+  has the preparation error of its qubit. With `readout=False`, the simulator applied no
+  readout error, but the `Target` gave `measure` the readout errors of the profile. As a result,
+  `transpile` could place a circuit on a worse qubit. The `Target` now gives `measure` an error of
+  0 and keeps its duration.
+- **Errors in 2-qubit gates that `nv check` did not find.** `nv check` now also runs a
+  `chain_mirror` circuit. The circuit runs the chain of 2-qubit gates and its inverse two times.
+  The first time, only the first qubit starts in a superposition. The second time, every qubit
+  starts in a superposition. The circuit finds 2-qubit gate errors that the other circuits do not
+  show. An example is an X error on the target qubit of `cx` after `h`. `noisevault.counts.plan()`
+  and `nv compare` leave out `chain_mirror`, so counts files keep their circuits.
+- **Natives that `nv check` did not run.** The Cirq check said that Cirq has no swap gate and did
+  not run a `swap` native. The Cirq check now runs `swap`. `operation_for("ms")` in the PennyLane
+  export now builds `ms(0, 0)` as `qml.IsingXX(pi/2)`, so `nv check` checks an `ms` native in
+  PennyLane. At other phases, `operation_for("ms")` raises `ValueError`. `operation_for("sdg")`,
+  `operation_for("tdg")` and `operation_for("sxdg")` returned `None`. They now build PennyLane
+  adjoint operations, so `nv check` runs these natives in PennyLane. Before, `nv check` said that
+  PennyLane has no such gate. `nv check` applies the PennyLane noise at the top level, so each
+  native gets its own noise.
+- **Qubits that cannot measure in `nv check`.** `nv check` and `profile.suggest_layout(n)` could
+  choose a qubit where the profile disables `measure`. They now choose only qubits that can
+  measure. A check layout with another qubit raises `LayoutError`. The default chain of
+  `nv check` also avoids a pair that only a custom gate calibrates. Before, such a pair could
+  make the check use fewer qubits.
+- **Hints that named a step that cannot run.** With `unknown_gates='error'`, an export refused
+  a gate with no error metric and said to pass `unknown_gates='typical'`. The hint now gives
+  that step only when the typical native gate's noise is usable on those qubits. Otherwise, the
+  hint names a native gate that needs an error metric there. When no native gate is usable
+  there, the error has no hint.
+  - The Qiskit export names `profile.to_cirq()` only when Cirq can run a native of the needed
+    size on some qubits. A virtual native with no error metric counts. Before, the Qiskit error
+    for such a profile said that `profile.to_cirq()` cannot run one. The Qiskit report names
+    `unknown_gates='typical'` only when that option gives the gate noise. Sometimes no native
+    has an error metric on any enabled qubit or pair. The Qiskit error then says so, and the
+    hint says to calibrate a native that Qiskit provides.
+  - A Stim refusal on a 2-qubit gate suggests `layout=` only when the failing gate runs on a
+    pair of qubits that can measure. Sometimes that gate does not run in both directions on
+    every pair with a usable 2-qubit gate. The hint then names one pair where the gate runs.
+    `noisevault.stim.layout_from_coords` gives no layout hint when the circuit has more qubits
+    than the device has enabled qubits. It also gives none when no enabled qubit or pair allows
+    an operation of the circuit.
+  - When `nv check` or `noisevault.counts.plan()` refuses a layout, the hint names a layout that
+    has check circuits, as in `use qubits that can measure, such as layout=[0, 1, 2, 3]`. When
+    no layout has check circuits, the hint says to use a profile that calibrates a 1-qubit
+    native gate with a known unitary.
 - **Braket device names that are not a profile id.** A Braket file name or `device=` can give a
   name that is not a valid profile id. The hint then says to rename the file or to pass `device=`
   with another name.
+- **Braket v3 provenance note.** The note said that every qubit and pair gets the same v3
+  values, also when some qubits use their own `oneQubitProperties` fidelity. The note now names
+  those qubits.
 - **Format 0.1 files that mark a gate or qubit not operational with a string.** The upgrade read
   `operational` by truthiness, so `"false"`, `"no"`, `"off"` and `"0"` left the gate or qubit
   enabled. The upgrade now reads the flag as NoiseVault 0.1 did, so these values disable the gate
@@ -236,6 +406,12 @@ This file lists all notable changes to NoiseVault. Versions follow
   - When IBM had no calibration of a device before the `--at` date,
     `nv pull --source ibm-account` gave advice for retired devices. It now says that IBM returned
     no calibration before that date, and the hint says to pick a later date.
+  - When `nv pull --source ibm-account` cannot open a device, the hint now names the devices
+    that the account can see. Before, the hint said to list them with
+    `QiskitRuntimeService().backends()`.
+  - A hint that prints an `nv validate` or `nv check` command now quotes the path, and puts `--`
+    before a path that starts with a hyphen. Thus the printed command works for a file name with
+    a space or a leading hyphen.
   - `nv show` counted gate loci with no error metric as "without error", a label that read as
     free of error. Exports give those loci the typical native gate's noise. `nv show` now counts
     them as "uncalibrated".

@@ -270,6 +270,37 @@ def test_an_interval_holds_a_peak_narrower_than_the_grid() -> None:
     assert covers(result.gates, 8.470897) and covers(result.gates, 1.0), result.gates
 
 
+OTHER_PEAK = (
+    (0.6752639144059001, 2.4641956201773256),
+    (5.506796082841274, 5.765717338121322),
+    (1.4669746608300045, 0.4946132930675121),
+    (2.282016992462106, 0),
+)
+
+
+def test_each_drawn_maximum_starts_at_every_peak_the_fit_keeps(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    found = []
+    draw_max = fit._Fit.draw_max
+
+    def recorded(self: Any, draws: np.ndarray, windows: Any = ()) -> Any:
+        best = draw_max(self, draws, windows)
+        if not windows:
+            found.append((self.surface, draws, best.top))
+        return best
+
+    monkeypatch.setattr(fit._Fit, "draw_max", recorded)
+    profile, counts = two_peaks(0)
+    other = tuple(Op("r", (0,), angles) for angles in OTHER_PEAK)
+    r4 = ("r4", counts.circuits[0].ops, {"0": 487757, "1": 512243})
+    result = compare(profile, written(profile, [r4, ("other", other, {"0": 516284, "1": 483716})]))
+    ((surface, draws, top),) = found
+    above = surface.loglik(draws).max(axis=(0, 1)) - top
+    assert above.max() <= 2 * fit.ASCENT_TOL, (int(above.argmax()), above.max())
+    assert result.p_value is not None and result.p_value < 0.01, result.p_value
+
+
 def zero_error_loops(seed: int) -> tuple[Profile, MeasuredCounts]:
     profile = one_qubit("zloop2", {"r": {"pauli": [0, 0, 0.1]}})
     steps = [(0.01, [1] * 10 + [-1] * 10), (0.015, [1] * 5 + [-1] * 5)]
@@ -694,6 +725,21 @@ def test_a_gate_that_barely_moves_the_only_circuit_leaves_the_readout_interval()
     result = compare(profile, written(profile, [("x", ops, {"0": 100_000 - ones, "1": ones})]))
     assert result.gates == NoEstimate("the counts do not constrain the gate factor")
     assert covers(result.readout, 1.0) and result.readout.high / result.readout.low < 1.1
+
+
+def test_a_probability_change_below_any_fixed_cutoff_still_moves_the_gate_factor() -> None:
+    profile = one_qubit("tiny", {"ry": {"pauli": [0, 0, 0.01]}})
+    ops = (Op("ry", (0,), (7e-5,)),) * 2
+    counts = written(profile, [(f"c{k}", ops, {"0": 9_999_999_959, "1": 41}) for k in range(10)])
+    result = compare(profile, counts)
+    assert isinstance(result.gates, ErrorFactor) and result.gates.low > 1, result.gates
+
+
+def test_a_change_within_the_rounding_error_does_not_move_a_circuit() -> None:
+    profile = one_qubit("dephased", {"ry": {"pauli": [0, 0, 0]}, "rz": {"pauli": [0, 0, 0.02]}})
+    ops = (Op("ry", (0,), (1.0,)), *(Op("rz", (0,), (0.3,)),) * 5)
+    result = compare(profile, written(profile, [("rz5", ops, {"0": 7702, "1": 2298})]))
+    assert result.gates == NoEstimate("no circuit's outcomes move with gate error")
 
 
 def test_x_then_x_counts_identify_neither_factor() -> None:
