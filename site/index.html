@@ -1,0 +1,1064 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NoiseVault: calibrated noise from real quantum computers</title>
+<meta name="description" content="NoiseVault adds the measured errors of a real quantum computer to your simulations. One profile works in Qiskit, Cirq, PennyLane and Stim, and a fingerprint pins the exact numbers.">
+<link rel="canonical" href="https://dvgyl.github.io/noisevault/">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23fcfcfa'/%3E%3Cpolyline points='3,21 6,15 9,21 12,11 15,21' fill='none' stroke='%23b5590b' stroke-width='2.4' stroke-linejoin='round' stroke-linecap='round'/%3E%3Cpath d='M20 11V25H29' fill='none' stroke='%232f5fe0' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3Ccircle cx='20' cy='9' r='3' fill='%231d1c1a'/%3E%3C/svg%3E">
+<meta name="theme-color" content="#fcfcfa">
+<meta property="og:type" content="website">
+<meta property="og:title" content="NoiseVault: calibrated noise from real quantum computers">
+<meta property="og:description" content="Simulate quantum circuits with the measured noise of a real device. One profile for Qiskit, Cirq, PennyLane and Stim, pinned by a fingerprint.">
+<meta property="og:url" content="https://dvgyl.github.io/noisevault/">
+<meta name="twitter:card" content="summary">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Literata:ital,opsz,wght@0,7..72,400;0,7..72,500;0,7..72,600;1,7..72,400&family=Schibsted+Grotesk:wght@400;500;600&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
+<style>
+:root {
+  --paper: #fcfcfa;
+  --ink: #1d1c1a;
+  --ink-2: #5e5c57;
+  --ink-3: #6f6c66;
+  --rule: #dddbd5;
+  --faint: #ecebe6;
+  --axis: #a19f98;
+  --ok: #2f5fe0;
+  --err: #b5590b;
+  --pass: #0b8a84;
+  --pass-ink: #087570;
+  --amber: #d9a21f;
+  --wm-a: #0b8a84;
+  --wm-b: #2f5fe0;
+  --ground: var(--paper);
+  --term: #15171b;
+  --serif: "Literata", Georgia, "Times New Roman", serif;
+  --sans: "Schibsted Grotesk", "Helvetica Neue", Arial, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+  --text: 600px;
+  --gap: clamp(40px, 4.4vw, 64px);
+  --hang: 50px;
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-io: cubic-bezier(0.65, 0, 0.35, 1);
+  color-scheme: light;
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--paper); color: var(--ink); font: 400 19px/1.66 var(--serif); font-optical-sizing: auto; font-variant-numeric: oldstyle-nums proportional-nums; -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
+a { color: var(--ok); text-decoration: none; background: linear-gradient(currentColor, currentColor) 0 100% / 100% 1px no-repeat; transition: color 160ms var(--ease-out); }
+a:hover { color: var(--ink); }
+code { font-family: var(--mono); font-size: 0.8em; font-variant-ligatures: none; white-space: nowrap; }
+:focus-visible { outline: 2px solid var(--ok); outline-offset: 3px; border-radius: 2px; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+p { margin: 0; }
+figure { margin: 0; }
+
+/* one grid for the whole page: text column, figure column; numbers hang in the margin */
+.wrap { max-width: 1320px; margin: 0 auto; padding: 0 clamp(20px, 6vw, 88px); }
+.cols { display: grid; grid-template-columns: minmax(0, var(--text)) minmax(0, 1fr); column-gap: var(--gap); }
+
+/* masthead */
+.mast { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; padding: 24px 0 16px; border-bottom: 1px solid var(--ink); }
+.mast svg { display: block; width: 210px; height: auto; }
+.mast nav { display: flex; gap: 6px 24px; flex-wrap: wrap; justify-content: flex-end; font: 500 14.5px var(--sans); }
+.mast nav a { color: var(--ink); background-size: 0 1px; transition: background-size 260ms var(--ease-out), color 160ms; }
+.mast nav a:hover { background-size: 100% 1px; color: var(--ink); }
+.logo .wm { clip-path: inset(0 100% 0 0); animation: wipe 900ms var(--ease-out) 100ms forwards; }
+.logo .trace { stroke-dasharray: 1; stroke-dashoffset: 1; animation: draw 1100ms var(--ease-io) 450ms forwards; }
+.logo .flat { stroke-dasharray: 1; stroke-dashoffset: 1; animation: draw 700ms var(--ease-out) 1650ms forwards; }
+.logo .pin { opacity: 0; transform-box: fill-box; transform-origin: center; animation: pin 420ms var(--ease-out) 1500ms forwards; }
+@keyframes wipe { to { clip-path: inset(0 0 0 0); } }
+@keyframes draw { to { stroke-dashoffset: 0; } }
+@keyframes pin { from { opacity: 0; transform: scale(0.4); } to { opacity: 1; transform: none; } }
+
+/* opening: title and abstract on the left, figure 1 on the right */
+.hero { display: grid; grid-template-columns: minmax(0, 1.12fr) minmax(0, 1fr); column-gap: clamp(36px, 5vw, 84px); align-items: center; padding: clamp(32px, 7vh, 72px) 0 clamp(36px, 7vh, 72px); border-bottom: 1px solid var(--rule); }
+.hero h1 { font: 500 clamp(28px, 2.75vw, 40px)/1.14 var(--serif); font-variation-settings: "opsz" 72; letter-spacing: -0.02em; margin: 0 0 18px; max-width: 28ch; font-variant-numeric: lining-nums; text-wrap: balance; }
+.author { font-size: 18px; }
+.meta { margin-top: 2px; font: 400 14px/1.5 var(--sans); color: var(--ink-2); }
+.meta span { white-space: nowrap; }
+.abstract { margin-top: clamp(24px, 4vh, 36px); padding-top: clamp(20px, 3vh, 28px); border-top: 1px solid var(--rule); }
+.label { font: 600 12px/1 var(--sans); letter-spacing: 0.09em; text-transform: uppercase; color: var(--ink-2); margin: 0 0 12px; }
+.abstract p { font-size: 18.5px; line-height: 1.62; max-width: 36em; }
+.hero-text > * { animation: rise 900ms var(--ease-out) backwards; }
+.hero-text > :nth-child(2) { animation-delay: 60ms; } .hero-text > :nth-child(3) { animation-delay: 110ms; } .hero-text > :nth-child(4) { animation-delay: 170ms; }
+.hero-fig { animation: rise 900ms var(--ease-out) 200ms backwards; }
+@keyframes rise { from { opacity: 0; transform: translateY(12px); } }
+
+/* defined terms: dotted underline, the definition opens on hover, tap or focus */
+.term { font-style: italic; cursor: help; background: linear-gradient(90deg, var(--err) 50%, transparent 0) 0 100% / 4px 1.5px repeat-x; padding-bottom: 1px; transition: color 160ms var(--ease-out); }
+.term:hover, .term:focus-visible { color: var(--err); outline: none; }
+
+/* headings and section numbers on the rail */
+h2 { position: relative; font: 600 clamp(26px, 2.3vw, 31px)/1.2 var(--serif); font-variation-settings: "opsz" 48; letter-spacing: -0.012em; margin: 0 0 14px; font-variant-numeric: lining-nums; }
+.n { position: absolute; left: calc(-1 * var(--hang)); top: 0.12em; width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; background: var(--paper); border: 1.5px solid var(--rule); color: var(--ink-3); font: 600 12.5px/1 var(--sans); font-variant-numeric: lining-nums; transition: background-color 300ms var(--ease-out), border-color 300ms var(--ease-out), color 300ms var(--ease-out), transform 300ms var(--ease-out); }
+a.n:hover { transform: scale(1.12); color: var(--ink); }
+.step.done .n, .static .n { border-color: var(--ink); color: var(--ink); }
+.step.on .n { background: var(--err); border-color: var(--err); color: #fff; transform: scale(1.12); }
+.rail { position: absolute; left: calc(-1 * var(--hang) + 12px); width: 1.5px; background: var(--rule); }
+.rail-fill { position: absolute; inset: 0; background: var(--ink); transform-origin: top; transform: scaleY(0); }
+.prose p + p { margin-top: 0.9em; }
+
+/* figure text: a sans face separates it from the reading text */
+figcaption { font: 400 14px/1.5 var(--sans); color: var(--ink-2); font-variant-numeric: lining-nums; }
+figcaption b { font-weight: 600; color: var(--ink); margin-right: 4px; }
+.plot > svg { display: block; width: 100%; height: auto; overflow: visible; }
+.t { font-family: var(--sans); fill: var(--ink-2); font-size: 14px; font-variant-numeric: lining-nums; }
+.t-ink { fill: var(--ink); }
+.t-mono { font-family: var(--mono); font-size: 12.5px; fill: var(--ink-2); }
+.t-panel { font: 600 16px var(--sans); fill: var(--ink); }
+.halo { paint-order: stroke; stroke: var(--paper); stroke-width: 5px; stroke-linejoin: round; }
+
+/* figure 1 */
+.teaser { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: clamp(16px, 2vw, 28px); }
+.teaser canvas { width: 100%; aspect-ratio: 1; display: block; }
+.teaser p { margin-top: 12px; display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.who { font: 500 14px/1.3 var(--sans); color: var(--ink); }
+.tally { font: 400 13px/1 var(--sans); color: var(--ink-2); white-space: nowrap; }
+.tally b { font: 500 28px/1 var(--serif); font-variant-numeric: lining-nums tabular-nums; color: var(--ink-3); margin-right: 3px; }
+.tally.bad b { color: var(--err); }
+.hero-fig figcaption { margin-top: 16px; }
+
+/* the story */
+.story { margin-top: 24px; }
+.steps { position: relative; grid-column: 1; grid-row: 1; padding: 14vh 0 32vh; }
+.step { min-height: 86vh; }
+.step:last-child { min-height: 0; }
+.step > p { max-width: 33em; }
+.stage-wrap { grid-column: 2; grid-row: 1; align-self: start; position: sticky; top: 0; height: 100vh; }
+.stage { position: relative; height: 100%; }
+.sfig { position: absolute; inset: 9vh 0 7vh; display: flex; flex-direction: column; justify-content: center; opacity: 0; transform: translateY(16px) scale(0.99); transition: opacity 200ms ease-out, transform 200ms ease-out; pointer-events: none; }
+.sfig.on { opacity: 1; transform: none; pointer-events: auto; transition: opacity 600ms var(--ease-out) 140ms, transform 800ms var(--ease-out) 140ms; }
+.sfig .plot { flex: 0 1 auto; min-height: 0; display: flex; align-items: center; justify-content: center; }
+.sfig .plot > svg { width: 100%; height: 100%; max-height: 72vh; }
+.sfig.tab .plot { overflow: auto; align-items: flex-start; }
+.sfig.tab .plot > * { margin: auto 0; }
+.sfig figcaption { flex: none; margin-top: 14px; max-width: 46em; }
+.sfig.tab figcaption { order: -1; margin: 0 0 10px; }
+.sfig .t { font-size: 12px; }
+.sfig .t-mono { font-size: 11px; }
+.sfig .t-panel { font-size: 13.5px; }
+.sfig .halo { stroke-width: 4px; }
+.sfig .wide { display: none; }
+
+/* tables */
+.tbl { width: 100%; border-collapse: collapse; font: 400 14.5px var(--sans); font-variant-numeric: lining-nums; }
+.tbl th { font-weight: 600; text-align: left; padding: 9px 10px 8px; border-top: 1.5px solid var(--ink); border-bottom: 0.75px solid var(--ink); white-space: nowrap; }
+.tbl td { padding: 0 10px; height: 40px; vertical-align: middle; }
+.tbl tbody tr:last-child td { border-bottom: 1.5px solid var(--ink); }
+.tbl tbody tr { transition: background-color 160ms var(--ease-out); }
+@media (hover: hover) and (pointer: fine) { .tbl tbody tr:hover { background: var(--faint); } }
+.tbl .num { text-align: right; }
+.tbl td.num { font-family: var(--mono); font-size: 0.88em; font-variant-ligatures: none; }
+.tbl .ok { color: var(--pass-ink); font-weight: 600; white-space: nowrap; }
+.tag { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; white-space: nowrap; }
+.tag i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.four { width: 100%; }
+.four > svg { display: none; }
+.scroll-x { overflow-x: auto; }
+#fleet-table td { height: 36px; }
+#fleet-table code { font-size: 0.9em; }
+#fleet-table th button { all: unset; cursor: pointer; transition: color 160ms; }
+#fleet-table th button:hover { color: var(--ok); }
+#fleet-table th button:focus-visible { outline: 2px solid var(--ok); outline-offset: 2px; }
+#fleet-table th[aria-sort] button::after { content: " ↓"; color: var(--err); }
+#fleet-table th[aria-sort="ascending"] button::after { content: " ↑"; }
+.bar { display: inline-block; height: 5px; border-radius: 3px; background: var(--ok); vertical-align: middle; margin-right: 10px; opacity: 0.75; }
+
+/* back matter */
+.back { padding: 8px 0 110px; }
+.back > * { grid-column: 1; }
+.back > .span, .back > .wide-sec { grid-column: 1 / -1; }
+.back > .sec { margin-top: 96px; }
+.more { display: inline-flex; align-items: center; gap: 10px; padding: 10px 16px; border: 1px solid var(--rule); border-radius: 8px; background: #fff; color: var(--ink); font: 500 14.5px var(--sans); cursor: pointer; transition: border-color 160ms var(--ease-out), transform 120ms var(--ease-out); }
+.more:hover { border-color: var(--axis); }
+.more:active { transform: scale(0.98); }
+.more::after { content: ""; width: 7px; height: 7px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: translateY(-2px) rotate(45deg); transition: transform 300ms var(--ease-out); }
+.more[aria-expanded="true"]::after { transform: translateY(2px) rotate(-135deg); }
+.collapse { display: grid; grid-template-rows: 0fr; transition: grid-template-rows 520ms var(--ease-out); }
+.collapse.open { grid-template-rows: 1fr; }
+.collapse > div { overflow: hidden; min-height: 0; }
+.collapse figcaption { margin: 22px 0 10px; }
+.collapse tbody tr { opacity: 0; transform: translateY(6px); }
+.collapse.open tbody tr { opacity: 1; transform: none; transition: opacity 400ms var(--ease-out), transform 400ms var(--ease-out); transition-delay: calc(var(--i) * 18ms + 120ms); }
+
+/* get started */
+.howto { list-style: none; margin: 30px 0 0; padding: 0; }
+.howto li { position: relative; display: grid; grid-template-columns: minmax(0, 250px) minmax(0, 1fr); column-gap: var(--gap); padding-bottom: 44px; }
+.howto li:last-child { padding-bottom: 0; }
+.howto li::before { content: ""; position: absolute; left: calc(-1 * var(--hang) + 12px); top: 30px; bottom: 4px; width: 1.5px; background: var(--rule); }
+.howto li:last-child::before { display: none; }
+.howto .num { position: absolute; left: calc(-1 * var(--hang)); top: 2px; width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; background: var(--pass-ink); color: #fff; font: 600 12.5px/1 var(--sans); }
+.howto h3 { font: 600 20px/1.3 var(--serif); margin: 0 0 6px; }
+.howto p { font-size: 17px; color: var(--ink-2); }
+.win { background: var(--term); border-radius: 10px; overflow: hidden; box-shadow: 0 1px 0 rgb(255 255 255 / 0.05) inset, 0 18px 40px -24px rgb(20 20 30 / 0.55); min-width: 0; }
+.win-bar { display: flex; align-items: center; gap: 12px; height: 36px; padding: 0 8px 0 14px; background: #1e2126; border-bottom: 1px solid rgb(255 255 255 / 0.06); }
+.dots { display: flex; gap: 7px; }
+.dots i { width: 11px; height: 11px; border-radius: 50%; background: #ff5f57; }
+.dots i:nth-child(2) { background: #febc2e; } .dots i:nth-child(3) { background: #28c840; }
+.win-title { flex: 1; text-align: center; font: 500 12.5px var(--sans); color: #9aa1ab; margin-right: 40px; }
+.copy { height: 24px; padding: 0 10px; border: 1px solid rgb(255 255 255 / 0.12); border-radius: 6px; background: transparent; color: #c9cfd6; font: 500 12px var(--sans); cursor: pointer; transition: background-color 160ms var(--ease-out), color 160ms, transform 120ms var(--ease-out); }
+.copy:hover { background: rgb(255 255 255 / 0.08); }
+.copy:active { transform: scale(0.95); }
+.copy[data-done] { color: #6ee7b7; border-color: rgb(110 231 183 / 0.4); }
+.win pre { margin: 0; padding: 16px 18px 18px; font: 400 13.5px/1.68 var(--mono); font-variant-ligatures: none; color: #e6e9ee; overflow-x: auto; white-space: pre; }
+.win .p { color: #5fd3c6; user-select: none; }
+.win .o { color: #8f98a3; }
+.win .k { color: #8fb3ff; } .win .s { color: #9fe0a0; } .win .nm { color: #ffb37a; }
+.win .h { color: #8fb3ff; }
+.caret { display: inline-block; width: 8px; height: 1.15em; vertical-align: -0.22em; background: #5fd3c6; animation: blink 1s steps(1) infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+.win.played .ln { animation: lnin 360ms var(--ease-out) backwards; animation-delay: calc(var(--i) * 45ms); }
+@keyframes lnin { from { opacity: 0; transform: translateX(-4px); } }
+
+/* limitations */
+.limits { list-style: none; margin: 22px 0 22px; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.limits li { position: relative; padding: 14px 16px 14px 46px; border: 1px solid var(--rule); border-radius: 10px; background: #fff; opacity: 0; transform: translateY(10px); transition: opacity 500ms var(--ease-out), transform 500ms var(--ease-out), border-color 200ms; transition-delay: calc(var(--i) * 70ms); }
+.limits.in li { opacity: 1; transform: none; }
+.limits li:hover { border-color: var(--axis); }
+.limits li::before { content: "×"; position: absolute; left: 14px; top: 13px; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; background: color-mix(in srgb, var(--err) 12%, white); color: var(--err); font: 600 16px/1 var(--sans); }
+.limits b { display: block; font: 600 15px/1.3 var(--sans); }
+.limits span { display: block; font: 400 14px/1.45 var(--sans); color: var(--ink-2); margin-top: 2px; }
+
+/* citation tabs */
+.tabs { position: relative; display: flex; gap: 4px; margin: 22px 0 12px; border-bottom: 1px solid var(--rule); }
+.tabs button { all: unset; cursor: pointer; padding: 8px 12px 10px; font: 500 14.5px var(--sans); color: var(--ink-2); transition: color 160ms; }
+.tabs button[aria-selected="true"] { color: var(--ink); }
+.tabs button:focus-visible { outline: 2px solid var(--ok); outline-offset: -2px; }
+.tab-ind { position: absolute; bottom: -1px; left: 0; height: 2px; background: var(--err); width: var(--w, 0); transform: translateX(var(--x, 0)); transition: transform 380ms var(--ease-out), width 380ms var(--ease-out); }
+.tabpanel[hidden] { display: none; }
+.tabpanel.enter { animation: rise 420ms var(--ease-out); }
+.refs { margin: 26px 0 0; padding: 0; list-style: none; counter-reset: ref; font: 400 14.5px/1.6 var(--sans); color: var(--ink-2); }
+.refs li { counter-increment: ref; padding-left: 1.6em; text-indent: -1.6em; }
+.refs li::before { content: counter(ref) "."; display: inline-block; width: 1.6em; text-indent: 0; color: var(--ink-3); }
+.refs-h { font: 600 12.5px/1 var(--sans); letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-2); margin-top: 36px; }
+
+/* tooltip, also used for the definitions */
+#tip { position: fixed; z-index: 10; left: 0; top: 0; max-width: 300px; padding: 9px 12px; border-radius: 8px; background: var(--ink); color: #f4f3ef; font: 400 14px/1.45 var(--sans); font-variant-numeric: lining-nums; pointer-events: none; opacity: 0; transform: translateY(4px); transition: opacity 140ms ease-out, transform 200ms var(--ease-out); box-shadow: 0 10px 24px -12px rgb(20 15 5 / 0.5); }
+#tip.on { opacity: 1; transform: none; }
+@media (hover: hover) and (pointer: fine) { svg [data-tip]:hover { stroke: var(--ink); stroke-width: 1.4px; } }
+
+/* paragraphs and headings rise into place as they scroll into view */
+@supports (animation-timeline: view()) {
+  .step > p, .step > h2, .sec > p, .sec > h2, .howto li, .tabs, .more { animation: reveal linear both; animation-timeline: view(); animation-range: entry 5% entry 50%; }
+}
+@keyframes reveal { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: none; } }
+
+@media (max-width: 899px) {
+  body { font-size: 17.5px; }
+  .cols { display: block; }
+  .mast { flex-wrap: wrap; }
+  .mast svg { width: 150px; }
+  .mast nav { font-size: 13.5px; gap: 4px 16px; }
+  .hero { display: block; padding: 28px 0 32px; }
+  .hero-fig { margin-top: 28px; }
+  .abstract p { font-size: 17.5px; }
+  .tally b { font-size: 24px; }
+  .n { position: static; display: inline-grid; margin-right: 10px; vertical-align: 0.15em; }
+  .rail { display: none; }
+  .stage-wrap { position: sticky; top: 0; height: 50svh; z-index: 3; background: var(--paper); border-bottom: 1px solid var(--rule); margin: 0 calc(-1 * clamp(20px, 6vw, 88px)); }
+  .sfig { inset: 12px 16px; }
+  .sfig figcaption { display: none; }
+  .sfig .plot > svg { max-height: none; }
+  .steps { padding: 6svh 0 36svh; }
+  .step { min-height: 72svh; }
+  .back > .sec { margin-top: 64px; }
+  .howto li { grid-template-columns: 1fr; row-gap: 14px; padding-left: 40px; }
+  .howto li::before { left: 12px; }
+  .howto .num { left: 0; }
+  .limits { grid-template-columns: 1fr; }
+  .tbl th, .tbl td { padding-left: 6px; padding-right: 6px; }
+  .tbl .wide { display: none; }
+  #fleet-table .wide, #fleet-table .bar { display: none; }
+  .teaser p { flex-direction: column; align-items: flex-start; gap: 6px; }
+  .win pre { font-size: 12.5px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+  .logo .wm { clip-path: none; } .logo .trace, .logo .flat { stroke-dashoffset: 0; } .logo .pin { opacity: 1; }
+  .limits li, .collapse tbody tr { opacity: 1; transform: none; }
+}
+</style>
+</head>
+<body>
+<main class="wrap">
+  <div class="mast">
+    <svg class="logo" viewBox="0 0 986 216" role="img" aria-labelledby="logo-t"><title id="logo-t">NoiseVault</title><defs><linearGradient id="g" gradientUnits="userSpaceOnUse" x1="8" y1="0" x2="978" y2="0"><stop offset="0" stop-color="var(--wm-a)"/><stop offset="1" stop-color="var(--wm-b)"/></linearGradient></defs><g class="wm"><g fill="url(#g)" shape-rendering="crispEdges"><rect x="8" y="8" width="20" height="20"/><rect x="88" y="8" width="20" height="20"/><rect x="138" y="8" width="40" height="20"/><rect x="208" y="8" width="60" height="20"/><rect x="298" y="8" width="60" height="20"/><rect x="368" y="8" width="80" height="20"/><rect x="498" y="8" width="20" height="20"/><rect x="578" y="8" width="20" height="20"/><rect x="628" y="8" width="40" height="20"/><rect x="698" y="8" width="20" height="20"/><rect x="758" y="8" width="20" height="20"/><rect x="788" y="8" width="20" height="20"/><rect x="878" y="8" width="100" height="20"/><rect x="8" y="28" width="40" height="20"/><rect x="88" y="28" width="20" height="20"/><rect x="118" y="28" width="20" height="20"/><rect x="178" y="28" width="20" height="20"/><rect x="228" y="28" width="20" height="20"/><rect x="278" y="28" width="20" height="20"/><rect x="368" y="28" width="20" height="20"/><rect x="498" y="28" width="20" height="20"/><rect x="578" y="28" width="20" height="20"/><rect x="608" y="28" width="20" height="20"/><rect x="668" y="28" width="20" height="20"/><rect x="698" y="28" width="20" height="20"/><rect x="758" y="28" width="20" height="20"/><rect x="788" y="28" width="20" height="20"/><rect x="918" y="28" width="20" height="20"/><rect x="8" y="48" width="20" height="20"/><rect x="48" y="48" width="20" height="20"/><rect x="88" y="48" width="20" height="20"/><rect x="118" y="48" width="20" height="20"/><rect x="178" y="48" width="20" height="20"/><rect x="228" y="48" width="20" height="20"/><rect x="298" y="48" width="40" height="20"/><rect x="368" y="48" width="60" height="20"/><rect x="498" y="48" width="20" height="20"/><rect x="578" y="48" width="20" height="20"/><rect x="608" y="48" width="80" height="20"/><rect x="698" y="48" width="20" height="20"/><rect x="758" y="48" width="20" height="20"/><rect x="788" y="48" width="20" height="20"/><rect x="918" y="48" width="20" height="20"/><rect x="8" y="68" width="20" height="20"/><rect x="68" y="68" width="40" height="20"/><rect x="118" y="68" width="20" height="20"/><rect x="178" y="68" width="20" height="20"/><rect x="228" y="68" width="20" height="20"/><rect x="338" y="68" width="20" height="20"/><rect x="368" y="68" width="20" height="20"/><rect x="518" y="68" width="20" height="20"/><rect x="558" y="68" width="20" height="20"/><rect x="608" y="68" width="20" height="20"/><rect x="668" y="68" width="20" height="20"/><rect x="698" y="68" width="20" height="20"/><rect x="758" y="68" width="20" height="20"/><rect x="788" y="68" width="20" height="20"/><rect x="918" y="68" width="20" height="20"/><rect x="8" y="88" width="20" height="20"/><rect x="88" y="88" width="20" height="20"/><rect x="138" y="88" width="40" height="20"/><rect x="208" y="88" width="60" height="20"/><rect x="278" y="88" width="60" height="20"/><rect x="368" y="88" width="80" height="20"/><rect x="538" y="88" width="20" height="20"/><rect x="608" y="88" width="20" height="20"/><rect x="668" y="88" width="20" height="20"/><rect x="718" y="88" width="40" height="20"/><rect x="788" y="88" width="80" height="20"/><rect x="918" y="88" width="20" height="20"/></g></g><path class="trace" pathLength="1" d="M8 208L18 188L28 208L38 188L48 208L68 168L88 208L108 168L118 168L138 208L148 188L158 208L168 188L178 208L188 208L198 188L208 208L228 168L248 208L268 168L278 168L298 208L308 208L318 188L328 188L338 168L348 168L358 188L368 188L378 208L398 168L408 188L418 188L428 168L438 188L448 168L468 208L478 188" stroke="var(--err)" fill="none" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/><path class="flat" pathLength="1" d="M483 138L483 208L978 208" stroke="var(--ok)" fill="none" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/><g class="pin"><circle cx="483" cy="138" r="15" fill="var(--ok)" opacity="0.3"/><circle cx="483" cy="138" r="7.5" fill="var(--ink)"/></g></svg>
+    <nav aria-label="Links"><a href="https://github.com/dvgyl/noisevault">Source code</a><a href="https://github.com/dvgyl/noisevault#documentation">Documentation</a><a href="#s8">Get started</a><a href="#cite">Cite</a></nav>
+  </div>
+
+  <div class="hero">
+    <div class="hero-text">
+      <h1>NoiseVault: calibrated noise from real quantum computers for circuit simulation</h1>
+      <p class="author">Dev D. Goyal</p>
+      <p class="meta"><span><a href="https://github.com/dvgyl/noisevault/releases/tag/v__VERSION__">Version __VERSION__</a>, released __RELEASED__.</span> <span>Apache-2.0.</span> <span>Python 3.11 to 3.14.</span></p>
+      <section class="abstract" id="abstract" aria-labelledby="h-abs">
+        <h2 class="label" id="h-abs">Abstract</h2>
+        <p>Quantum computers make errors, but most simulators ignore them. NoiseVault adds the measured errors of a real quantum computer to your simulations. One file, a profile, works in Qiskit, Cirq, PennyLane and Stim. A fingerprint pins the exact numbers, so others can rerun your work. The package includes 25 devices from IBM, Quantinuum and Google.</p>
+      </section>
+    </div>
+    <figure data-fig="teaser" class="hero-fig">
+      <div class="plot teaser">
+        <div><canvas data-side="ideal" role="img" aria-label="1,024 runs on an ideal simulator. All runs are correct."></canvas><p><span class="who">Ideal simulator</span><span class="tally"><b>0</b> wrong</span></p></div>
+        <div><canvas data-side="noisy" role="img" aria-label="1,024 runs with the IBM Fez profile. 27 runs are wrong."></canvas><p><span class="who">IBM Fez profile</span><span class="tally bad"><b id="teaser-count">0</b> wrong</span></p></div>
+      </div>
+      <figcaption><b>Figure 1.</b>The same three-qubit circuit, run 1,024 times. Each square is one run. Red squares are wrong results.</figcaption>
+    </figure>
+  </div>
+
+<section class="story cols" aria-label="Sections 1 to 7">
+  <div class="stage-wrap">
+    <div class="stage">
+        <figure class="sfig" data-fig="chip"><div class="plot"></div><figcaption><b>Figure 2.</b>(a) Each qubit at its place on the chip. Lines connect qubits that interact. (b) The 156 values, on the same color scale. Data: IBM Quantum, 26 February 2025.</figcaption></figure>
+        <figure class="sfig" data-fig="ghz"><div class="plot"></div><figcaption><b>Figure 3.</b>(a) The GHZ circuit. (b) Results of 1,024 runs in Qiskit Aer. Dashed outlines show the ideal result.</figcaption></figure>
+        <figure class="sfig tab" data-fig="four"><div class="plot"></div><figcaption><b>Table 1.</b><code>nv check ibm_fez</code>. The dot shows deviation ÷ tolerance. Below 1 is a pass. A pass tests the conversion, not the hardware.</figcaption></figure>
+        <figure class="sfig" data-fig="hash"><div class="plot"></div><figcaption><b>Figure 4.</b>The 256 bits of each fingerprint. Red cells changed.</figcaption></figure>
+        <figure class="sfig tab" data-fig="report"><div class="plot"></div><figcaption><b>Table 2.</b>The report of the Qiskit conversion of IBM Fez, shortened.</figcaption></figure>
+        <figure class="sfig" data-fig="compare"><div class="plot"></div><figcaption><b>Figure 5.</b>Simulated counts, 4,000 runs for each circuit. (a) TVD, the distance to the counts (0 is identical). Grey bars: sampling noise. (b) Fitted factors. Triangles: true values.</figcaption></figure>
+        <figure class="sfig" data-fig="fleet"><div class="plot"></div><figcaption><b>Figure 6.</b>(a) The median errors of each device. Larger dots have more qubits. (b) The date of each calibration.</figcaption></figure>
+    </div>
+  </div>
+  <div class="steps prose">
+    <div class="rail" aria-hidden="true"><div class="rail-fill"></div></div>
+      <article class="step" id="s1" data-fig="chip" data-title="Device noise">
+        <h2><a class="n" href="#s1" aria-label="Section 1">1</a>Device noise</h2>
+        <p>Every <dfn class="term" tabindex="0" data-tip="The basic unit of a quantum computer. A qubit holds 0, 1 or a mix of both.">qubit</dfn><span class="sr-only"> (The basic unit of a quantum computer. A qubit holds 0, 1 or a mix of both.)</span> on a real chip makes errors at its own rate. The manufacturer measures these rates in a <dfn class="term" tabindex="0" data-tip="A regular measurement of the error rates of each qubit. The rates change from one calibration to the next.">calibration</dfn><span class="sr-only"> (A regular measurement of the error rates of each qubit. The rates change from one calibration to the next.)</span>.</p>
+        <p>On IBM Fez, the <dfn class="term" tabindex="0" data-tip="The chance that a measurement gives the wrong bit.">readout error</dfn><span class="sr-only"> (The chance that a measurement gives the wrong bit.)</span> goes from 0.15% to 10.6% across its 156 qubits.</p>
+      </article>
+      <article class="step" id="s2" data-fig="ghz" data-title="Simulation with a profile">
+        <h2><a class="n" href="#s2" aria-label="Section 2">2</a>Simulation with a profile</h2>
+        <p>An ideal <dfn class="term" tabindex="0" data-tip="A program that calculates the results of a quantum computer.">simulator</dfn><span class="sr-only"> (A program that calculates the results of a quantum computer.)</span> adds no errors. In a <dfn class="term" tabindex="0" data-tip="A circuit that links qubits so that their measurements always agree.">GHZ circuit</dfn><span class="sr-only"> (A circuit that links qubits so that their measurements always agree.)</span>, all three qubits must agree, so each run gives 000 or 111.</p>
+        <p>With the IBM Fez profile, 27 of 1,024 runs give a wrong result.</p>
+      </article>
+      <article class="step" id="s3" data-fig="four" data-title="One profile, four simulators">
+        <h2><a class="n" href="#s3" aria-label="Section 3">3</a>One profile, four simulators</h2>
+        <p>Each simulator describes noise in its own format. NoiseVault converts one <dfn class="term" tabindex="0" data-tip="One file with the measured error rates of one device on one date.">profile</dfn><span class="sr-only"> (One file with the measured error rates of one device on one date.)</span> into all four.</p>
+        <p><code>nv check</code> confirms that each conversion matches an exact reference calculation.</p>
+      </article>
+      <article class="step" id="s4" data-fig="hash" data-title="A fingerprint for each profile">
+        <h2><a class="n" href="#s4" aria-label="Section 4">4</a>A fingerprint for each profile</h2>
+        <p>Each profile has a <dfn class="term" tabindex="0" data-tip="A SHA-256 hash: a 256-bit code calculated from every number in the profile.">fingerprint</dfn><span class="sr-only"> (A SHA-256 hash: a 256-bit code calculated from every number in the profile.)</span>. Change one number by 1%, and 116 of the 256 bits change.</p>
+        <p>Put the fingerprint in your paper. If the numbers differ, the load stops with an error.</p>
+      </article>
+      <article class="step" id="s5" data-fig="report" data-title="A report of each conversion">
+        <h2><a class="n" href="#s5" aria-label="Section 5">5</a>A report of each conversion</h2>
+        <p>A simulator cannot always represent every effect. Each conversion comes with a <dfn class="term" tabindex="0" data-tip="A list, saved with your results, of what the noise model includes.">report</dfn><span class="sr-only"> (A list, saved with your results, of what the noise model includes.)</span> of what is exact, approximated or missing.</p>
+      </article>
+      <article class="step" id="s6" data-fig="compare" data-title="Comparison with a real device">
+        <h2><a class="n" href="#s6" aria-label="Section 6">6</a>Comparison with a real device</h2>
+        <p><code>nv compare</code> scores a profile against counts from a real device. It fits two <dfn class="term" tabindex="0" data-tip="How much the gate errors and the readout errors must be multiplied to match the counts.">factors</dfn><span class="sr-only"> (How much the gate errors and the readout errors must be multiplied to match the counts.)</span>, each with a 95% interval.</p>
+        <p>Here the counts are simulated with known factors, and both intervals contain the true values. No real-device counts have been compared yet.</p>
+      </article>
+      <article class="step" id="s7" data-fig="fleet" data-title="25 devices included">
+        <h2><a class="n" href="#s7" aria-label="Section 7">7</a>25 devices included</h2>
+        <p>The package includes 25 devices: 18 from IBM, 5 from Quantinuum and 2 from Google. They load offline, with no account.</p>
+        <p><code>nv pull</code> gets newer calibrations from IBM.</p>
+      </article>
+  </div>
+  <p class="sr-only" aria-live="polite" id="announce"></p>
+</section>
+
+  <div class="back cols">
+    <figure class="span list">
+      <button class="more" type="button" aria-expanded="false" aria-controls="fleet-wrap">Show all 25 profiles</button>
+      <div class="collapse" id="fleet-wrap"><div>
+        <figcaption><b>Table 3.</b>All bundled profiles. Select a column heading to sort.</figcaption>
+        <div class="scroll-x"><table class="tbl" id="fleet-table"></table></div>
+      </div></div>
+    </figure>
+
+    <section class="sec wide-sec static" id="s8" aria-labelledby="h8">
+      <h2 id="h8"><span class="n">8</span>Get started</h2>
+      <p>NoiseVault needs Python 3.11 to 3.14.</p>
+      <ol class="howto">
+        <li><span class="num" aria-hidden="true">1</span><div><h3>Try it without an install</h3><p>This needs <a href="https://docs.astral.sh/uv/">uv</a>. It prints the IBM Fez profile.</p></div><div class="win" data-win="0"></div></li>
+        <li><span class="num" aria-hidden="true">2</span><div><h3>Install for your simulator</h3><p>Use <code>cirq</code>, <code>pennylane</code> or <code>stim</code> in place of <code>qiskit</code>.</p></div><div class="win" data-win="1"></div></li>
+        <li><span class="num" aria-hidden="true">3</span><div><h3>Simulate with real noise</h3><p>The circuit from Figure 3. It runs offline.</p></div><div class="win" data-win="2"></div></li>
+      </ol>
+    </section>
+
+    <section class="sec prose static" id="s9" aria-labelledby="h9">
+      <h2 id="h9"><span class="n">9</span>Limitations</h2>
+      <p>The models use average error rates and treat each error as independent. They do not include:</p>
+      <ul class="limits">
+      <li style="--i:0"><b>Crosstalk</b><span>An operation on one qubit disturbs its neighbors.</span></li>
+      <li style="--i:1"><b>Leakage</b><span>A qubit leaves its two working states.</span></li>
+      <li style="--i:2"><b>Coherent errors</b><span>Small rotation errors add up in a systematic way.</span></li>
+      <li style="--i:3"><b>Idle noise</b><span>Errors while a qubit waits, unless the circuit has explicit delays.</span></li>
+      <li style="--i:4"><b>Correlated readout</b><span>Readout errors that depend on each other.</span></li>
+      </ul>
+      <p>The model approximates the hardware. It is not a copy. The <a href="https://github.com/dvgyl/noisevault/blob/main/docs/limitations.md">limitations page</a> gives the full list.</p>
+    </section>
+
+    <section class="sec prose" id="cite" aria-labelledby="hc">
+      <h2 id="hc">Citation</h2>
+      <p>Cite the software and the fingerprint of each profile that you used.</p>
+      <div class="tabs" role="tablist" aria-label="Citation format"><button role="tab" id="tab-0" aria-selected="true" aria-controls="cite-0">Software</button><button role="tab" id="tab-1" aria-selected="false" aria-controls="cite-1" tabindex="-1">One profile</button><span class="tab-ind"></span></div>
+      <div class="tabpanel" role="tabpanel" id="cite-0" aria-labelledby="tab-0"><div class="win" data-win="3"></div></div>
+      <div class="tabpanel" role="tabpanel" id="cite-1" aria-labelledby="tab-1" hidden><div class="win" data-win="4"></div></div>
+      <p class="refs-h">Data sources</p>
+      <ol class="refs">
+        <li>IBM Quantum. Fake backends in <a href="https://github.com/Qiskit/qiskit-ibm-runtime">qiskit-ibm-runtime</a>. Apache-2.0.</li>
+        <li>Quantinuum. <a href="https://github.com/Quantinuum/quantinuum-hardware-specifications">Hardware specifications</a> repository. Apache-2.0.</li>
+        <li>Google Quantum AI. Calibrations in <a href="https://github.com/quantumlib/Cirq/tree/main/cirq-google">cirq-google</a>. Apache-2.0.</li>
+      </ol>
+    </section>
+  </div>
+</main>
+
+<script>
+/* scripts/build_site.py fills DATA from the bundled profiles, CITATION.cff and real nv output. */
+const DATA = __DATA__;
+/* Chart data. The results come from DATA, which reads the outputs documented in README.md. */
+const CHARTS = {
+  ghz: {
+    order: ["000", "001", "010", "011", "100", "101", "110", "111"],
+    ideal: { "000": 512, "111": 512 },
+    noisy: DATA.ghz,
+  },
+  check: DATA.check,
+  report: [
+    { tag: "Exact", c: "--pass", text: "Errors of every gate on every qubit and qubit pair" },
+    { tag: "Approximated", c: "--ok", text: "The two-qubit error already contains some one-qubit error" },
+    { tag: "Approximated", c: "--ok", text: "T2 of qubit 87 lowered to 2 × T1, the physical limit" },
+    { tag: "Clamped", c: "--err", text: "82 gates noisier than stated, because energy loss alone is larger" },
+    { tag: "Not modeled", c: "--ink-2", text: "Noise while a qubit waits, outside explicit delays" },
+    { tag: "Unknown", c: "--ink-2", text: "Reset error of the 156 qubits, so none is added" },
+  ],
+  compare: DATA.compare,
+};
+const { ghz: GHZ, check: CHECK, report: REPORT, compare: COMPARE } = CHARTS;
+
+/* ---------- small helpers ---------- */
+const NS = "http://www.w3.org/2000/svg";
+const S = (parent, tag, attrs = {}, text) => {
+  const e = document.createElementNS(NS, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  if (text != null) e.textContent = text;
+  parent.appendChild(e);
+  return e;
+};
+const clamp = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v));
+const seg = (p, a, b) => clamp((p - a) / (b - a));
+const lerp = (a, b, t) => a + (b - a) * t;
+const ease = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
+const eout = (t) => 1 - Math.pow(1 - t, 3);
+const wave = (t, d) => clamp((t - d * 0.4) / 0.6);
+const lin = (d0, d1, r0, r1) => (v) => r0 + ((v - d0) / (d1 - d0)) * (r1 - r0);
+const logS = (d0, d1, r0, r1) => (v) => r0 + ((Math.log10(v) - Math.log10(d0)) / (Math.log10(d1) - Math.log10(d0))) * (r1 - r0);
+const hex = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+let TOK = {};
+const readTokens = () => { const cs = getComputedStyle(document.documentElement); for (const k of ["--ink", "--ink-2", "--faint", "--rule", "--ok", "--err", "--pass", "--amber", "--ground"]) TOK[k] = hex(cs.getPropertyValue(k).trim()); };
+const rgb = (a, b, t) => `rgb(${a.map((v, i) => Math.round(v + (b[i] - v) * t)).join(",")})`;
+const VIR = ["#440154", "#482878", "#3e4989", "#31688e", "#26828e", "#1f9e89", "#35b779", "#6ece58", "#b5de2b", "#fde725"].map(hex);
+const viridis = (t) => { t = clamp(t) * 9; const i = Math.min(8, Math.floor(t)); return VIR[i].map((v, k) => v + (VIR[i + 1][k] - v) * (t - i)); };
+const pct = (v, d = 2) => +(v * 100).toPrecision(d) + "%";
+const plain = (html) => { const d = document.createElement("div"); d.innerHTML = html; return d.textContent; };
+const svgIn = (root, w, h, label) => { root.textContent = ""; const s = S(root, "svg", { viewBox: `0 0 ${w} ${h}`, role: "img", "aria-label": label }); return s; };
+const panel = (svg, x, y, letter) => S(svg, "text", { x, y, class: "t-panel" }, `(${letter})`);
+function axisX(g, sc, ticks, y, fmt, label, x1) {
+  const a = S(g, "g");
+  S(a, "line", { x1: sc(ticks[0]), x2: x1 ?? sc(ticks[ticks.length - 1]), y1: y, y2: y, stroke: "var(--axis)", "stroke-width": 1 });
+  for (const t of ticks) {
+    S(a, "line", { x1: sc(t), x2: sc(t), y1: y, y2: y + 4, stroke: "var(--axis)" });
+    S(a, "text", { x: sc(t), y: y + 22, "text-anchor": "middle", class: "t" }, fmt(t));
+  }
+  if (label) S(a, "text", { x: ((x1 ?? sc(ticks[ticks.length - 1])) + sc(ticks[0])) / 2, y: y + 44, "text-anchor": "middle", class: "t" }, label);
+}
+function axisY(g, sc, ticks, x, fmt, label, y0) {
+  const a = S(g, "g");
+  S(a, "line", { x1: x, x2: x, y1: sc(ticks[0]), y2: y0 ?? sc(ticks[ticks.length - 1]), stroke: "var(--axis)" });
+  for (const t of ticks) {
+    S(a, "line", { x1: x - 4, x2: x, y1: sc(t), y2: sc(t), stroke: "var(--axis)" });
+    S(a, "text", { x: x - 8, y: sc(t) + 5, "text-anchor": "end", class: "t" }, fmt(t));
+  }
+  if (label) S(a, "text", { x: x - 36, y: (y0 ?? sc(ticks[ticks.length - 1])) - 18, class: "t" }, label);
+}
+const op = (el, v) => el.setAttribute("opacity", v.toFixed(3));
+
+/* ---------- figures: each build returns render(progress 0..1) ---------- */
+const FIG = {};
+
+FIG.chip = (root, narrow) => {
+  const W = narrow ? 440 : 1000, H = narrow ? 560 : 520;
+  const svg = svgIn(root, W, H, "Readout error of the 156 qubits of IBM Fez, as a chip map and as a histogram.");
+  const A = narrow ? { x0: 24, x1: 336, y0: 34, y1: 300 } : { x0: 44, x1: 560, y0: 40, y1: 480 };
+  const B = narrow ? { x0: 64, x1: 420, y0: 388, y1: 500 } : { x0: 680, x1: 980, y0: 90, y1: 420 };
+  panel(svg, A.x0 - 20, A.y0 - 14, "a"); panel(svg, B.x0 - 48, B.y0 - 40, "b");
+  const { pos, readout, edges } = DATA.fez;
+  const cx = lin(0, 15, A.x0 + 12, A.x1 - 12), cy = lin(0, 14, A.y0 + 12, A.y1 - 12);
+  const r = Math.min((A.x1 - A.x0) / 16, (A.y1 - A.y0) / 15) * 0.37;
+  const lo = Math.log10(0.14), hi = Math.log10(10.6);
+  const col = (v) => viridis((Math.log10(v) - lo) / (hi - lo));
+  const ge = S(svg, "g", { stroke: "var(--rule)", "stroke-width": Math.max(1.5, r * 0.3) });
+  for (const [a, b] of edges) S(ge, "line", { x1: cx(pos[a][0]), y1: cy(pos[a][1]), x2: cx(pos[b][0]), y2: cy(pos[b][1]) });
+  const dots = readout.map((v, i) => {
+    const el = S(svg, "circle", { cx: cx(pos[i][0]), cy: cy(pos[i][1]), r });
+    S(el, "title", {}, `Qubit ${i}: readout error ${v < 1 ? v.toFixed(2) : v.toFixed(1)}%`);
+    return { el, d: pos[i][0] / 15 * 0.7 + pos[i][1] / 14 * 0.3, c: col(v), last: -1 };
+  });
+  const iLo = readout.indexOf(Math.min(...readout)), iHi = readout.indexOf(Math.max(...readout));
+  const note = (i, text, dx, dy) => {
+    const g = S(svg, "g", { opacity: 0 });
+    const x = cx(pos[i][0]), y = cy(pos[i][1]);
+    S(g, "circle", { cx: x, cy: y, r: r + 5, fill: "none", stroke: "var(--ink)", "stroke-width": 1.5 });
+    S(g, "line", { x1: x + Math.sign(dx) * (r + 5) * 0.7, y1: y + Math.sign(dy) * (r + 5) * 0.7, x2: x + dx, y2: y + dy, stroke: "var(--ink)" });
+    S(g, "text", { x: x + dx + Math.sign(dx) * 5, y: y + dy + (dy < 0 ? -4 : 14), "text-anchor": dx > 0 ? "start" : "end", class: "t t-ink halo" }, text);
+    return g;
+  };
+  // On the stage the callouts sit in the right margin, so no label covers a qubit.
+  const margin = (i, value) => {
+    const g = S(svg, "g", { opacity: 0 });
+    const x = cx(pos[i][0]), y = cy(pos[i][1]), lx = A.x1 + 14;
+    S(g, "circle", { cx: x, cy: y, r: r + 4, fill: "none", stroke: "var(--ink)", "stroke-width": 1.4 });
+    S(g, "line", { x1: x + r + 4, y1: y, x2: lx, y2: y, stroke: "var(--ground)", "stroke-width": 4 });
+    S(g, "line", { x1: x + r + 4, y1: y, x2: lx, y2: y, stroke: "var(--ink)", "stroke-width": 1 });
+    S(g, "text", { x: lx + 6, y: y - 3, class: "t t-ink", "font-weight": 500 }, value);
+    S(g, "text", { x: lx + 6, y: y + 14, class: "t" }, `qubit ${i}`);
+    return g;
+  };
+  const notes = narrow ? [margin(iHi, "10.6%"), margin(iLo, "0.15%")] : [note(iHi, `qubit ${iHi}: 10.6%`, -36, -34), note(iLo, `qubit ${iLo}: 0.15%`, 34, 30)];
+  // histogram on a log axis
+  const nb = 14, b0 = Math.log10(0.1), b1 = Math.log10(12), bw = (b1 - b0) / nb;
+  const counts = Array(nb).fill(0);
+  for (const v of readout) counts[Math.min(nb - 1, Math.floor((Math.log10(v) - b0) / bw))]++;
+  const top = Math.ceil(Math.max(...counts) / 20) * 20;
+  const bx = logS(0.1, 12, B.x0, B.x1), by = lin(0, top, B.y1, B.y0);
+  axisX(svg, bx, [0.1, 0.3, 1, 3, 10], B.y1, (v) => v + "%", "readout error", B.x1);
+  axisY(svg, by, Array.from({ length: top / 20 + 1 }, (_, i) => i * 20), B.x0, String, "qubits");
+  const bars = counts.map((c, i) => {
+    const x0 = B.x0 + (i / nb) * (B.x1 - B.x0), w = (B.x1 - B.x0) / nb - 2;
+    const el = S(svg, "rect", { x: x0 + 1, width: w, y: B.y1, height: 0, rx: 1.5, fill: rgb(col(Math.pow(10, b0 + (i + 0.5) * bw)), col(Math.pow(10, b0 + (i + 0.5) * bw)), 0) });
+    S(el, "title", {}, `${c} qubits`);
+    return { el, h: B.y1 - by(c) };
+  });
+  const med = S(svg, "g", { opacity: 0 });
+  S(med, "line", { x1: bx(DATA.fez.medianReadout), x2: bx(DATA.fez.medianReadout), y1: B.y1, y2: B.y0 - 6, stroke: "var(--ink)", "stroke-dasharray": "4 4" });
+  S(med, "text", { x: bx(DATA.fez.medianReadout) + 6, y: B.y0 + 6, class: "t t-ink halo" }, `median ${DATA.fez.medianReadout.toFixed(2)}%`);
+  return (p) => {
+    const td = seg(p, 0.02, 0.5);
+    for (const d of dots) {
+      const t = Math.round(eout(wave(td, d.d)) * 40) / 40;
+      if (t === d.last) continue;
+      d.last = t; d.el.setAttribute("fill", rgb(TOK["--faint"], d.c, t));
+    }
+    const tb = seg(p, 0.35, 0.75);
+    bars.forEach((b, i) => { const h = b.h * eout(wave(tb, i / nb)); b.el.setAttribute("y", B.y1 - h); b.el.setAttribute("height", h); });
+    op(med, seg(p, 0.68, 0.8));
+    notes.forEach((g, i) => op(g, seg(p, 0.78 + i * 0.05, 0.9 + i * 0.05)));
+  };
+};
+
+FIG.ghz = (root, narrow) => {
+  const W = narrow ? 440 : 1000, H = narrow ? 520 : 480;
+  const svg = svgIn(root, W, H, "A three-qubit GHZ circuit, and its results on a perfect simulator and with the IBM Fez noise.");
+  const A = narrow ? { x0: 54, x1: 410, y0: 40, y1: 130 } : { x0: 70, x1: 380, y0: 170, y1: 290 };
+  const B = narrow ? { x0: 60, x1: 425, y0: 230, y1: 480 } : { x0: 500, x1: 985, y0: 70, y1: 420 };
+  panel(svg, A.x0 - 46, A.y0 - 34, "a"); panel(svg, B.x0 - 56, B.y0 - 40, "b");
+  // circuit
+  const gy = (i) => A.y0 + i * ((A.y1 - A.y0) / 2), gx = lin(0, 1, A.x0, A.x1);
+  const stroke = { stroke: "var(--ink)", "stroke-width": 1.4, fill: "var(--ground)" };
+  for (let i = 0; i < 3; i++) {
+    S(svg, "text", { x: A.x0 - 12, y: gy(i) + 5, "text-anchor": "end", class: "t t-ink" }, `q${i}`);
+    S(svg, "line", { x1: A.x0, x2: A.x1, y1: gy(i), y2: gy(i), stroke: "var(--ink)", "stroke-width": 1.2 });
+  }
+  S(svg, "rect", { x: gx(0.1) - 14, y: gy(0) - 14, width: 28, height: 28, ...stroke });
+  S(svg, "text", { x: gx(0.1), y: gy(0) + 6, "text-anchor": "middle", class: "t t-ink" }, "H");
+  [[0, 1, 0.36], [1, 2, 0.58]].forEach(([c, t, f]) => {
+    const x = gx(f);
+    S(svg, "line", { x1: x, x2: x, y1: gy(c), y2: gy(t) + 11, stroke: "var(--ink)", "stroke-width": 1.4 });
+    S(svg, "circle", { cx: x, cy: gy(c), r: 4.5, fill: "var(--ink)" });
+    S(svg, "circle", { cx: x, cy: gy(t), r: 11, ...stroke });
+    S(svg, "path", { d: `M${x - 11} ${gy(t)}h22M${x} ${gy(t) - 11}v22`, stroke: "var(--ink)", "stroke-width": 1.4 });
+  });
+  for (let i = 0; i < 3; i++) {
+    const x = gx(0.86);
+    S(svg, "rect", { x: x - 16, y: gy(i) - 13, width: 32, height: 26, ...stroke });
+    S(svg, "path", { d: `M${x - 9} ${gy(i) + 6}a9 9 0 0 1 18 0M${x} ${gy(i) + 6}l6 -11`, fill: "none", stroke: "var(--ink)", "stroke-width": 1.3 });
+  }
+  // bars
+  const band = (B.x1 - B.x0) / 8, bw = band * 0.62;
+  const bxf = (i) => B.x0 + i * band + (band - bw) / 2;
+  const by = lin(0, 560, B.y1, B.y0);
+  axisY(svg, by, [0, 128, 256, 384, 512], B.x0 - 8, String, "runs");
+  S(svg, "line", { x1: B.x0 - 8, x2: B.x1, y1: B.y1, y2: B.y1, stroke: "var(--axis)" });
+  const isWrong = (k) => k !== "000" && k !== "111";
+  const cols = GHZ.order.map((k, i) => {
+    S(svg, "text", { x: bxf(i) + bw / 2, y: B.y1 + 22, "text-anchor": "middle", class: "t-mono" }, k);
+    const ghost = S(svg, "rect", { x: bxf(i), width: bw, y: by(GHZ.ideal[k] || 0), height: B.y1 - by(GHZ.ideal[k] || 0), fill: "none", stroke: "var(--ink-2)", "stroke-dasharray": "4 3", opacity: 0 });
+    const bar = S(svg, "rect", { x: bxf(i), width: bw, rx: 2, fill: isWrong(k) ? "var(--err)" : "var(--ok)" });
+    S(bar, "title", {}, `${k}: ideal ${GHZ.ideal[k] || 0}, with IBM Fez noise ${GHZ.noisy[k]} of 1,024 runs`);
+    const val = S(svg, "text", { x: bxf(i) + bw / 2, "text-anchor": "middle", class: "t t-ink" });
+    return { k, i, ghost, bar, val, last: -1 };
+  });
+  const mIdeal = S(svg, "text", { x: B.x1, y: B.y0 - 30, "text-anchor": "end", class: "t t-ink", "font-weight": 500 }, "Perfect simulator");
+  const mNoisy = S(svg, "text", { x: B.x1, y: B.y0 - 30, "text-anchor": "end", class: "t", fill: "var(--err)", "font-weight": 500, opacity: 0 }, "With IBM Fez noise");
+  const brk = S(svg, "g", { opacity: 0 });
+  const x0 = bxf(1) - 4, x1 = bxf(6) + bw + 4, yb = by(110);
+  S(brk, "path", { d: `M${x0} ${yb + 10}V${yb}H${x1}V${yb + 10}`, fill: "none", stroke: "var(--err)", "stroke-width": 1.6 });
+  S(brk, "text", { x: (x0 + x1) / 2, y: yb - 40, "text-anchor": "middle", class: "halo", style: "font: 500 28px var(--serif); fill: var(--err)" }, "27 of 1,024");
+  S(brk, "text", { x: (x0 + x1) / 2, y: yb - 14, "text-anchor": "middle", class: "t t-ink halo" }, "runs give a wrong result");
+  return (p) => {
+    const tm = seg(p, 0.22, 0.68);
+    for (const c of cols) {
+      const t = ease(wave(tm, c.i / 7));
+      const v = lerp(GHZ.ideal[c.k] || 0, GHZ.noisy[c.k], t);
+      const y = by(v);
+      c.bar.setAttribute("y", y); c.bar.setAttribute("height", B.y1 - y);
+      const shown = Math.round(v);
+      if (shown !== c.last) { c.last = shown; c.val.textContent = shown; }
+      c.val.setAttribute("y", Math.min(y, GHZ.ideal[c.k] ? by(GHZ.ideal[c.k]) : y) - 8);
+      op(c.val, v > 0.4 ? 1 : 0);
+      op(c.ghost, (GHZ.ideal[c.k] ? 1 : 0) * seg(tm, 0, 0.3));
+    }
+    op(mIdeal, 1 - seg(tm, 0.2, 0.45)); op(mNoisy, seg(tm, 0.45, 0.7));
+    op(brk, seg(p, 0.72, 0.84));
+  };
+};
+
+FIG.four = (root, narrow) => {
+  root.textContent = "";
+  const wrap = document.createElement("div"); wrap.className = "four"; root.appendChild(wrap);
+  const svg = S(wrap, "svg", { viewBox: "0 0 220 268", "aria-hidden": "true" });
+  const fy = 44 + 112;
+  S(svg, "path", { d: `M14 ${fy - 52}h56l22 22v82h-78z`, fill: "var(--ground)", stroke: "var(--ink)", "stroke-width": 1.4, "stroke-linejoin": "round" });
+  S(svg, "path", { d: `M70 ${fy - 52}v22h22`, fill: "none", stroke: "var(--ink)", "stroke-width": 1.4 });
+  [0, 1, 2, 3].forEach((i) => S(svg, "line", { x1: 26, x2: [76, 64, 80, 58][i], y1: fy - 14 + i * 12, y2: fy - 14 + i * 12, stroke: "var(--rule)", "stroke-width": 5, "stroke-linecap": "round" }));
+  S(svg, "text", { x: 53, y: fy + 72, "text-anchor": "middle", class: "t-mono", style: "font-size:11px" }, "ibm_fez");
+  const curves = CHECK.map((c, i) => S(svg, "path", { d: `M92 ${fy}C150 ${fy} 160 ${72 + i * 56} 220 ${72 + i * 56}`, fill: "none", stroke: "var(--ok)", "stroke-width": 1.6, pathLength: 1, "stroke-dasharray": 1, "stroke-dashoffset": 1 }));
+  const tbl = document.createElement("table"); tbl.className = "tbl"; wrap.appendChild(tbl);
+  const sx = (r) => 6 + ((Math.log10(r) + 7) / 7) * 118;
+  tbl.innerHTML = `<thead><tr><th>Simulator</th><th>Result</th><th class="num">Deviation</th><th class="num wide">Tolerance</th><th class="wide">Method</th><th><svg width="134" height="22" aria-label="Deviation divided by tolerance, log scale"><text x="6" y="15" class="t" style="font-size:13px">10⁻⁷</text><text x="73" y="15" class="t" text-anchor="middle" style="font-size:13px">10⁻³</text><text x="124" y="15" class="t" text-anchor="middle" style="font-size:13px">1</text></svg></th></tr></thead><tbody>${CHECK.map((c) => `<tr class="row"><td>${c.name}</td><td class="ok">✓ 5 of 5</td><td class="num">${c.dev.toExponential(1)}</td><td class="num wide">${c.tol.toExponential(1)}</td><td class="wide" style="white-space:nowrap">${c.method}</td><td><svg width="134" height="22" data-tip="Deviation ${c.dev.toExponential(1)}, tolerance ${c.tol.toExponential(1)} (${c.method})" aria-label="deviation is ${(c.dev / c.tol).toExponential(1)} of the tolerance"><line x1="6" x2="124" y1="11" y2="11" stroke="var(--rule)"/><line x1="124" x2="124" y1="2" y2="20" stroke="var(--ink)" stroke-width="1.5"/><circle cy="11" r="5.5" fill="var(--pass)" cx="6"/></svg></td></tr>`).join("")}</tbody>`;
+  const rows = [...tbl.querySelectorAll("tbody tr")];
+  const marks = rows.map((r) => r.querySelector("circle"));
+  return (p) => {
+    curves.forEach((c, i) => c.setAttribute("stroke-dashoffset", (1 - ease(seg(p, 0.05 + i * 0.05, 0.35 + i * 0.05))).toFixed(3)));
+    rows.forEach((r, i) => { const t = eout(seg(p, 0.25 + i * 0.07, 0.45 + i * 0.07)); r.style.opacity = t; r.style.transform = `translateY(${(1 - t) * 12}px)`; });
+    marks.forEach((m, i) => m.setAttribute("cx", lerp(6, sx(CHECK[i].dev / CHECK[i].tol), ease(seg(p, 0.5 + i * 0.04, 0.8 + i * 0.04))).toFixed(1)));
+  };
+};
+
+FIG.hash = (root, narrow) => {
+  const W = narrow ? 440 : 1000, H = narrow ? 420 : 400;
+  const svg = svgIn(root, W, H, "The 256 bits of the original fingerprint and of the fingerprint after one value changes by 1%.");
+  const m = DATA.mismatch;
+  const bits = (h) => h.split("").flatMap((ch) => parseInt(ch, 16).toString(2).padStart(4, "0").split("").map(Number));
+  const A = bits(m.fullBefore), Bb = bits(m.fullAfter);
+  const cols = narrow ? 32 : 64, cell = narrow ? 11.5 : 12.5, gap = 1.5, rows = 256 / cols;
+  const gw = cols * (cell + gap) - gap, x0 = (W - gw) / 2;
+  const blocks = narrow ? [30, 200] : [40, 200];
+  const labels = [
+    ["Original profile", `cz error, qubits 0 and 1: ${m.before.toFixed(6)}`, DATA.fez.fingerprint],
+    ["One value + 1%", null, null],
+  ];
+  const ctrl = [];
+  blocks.forEach((y, b) => {
+    S(svg, "text", { x: x0, y, class: "t t-ink", "font-weight": 500 }, labels[b][0]);
+    const sub = S(svg, "text", { x: x0, y: y + 22, class: "t" }, labels[b][1] || `cz error, qubits 0 and 1: ${m.before.toFixed(6)}`);
+    const fp = S(svg, "text", { x: x0 + gw, y, "text-anchor": "end", class: "t-mono", style: "font-size:16px", fill: b ? "var(--err)" : "var(--ok)" }, DATA.fez.fingerprint);
+    const cells = [];
+    for (let i = 0; i < 256; i++) cells.push(S(svg, "rect", { x: x0 + (i % cols) * (cell + gap), y: y + 38 + Math.floor(i / cols) * (cell + gap), width: cell, height: cell, rx: 1.5 }));
+    ctrl.push({ sub, fp, cells });
+  });
+  const yEnd = blocks[1] + 38 + rows * (cell + gap) + 34;
+  const diffText = S(svg, "text", { x: x0 + gw, y: blocks[1] + 22, "text-anchor": "end", class: "t", fill: "var(--err)", "font-weight": 500 });
+  const status = S(svg, "g", { opacity: 0 });
+  S(status, "text", { x: W / 2, y: yEnd, "text-anchor": "middle", class: "t-mono", style: "font-size:14px", fill: "var(--ink)" }, `nv.load("ibm_fez", expect="${DATA.fez.fingerprint}")`);
+  S(status, "text", { x: W / 2, y: yEnd + 26, "text-anchor": "middle", class: "t-mono", style: "font-size:14px", fill: "var(--err)" }, `FingerprintMismatch: ${m.fingerprint}`);
+  const order = Array.from({ length: 256 }, (_, i) => ((i * 97) % 256) / 256);
+  const differ = A.map((v, i) => v !== Bb[i]);
+  const total = differ.filter(Boolean).length;
+  let last = "";
+  return (p) => {
+    const tA = seg(p, 0, 0.22), tf = seg(p, 0.32, 0.78);
+    let flipped = 0;
+    const key = [Math.round(tA * 30), Math.round(tf * 120)].join();
+    if (key === last) { op(status, seg(p, 0.82, 0.92)); return; }
+    last = key;
+    for (let i = 0; i < 256; i++) {
+      const shown = wave(tA, i / 256) > 0.5;
+      const a = ctrl[0].cells[i], b = ctrl[1].cells[i];
+      a.setAttribute("fill", shown && A[i] ? "var(--ink)" : "var(--faint)");
+      const done = tf > order[i] * 0.95 + 0.02;
+      const v = done ? Bb[i] : A[i];
+      if (done && differ[i]) flipped++;
+      b.setAttribute("fill", !shown ? "var(--faint)" : done && differ[i] ? (v ? "var(--err)" : "var(--faint)") : v ? "var(--ink)" : "var(--faint)");
+      b.setAttribute("stroke", done && differ[i] && !v ? "var(--err)" : "none");
+    }
+    ctrl[1].fp.textContent = tf >= 1 ? m.fingerprint : DATA.fez.fingerprint;
+    ctrl[1].fp.setAttribute("fill", tf >= 1 ? "var(--err)" : "var(--ink-2)");
+    ctrl[1].sub.textContent = `cz error, qubits 0 and 1: ${lerp(m.before, m.after, ease(seg(tf, 0, 0.3))).toFixed(6)}`;
+    diffText.textContent = tf > 0 ? `${flipped} of 256 bits differ` : "";
+    op(status, seg(p, 0.82, 0.92));
+    void total;
+  };
+};
+
+FIG.report = (root) => {
+  root.textContent = "";
+  const tbl = document.createElement("table"); tbl.className = "tbl"; root.appendChild(tbl);
+  tbl.innerHTML = `<thead><tr><th>Category</th><th>What the export did</th></tr></thead><tbody>${REPORT.map((r) => `<tr class="row"><td><span class="tag"><i style="background:var(${r.c})"></i>${r.tag}</span></td><td>${r.text}</td></tr>`).join("")}</tbody>`;
+  const rows = [...tbl.querySelectorAll("tbody tr")];
+  return (p) => rows.forEach((r, i) => { const t = eout(seg(p, 0.06 + i * 0.1, 0.26 + i * 0.1)); r.style.opacity = t; r.style.transform = `translateY(${(1 - t) * 14}px)`; });
+};
+
+FIG.compare = (root, narrow) => {
+  const W = narrow ? 440 : 1000, H = narrow ? 590 : 440;
+  const svg = svgIn(root, W, H, `Distance from simulated counts before and after the fit. ${COMPARE.circuits.map((c) => `${c.name}: TVD ${c.profile} before, ${c.fitted} after, shot noise level ${c.noise}`).join("; ")}. Fitted factors: ${COMPARE.factors.map((f) => `${f.name.toLowerCase()} ${f.est}, 95% interval ${f.lo} to ${f.hi}, value set in the simulation ${f.truth}`).join("; ")}.`);
+  const A = narrow ? { x0: 120, x1: 420, y0: 50, y1: 260 } : { x0: 150, x1: 520, y0: 60, y1: 340 };
+  const B = narrow ? { x0: 130, x1: 410, y0: 350, y1: 500 } : { x0: 740, x1: 950, y0: 60, y1: 300 };
+  panel(svg, 6, A.y0 - 26, "a"); panel(svg, narrow ? 6 : B.x0 - 160, narrow ? B.y0 - 20 : A.y0 - 26, "b");
+  const ax = lin(0, 0.035, A.x0, A.x1);
+  const rowY = (i) => A.y0 + 30 + i * ((A.y1 - A.y0 - 40) / 3);
+  axisX(svg, ax, [0, 0.01, 0.02, 0.03], A.y1, (v) => (v ? v.toFixed(2) : "0"), "TVD (lower is closer)", A.x1);
+  const items = COMPARE.circuits.map((c, i) => {
+    const y = rowY(i);
+    S(svg, "text", { x: A.x0 - 14, y: y + 5, "text-anchor": "end", class: "t-mono" }, c.name);
+    S(svg, "rect", { x: A.x0, y: y - 9, width: ax(c.noise) - A.x0, height: 18, fill: "var(--faint)" });
+    const line = S(svg, "line", { y1: y, y2: y, stroke: "var(--ink-2)", "stroke-width": 1.5 });
+    S(svg, "circle", { cx: ax(c.profile), cy: y, r: 6.5, fill: "var(--ground)", stroke: "var(--ink)", "stroke-width": 1.6 });
+    const dot = S(svg, "circle", { cy: y, r: 6.5, fill: "var(--ok)" });
+    S(dot, "title", {}, `${c.name}: profile ${c.profile}, fitted ${c.fitted}, shot noise ${c.noise}`);
+    return { c, line, dot };
+  });
+  const ly = A.y0 - 22;
+  const lg = S(svg, "g", { transform: `translate(${A.x0}, ${ly})` });
+  S(lg, "circle", { cx: 6, cy: -5, r: 6, fill: "var(--ground)", stroke: "var(--ink)", "stroke-width": 1.5 }); S(lg, "text", { x: 18, y: 0, class: "t" }, "profile");
+  S(lg, "circle", { cx: 90, cy: -5, r: 6, fill: "var(--ok)" }); S(lg, "text", { x: 102, y: 0, class: "t" }, "fitted");
+  S(lg, "rect", { x: 164, y: -12, width: 22, height: 14, fill: "var(--faint)" }); S(lg, "text", { x: 192, y: 0, class: "t" }, "shot noise (95%)");
+  // factors
+  const fx = lin(1, 2.8, B.x0, B.x1);
+  axisX(svg, fx, [1, 1.5, 2, 2.5], B.y1, (v) => "×" + v, "error factor", B.x1);
+  S(svg, "line", { x1: fx(1), x2: fx(1), y1: B.y0 - 10, y2: B.y1, stroke: "var(--rule)", "stroke-dasharray": "3 4" });
+  const fy = (i) => B.y0 + 40 + i * 80;
+  const facs = COMPARE.factors.map((f, i) => {
+    const y = fy(i);
+    S(svg, "text", { x: B.x0 - 14, y: y + 5, "text-anchor": "end", class: "t t-ink" }, f.name);
+    const ci = S(svg, "line", { x1: fx(f.lo), y1: y, y2: y, x2: fx(f.lo), stroke: "var(--ok)", "stroke-width": 2.5, "stroke-linecap": "round" });
+    const pt = S(svg, "circle", { cx: fx(f.est), cy: y, r: 6.5, fill: "var(--ok)", opacity: 0 });
+    const lab = S(svg, "text", { x: fx(f.lo), y: y - 16, class: "t t-ink", opacity: 0 }, `×${f.est} (${f.lo} to ${f.hi})`);
+    const tr = S(svg, "path", { d: `M${fx(f.truth)} ${y + 10}l7 9h-14z`, fill: "var(--pass)", opacity: 0 });
+    S(tr, "title", {}, `Factor set in the simulation: ×${f.truth}`);
+    return { f, y, ci, pt, lab, tr };
+  });
+  const truthLab = S(svg, "g", { opacity: 0 });
+  S(truthLab, "path", { d: `M${B.x0} ${B.y1 + 64}l7 9h-14z`, fill: "var(--pass)" });
+  S(truthLab, "text", { x: B.x0 + 14, y: B.y1 + 73, class: "t" }, "true factor");
+  return (p) => {
+    const t = ease(seg(p, 0.1, 0.5));
+    for (const it of items) {
+      const x = ax(lerp(it.c.profile, it.c.fitted, t));
+      it.dot.setAttribute("cx", x.toFixed(1));
+      it.line.setAttribute("x1", ax(it.c.profile)); it.line.setAttribute("x2", x.toFixed(1));
+    }
+    const tc = ease(seg(p, 0.48, 0.72));
+    for (const f of facs) {
+      const mid = fx(f.f.est);
+      f.ci.setAttribute("x1", lerp(mid, fx(f.f.lo), tc)); f.ci.setAttribute("x2", lerp(mid, fx(f.f.hi), tc));
+      op(f.pt, seg(p, 0.45, 0.55)); op(f.lab, seg(p, 0.62, 0.72)); op(f.tr, seg(p, 0.74, 0.86));
+    }
+    op(truthLab, seg(p, 0.74, 0.86));
+  };
+};
+
+FIG.fleet = (root, narrow) => {
+  const W = narrow ? 440 : 1000, H = narrow ? 610 : 460;
+  const svg = svgIn(root, W, H, "Median two-qubit gate error and readout error of the 25 bundled devices, and the calibration date of each profile.");
+  const rows = DATA.fleet;
+  const A = narrow ? { x0: 64, x1: 420, y0: 40, y1: 320 } : { x0: 80, x1: 520, y0: 50, y1: 390 };
+  const B = narrow ? { x0: 30, x1: 420, y0: 420, y1: 560 } : { x0: 610, x1: 985, y0: 110, y1: 390 };
+  panel(svg, A.x0 - 60, A.y0 - 22, "a"); panel(svg, B.x0 - (narrow ? 24 : 6), B.y0 - (narrow ? 30 : 82), "b");
+  const VC = { ibm: "var(--ok)", quantinuum: "var(--pass)", google: "var(--amber)" };
+  const x = logS(0.0006, 0.03, A.x0, A.x1), y = logS(0.0007, 0.08, A.y1, A.y0);
+  axisX(svg, x, [0.001, 0.003, 0.01, 0.03], A.y1, (v) => pct(v, 1), "two-qubit gate error", A.x1);
+  axisY(svg, y, [0.001, 0.003, 0.01, 0.03], A.x0, (v) => pct(v, 1), "readout error", A.y0 - 2);
+  const dots = rows.map((d, i) => {
+    const el = S(svg, "circle", { cx: x(d.twoQ), cy: y(d.readout), r: 0, fill: VC[d.vendor], "fill-opacity": 0.85, stroke: "var(--ground)", "stroke-width": 1.2 });
+    S(el, "title", {}, `${d.id}, ${d.qubits} qubits, ${d.date}: two-qubit error ${pct(d.twoQ)}, readout error ${pct(d.readout)}`);
+    return { el, r: 3.5 + Math.sqrt(d.qubits) * 0.72, d: i / rows.length };
+  });
+  const labs = S(svg, "g", { opacity: 0 });
+  [["IBM, 18", "ibm", 0.0115, 0.0042], ["Quantinuum, 5", "quantinuum", 0.00135, 0.0018], ["Google, 2", "google", 0.0062, 0.052]].forEach(([t, v, a, b]) => S(labs, "text", { x: x(a), y: y(b), class: "t halo", fill: VC[v], "font-weight": 500 }, t));
+  const fez = rows.find((r) => r.id === "ibm_fez");
+  S(labs, "circle", { cx: x(fez.twoQ), cy: y(fez.readout), r: 12, fill: "none", stroke: "var(--ink)", "stroke-width": 1.4 });
+  S(labs, "text", { x: x(fez.twoQ) + 16, y: y(fez.readout) + 20, class: "t t-ink halo" }, "IBM Fez");
+  // calibration dates as a dot strip, stacked per month
+  const t0 = Date.UTC(2021, 0, 1), t1 = Date.UTC(2027, 0, 1);
+  const tx = lin(t0, t1, B.x0, B.x1);
+  axisX(svg, tx, [2021, 2022, 2023, 2024, 2025, 2026, 2027].map((yy) => Date.UTC(yy, 0, 1)), B.y1, (v) => new Date(v).getUTCFullYear(), "calibration date", B.x1);
+  const stack = {};
+  const tdots = rows.slice().sort((a, b) => a.vendor.localeCompare(b.vendor)).map((d) => {
+    const ms = Date.parse(d.date), key = d.date.slice(0, 7);
+    const k = (stack[key] = (stack[key] || 0) + 1) - 1;
+    const el = S(svg, "circle", { cx: tx(ms), cy: B.y1 - 12 - k * 15, r: 6, fill: VC[d.vendor], opacity: 0 });
+    S(el, "title", {}, `${d.id}: calibrated ${d.date}`);
+    return { el, y: B.y1 - 12 - k * 15, d: (ms - t0) / (t1 - t0) };
+  });
+  return (p) => {
+    const ta = seg(p, 0.02, 0.45);
+    dots.forEach((o) => o.el.setAttribute("r", (o.r * eout(wave(ta, o.d))).toFixed(2)));
+    op(labs, seg(p, 0.42, 0.55));
+    const tb = seg(p, 0.5, 0.85);
+    tdots.forEach((o) => { const t = eout(wave(tb, o.d)); op(o.el, t); o.el.setAttribute("cy", (o.y - (1 - t) * 30).toFixed(1)); });
+  };
+};
+
+
+
+const teaserState = { intro: 0, play: 0 };
+FIG.teaser = (root) => {
+  const [ci, cn] = root.querySelectorAll("canvas");
+  const count = document.getElementById("teaser-count");
+  const n = 32, total = n * n;
+  const wrong = GHZ.order.filter((k) => k !== "000" && k !== "111").reduce((a, k) => a + GHZ.noisy[k], 0);
+  // Which runs fail is arbitrary. Only the count comes from the real run.
+  let seed = 11; const rnd = () => ((seed = (seed * 1664525 + 1013904223) % 4294967296) / 4294967296);
+  const picks = []; while (picks.length < wrong) { const i = Math.floor(rnd() * total); if (!picks.includes(i)) picks.push(i); }
+  const prep = (cv) => { const dpr = Math.min(2, devicePixelRatio || 1), s = cv.clientWidth; cv.width = cv.height = Math.round(s * dpr); const ctx = cv.getContext("2d"); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); return { ctx, s }; };
+  const A = prep(ci), B = prep(cn);
+  const base = rgb(TOK["--ok"], TOK["--ground"], 0.55), red = rgb(TOK["--err"], TOK["--err"], 0);
+  const grid = ({ ctx, s }) => {
+    const c = s / n, g = Math.max(1.2, c * 0.2), q = c - g;
+    ctx.clearRect(0, 0, s, s); ctx.fillStyle = base;
+    for (let i = 0; i < total; i++) {
+      const x = i % n, y = Math.floor(i / n), a = clamp((teaserState.intro * 1.5 - (x + y) / (2 * n)) / 0.5);
+      if (a <= 0) continue;
+      const qq = q * (0.55 + 0.45 * eout(a));
+      ctx.globalAlpha = a; ctx.fillRect(x * c + g / 2 + (q - qq) / 2, y * c + g / 2 + (q - qq) / 2, qq, qq);
+    }
+    ctx.globalAlpha = 1;
+    return { c, g, q };
+  };
+  let last = -1;
+  const draw = () => {
+    grid(A);
+    const { c, g, q } = grid(B);
+    let k = 0;
+    picks.forEach((i, j) => {
+      const tj = clamp((teaserState.play - (j / wrong) * 0.8) / 0.2);
+      if (tj <= 0) return;
+      if (tj >= 0.5) k++;
+      const ss = q * (1 + 0.45 * Math.sin(Math.PI * tj));
+      B.ctx.fillStyle = red;
+      B.ctx.fillRect((i % n) * c + g / 2 - (ss - q) / 2, Math.floor(i / n) * c + g / 2 - (ss - q) / 2, ss, ss);
+    });
+    if (k !== last) { last = k; count.textContent = k; }
+  };
+  // One orchestrated moment on load: the grids sweep in, then the wrong runs appear one by one.
+  if (matchMedia("(prefers-reduced-motion: reduce)").matches) { teaserState.intro = teaserState.play = 1; draw(); }
+  else if (teaserState.play < 1 && !teaserState.running) {
+    teaserState.running = true;
+    const t0 = performance.now() + 280;
+    const step = (now) => {
+      teaserState.intro = clamp((now - t0) / 1000);
+      teaserState.play = clamp((now - t0 - 1150) / 2000);
+      draw();
+      if (teaserState.play < 1) requestAnimationFrame(step); else teaserState.running = false;
+    };
+    requestAnimationFrame(step);
+  } else draw();
+  return draw;
+};
+
+/* ---------- engine: the active story section drives the sticky figure ---------- */
+const reduce = matchMedia("(prefers-reduced-motion: reduce)");
+const figs = [...document.querySelectorAll("[data-fig]")].filter((el) => !el.classList.contains("step") && el.dataset.fig !== "teaser").map((el) => ({ el, plot: el.querySelector(".plot"), name: el.dataset.fig, p: -1, render: null }));
+const steps = [...document.querySelectorAll(".step")];
+const stepOf = Object.fromEntries(steps.map((s) => [s.dataset.fig, s]));
+const rail = document.querySelector(".rail"), railFill = document.querySelector(".rail-fill");
+let railLen = 1;
+function layoutRail() {
+  if (!rail.offsetParent) return;
+  const box = rail.parentElement.getBoundingClientRect();
+  const c = steps.map((s) => { const r = s.querySelector(".n").getBoundingClientRect(); return r.top + r.height / 2 - box.top; });
+  railLen = Math.max(1, c[c.length - 1] - c[0]);
+  rail.style.top = c[0] + "px"; rail.style.height = railLen + "px";
+}
+function build() {
+  readTokens();
+  FIG.teaser(document.querySelector('[data-fig="teaser"] .plot'));
+  for (const f of figs) { f.render = FIG[f.name](f.plot, true); f.p = -1; }
+  tipify();
+  layoutRail();
+}
+let activeSectionId = null;
+const say = document.getElementById("announce");
+function setActive(i) {
+  const step = steps[i];
+  if (step.id === activeSectionId) return;
+  activeSectionId = step.id;
+  steps.forEach((s, k) => { s.classList.toggle("on", k === i); s.classList.toggle("done", k < i); });
+  for (const f of figs) if (f.el.classList.contains("sfig")) f.el.classList.toggle("on", f.name === step.dataset.fig);
+  say.textContent = `Section ${i + 1}, ${step.dataset.title}`;
+}
+// A card takes over the figure when its top crosses the enter line, and the figure
+// finishes building when the card reaches the settle line, where the reader reads it.
+const lines = () => (innerWidth < 900 ? { enter: 0.96, settle: 0.63 } : { enter: 0.88, settle: 0.45 });
+const follow = (cur, target, dt) => { const n = cur + (target - cur) * (1 - Math.exp(-dt / 90)); return Math.abs(target - n) < 0.0008 ? target : n; };
+let raf = 0, last = 0;
+function frame(now) {
+  const dt = last ? Math.min(64, now - last) : 16; last = now;
+  const vh = innerHeight, still = reduce.matches, { enter, settle } = lines();
+  const tops = steps.map((s) => s.getBoundingClientRect().top);
+  let ai = 0;
+  tops.forEach((t, i) => { if (t <= enter * vh) ai = i; });
+  setActive(ai);
+  if (rail.offsetParent) railFill.style.transform = `scaleY(${clamp((settle * vh - rail.getBoundingClientRect().top) / railLen).toFixed(4)})`;
+  let again = false;
+  for (const f of figs) {
+    let target;
+    const i = steps.indexOf(stepOf[f.name]);
+    if (f.p >= 0 && i !== ai) continue;
+    target = clamp((enter * vh - tops[i]) / ((enter - settle) * vh));
+    if (still) target = 1;
+    const next = f.p < 0 || still ? target : follow(f.p, target, dt);
+    if (next !== f.p) { f.p = next; f.render(next); }
+    if (next !== target) again = true;
+  }
+  raf = again ? requestAnimationFrame(frame) : 0;
+  if (!raf) last = 0;
+}
+const kick = () => { if (!raf) raf = requestAnimationFrame(frame); };
+addEventListener("scroll", kick, { passive: true });
+let lastW = innerWidth;
+addEventListener("resize", () => { if (innerWidth !== lastW) { lastW = innerWidth; build(); } else layoutRail(); kick(); });
+reduce.addEventListener("change", () => { build(); kick(); });
+
+/* ---------- table 3 ---------- */
+const COLS = [
+  { k: "id", h: "Profile", f: (d) => `<code>${d.id}</code>` },
+  { k: "vendor", h: "Vendor", f: (d) => ({ ibm: "IBM", quantinuum: "Quantinuum", google: "Google" })[d.vendor], cls: "wide" },
+  { k: "qubits", h: "Qubits", f: (d) => d.qubits, num: true },
+  { k: "date", h: "Calibrated", f: (d) => d.date, cls: "wide" },
+  { k: "twoQ", h: "2q error", f: (d) => `<span class="bar" style="width:${(d.twoQ / 0.022) * 56}px"></span>${pct(d.twoQ)}`, num: true },
+  { k: "readout", h: "Readout error", f: (d) => `<span class="bar" style="width:${(d.readout / 0.061) * 56}px;background:var(--err)"></span>${pct(d.readout)}`, num: true },
+];
+let sortK = "twoQ", sortDir = 1;
+function drawTable() {
+  const t = document.getElementById("fleet-table");
+  const rows = DATA.fleet.slice().sort((a, b) => (a[sortK] > b[sortK] ? 1 : a[sortK] < b[sortK] ? -1 : 0) * sortDir);
+  t.innerHTML = `<thead><tr>${COLS.map((c) => `<th class="${c.num ? "num " : ""}${c.cls || ""}"${c.k === sortK ? ` aria-sort="${sortDir > 0 ? "ascending" : "descending"}"` : ""}><button data-k="${c.k}">${c.h}</button></th>`).join("")}</tr></thead><tbody>${rows.map((d, ri) => `<tr style="--i:${ri}">${COLS.map((c) => `<td class="${c.num ? "num " : ""}${c.cls || ""}">${c.f(d)}</td>`).join("")}</tr>`).join("")}</tbody>`;
+  t.querySelectorAll("th button").forEach((b) => b.addEventListener("click", () => { const k = b.dataset.k; sortDir = k === sortK ? -sortDir : 1; sortK = k; drawTable(); t.querySelector(`button[data-k="${k}"]`).focus(); }));
+}
+drawTable();
+
+/* table 3 opens and closes */
+const more = document.querySelector(".more"), coll = document.getElementById("fleet-wrap");
+more.addEventListener("click", () => {
+  const open = !coll.classList.contains("open");
+  coll.classList.toggle("open", open);
+  more.setAttribute("aria-expanded", open);
+  more.textContent = open ? "Hide the list" : "Show all 25 profiles";
+});
+
+/* terminal and editor windows that type their content when they scroll into view */
+const REPO = "git+https://github.com/dvgyl/noisevault";
+const esc = (t) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;");
+const hl = (code) => esc(code).replace(/("[^"]*")/g, '<span class="s">$1</span>').replace(/\b(from|import|as|print)\b/g, '<span class="k">$1</span>').replace(/([(=,] ?)(\d+)\b/g, '$1<span class="nm">$2</span>');
+const PINNED = `${REPO}@v${DATA.version}`;
+const WINS = [
+  { kind: "shell", title: "Terminal", cmd: `uvx --from ${PINNED} nv show ibm_fez`, out: DATA.cli.show },
+  { kind: "shell", title: "Terminal", cmd: `pip install "noisevault[qiskit] @ ${PINNED}"` },
+  { kind: "code", title: "ghz.py", run: "python ghz.py", cmd: `from qiskit import QuantumCircuit, transpile
+import noisevault as nv
+
+sim = nv.load("ibm_fez").to_qiskit()
+
+ghz = QuantumCircuit(3)
+ghz.h(0)
+ghz.cx(0, 1)
+ghz.cx(1, 2)
+ghz.measure_all()
+
+compiled = transpile(ghz, sim, seed_transpiler=1)
+counts = sim.run(compiled, seed_simulator=1).result().get_counts()
+print(counts)`, out: [DATA.quickstartCounts] },
+  { kind: "bib", title: "noisevault.bib", cmd: DATA.bibtex },
+  { kind: "shell", title: "Terminal", cmd: "nv cite ibm_fez --bibtex", out: DATA.cli.cite },
+];
+const lineSpans = (lines, from = 0, cls = "") => lines.map((l, i) => `<span class="ln${cls}" style="--i:${from + i}">${l || " "}</span>`).join("\n");
+function finalHTML(w) {
+  if (w.kind === "shell") return `<span class="p">$ </span>${esc(w.cmd)}` + (w.out ? "\n" + lineSpans(w.out.map(esc), 0, " o") : "");
+  const code = (w.kind === "code" ? hl(w.cmd) : esc(w.cmd)).split("\n");
+  return lineSpans(code) + (w.run ? `\n\n<span class="ln" style="--i:${code.length + 1}"><span class="p">$ </span>${esc(w.run)}</span>\n` + lineSpans(w.out.map(esc), code.length + 3, " o") : "");
+}
+function setupWin(el) {
+  const w = WINS[+el.dataset.win];
+  el.innerHTML = `<div class="win-bar"><span class="dots" aria-hidden="true"><i></i><i></i><i></i></span><span class="win-title">${w.title}</span><button class="copy" type="button" aria-label="Copy ${w.kind === "shell" ? "command" : "text"}">Copy</button></div><pre></pre>`;
+  const pre = el.querySelector("pre");
+  pre.innerHTML = finalHTML(w);
+  pre.style.minHeight = pre.offsetHeight + "px";
+  const btn = el.querySelector(".copy");
+  btn.addEventListener("click", async () => {
+    try { await navigator.clipboard.writeText(w.cmd); btn.textContent = "Copied"; btn.dataset.done = ""; } catch { btn.textContent = "Select the text"; }
+    setTimeout(() => { btn.textContent = "Copy"; delete btn.dataset.done; }, 1600);
+  });
+  el.play = () => {
+    if (el.dataset.played) return;
+    el.dataset.played = "1";
+    if (reduce.matches) { pre.innerHTML = finalHTML(w); return; }
+    if (w.kind === "shell") {
+      let k = 0;
+      const tick = () => {
+        k = Math.min(w.cmd.length, k + 2);
+        pre.innerHTML = `<span class="p">$ </span>${esc(w.cmd.slice(0, k))}<span class="caret"></span>`;
+        if (k < w.cmd.length) setTimeout(tick, 18);
+        else setTimeout(() => { pre.innerHTML = finalHTML(w); el.classList.add("played"); }, 260);
+      };
+      tick();
+    } else { pre.innerHTML = finalHTML(w); el.classList.add("played"); }
+  };
+  pre.innerHTML = w.kind === "shell" ? `<span class="p">$ </span><span class="caret"></span>` : "";
+}
+const wins = [...document.querySelectorAll(".win")];
+wins.forEach(setupWin);
+const wio = new IntersectionObserver((es) => es.forEach((e) => { if (e.isIntersecting) { wio.unobserve(e.target); e.target.play(); } }), { threshold: 0.45 });
+wins.forEach((w) => { if (!w.closest("[hidden]")) wio.observe(w); });
+
+/* citation tabs with a sliding indicator */
+const tabs = [...document.querySelectorAll('[role="tab"]')], ind = document.querySelector(".tab-ind");
+const moveInd = (t) => { ind.style.setProperty("--x", t.offsetLeft + "px"); ind.style.setProperty("--w", t.offsetWidth + "px"); };
+function selectTab(t) {
+  tabs.forEach((x) => { const on = x === t; x.setAttribute("aria-selected", on); x.tabIndex = on ? 0 : -1; const panel = document.getElementById(x.getAttribute("aria-controls")); panel.hidden = !on; if (on) { panel.classList.remove("enter"); void panel.offsetWidth; panel.classList.add("enter"); panel.querySelector(".win").play(); } });
+  moveInd(t);
+}
+tabs.forEach((t, i) => {
+  t.addEventListener("click", () => selectTab(t));
+  t.addEventListener("keydown", (e) => { if (e.key === "ArrowRight" || e.key === "ArrowLeft") { const n = tabs[(i + (e.key === "ArrowRight" ? 1 : tabs.length - 1)) % tabs.length]; n.focus(); selectTab(n); } });
+});
+document.fonts?.ready.then(() => moveInd(tabs[0]));
+moveInd(tabs[0]);
+
+/* limitations appear one by one */
+const lim = document.querySelector(".limits");
+new IntersectionObserver((es, o) => es.forEach((e) => { if (e.isIntersecting) { lim.classList.add("in"); o.disconnect(); } }), { threshold: 0.3 }).observe(lim);
+
+/* one styled tooltip for chart marks and definitions */
+const tip = document.createElement("div"); tip.id = "tip"; tip.setAttribute("aria-hidden", "true"); document.body.appendChild(tip);
+const tipify = () => document.querySelectorAll("svg title").forEach((t) => { t.parentNode.setAttribute("data-tip", t.textContent); t.remove(); });
+const showTip = (m, e) => {
+  tip.textContent = m.dataset.tip; tip.classList.add("on");
+  const w = tip.offsetWidth, h = tip.offsetHeight;
+  let x, y;
+  if (m.classList.contains("term") || !e) { const r = m.getBoundingClientRect(); x = r.left + r.width / 2 - w / 2; y = r.top - h - 10 < 8 ? r.bottom + 10 : r.top - h - 10; }
+  else { x = e.clientX + 14; y = e.clientY - h - 12 < 8 ? e.clientY + 18 : e.clientY - h - 12; }
+  tip.style.translate = `${Math.max(8, Math.min(innerWidth - w - 8, x))}px ${y}px`;
+};
+const hideTip = () => tip.classList.remove("on");
+addEventListener("pointerover", (e) => { const m = e.target.closest?.("[data-tip]"); if (m) showTip(m, e); });
+addEventListener("pointermove", (e) => { const m = e.target.closest?.("[data-tip]"); if (m && !m.classList.contains("term") && tip.classList.contains("on")) showTip(m, e); }, { passive: true });
+addEventListener("pointerout", (e) => { if (e.pointerType !== "touch" && e.target.closest?.("[data-tip]")) hideTip(); });
+addEventListener("pointerdown", (e) => { if (!e.target.closest?.("[data-tip]")) hideTip(); });
+addEventListener("focusin", (e) => { const m = e.target.closest?.(".term"); if (m) showTip(m); });
+addEventListener("focusout", (e) => { if (e.target.closest?.(".term")) hideTip(); });
+addEventListener("keydown", (e) => { if (e.key === "Escape") hideTip(); });
+addEventListener("scroll", hideTip, { passive: true });
+
+build();
+document.fonts?.ready.then(() => { layoutRail(); kick(); });
+kick();
+</script>
+</body>
+</html>

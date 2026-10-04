@@ -1,15 +1,15 @@
 ibm_fez@2025-02-26 nv:06404cefa54f on qubits 136-143-142-141
-counts fez-impossible-readout.counts.json, simulated, sha256:b66af36c9bfa
+counts fez-impossible-readout.counts.json, simulated, sha256:95376ec3fc13
 run 2025-02-27 11:42Z, 15 h after calibration
 
 circuit       shots  profile TVD  fitted TVD  noise TVD 95%  impossible shots
-ghz_chain      4000       0.0219      0.0219         0.0324                 0
-mirror         4000       0.0037      0.0034         0.0037                 0
+ghz_chain      4000       0.0219      0.0219         0.0313                 0
+mirror         4000       0.0037      0.0034         0.0039                 0
 single_qubit   4000       0.0029      0.0025         0.0029                 0
-readout        4000       0.0029      0.0030         0.0022                 9
+readout        4000       0.0029      0.0030         0.0023                 9
 
 gate errors     x0.978 (95% interval 0.741 to 1.23)
-readout errors  x0.955 (95% interval 0.759 to 1.18)
+readout errors  x0.955 (95% interval 0.75 to 1.18)
 fit             ruled out (p = 0)
                 the profile gives 9 shots probability 0
                 qubit 136 has P(1|0) = 0, and 9 readout shots read it as 1

@@ -5,7 +5,7 @@
   "backend": "toy",
   "run_at": "2026-10-01T12:00:00Z",
   "bit_order": "clbit0_left",
-  "execution": {"client": "noisevault 0.2.0 simulate", "transpiled": false, "gate_twirling": false, "measure_twirling": false, "dynamical_decoupling": false, "init_qubits": true, "job_ids": [], "options": {"seed": 2, "unmodeled_error": null}},
+  "execution": {"client": "noisevault 0.3.0 simulate", "transpiled": false, "gate_twirling": false, "measure_twirling": false, "dynamical_decoupling": false, "init_qubits": true, "job_ids": [], "options": {"seed": 2, "unmodeled_error": null}},
   "circuits": [
     {"name": "xx", "qubits": [0], "ops": [["x", [0], []], ["x", [0], []]], "shots": 4000, "counts": {"0": 3950, "1": 50}}
   ]

@@ -3,10 +3,15 @@
 This file lists all notable changes to NoiseVault. Versions follow
 [Semantic Versioning](https://semver.org).
 
-## Unreleased
+## 0.3.0 (2026-10-04)
 
 ### Added
 
+- **Project website.** `site/index.html` is the source of
+  [dvgyl.github.io/noisevault](https://dvgyl.github.io/noisevault/). `scripts/build_site.py`
+  fills it with data from the bundled profiles and with the real output of `nv show` and
+  `nv cite`. It stops if a number in the text does not match the data. The `Website` workflow
+  builds the site and publishes it to GitHub Pages.
 - **Factors for the error a calibration leaves out.** A profile can set `unmodeled_error`, with
   a factor on its gate error rates, a factor on its readout error rates, or both. Every export
   and the `nv check` reference apply the factors. `nv diff` compares the errors after it applies
@@ -167,6 +172,9 @@ This file lists all notable changes to NoiseVault. Versions follow
 
 ### Changed
 
+- **Releases are GitHub releases.** A `v*` tag builds the wheel and sdist and attaches them to a
+  GitHub release, with the notes of that version from this file. A tag uploads nothing to PyPI.
+  Install a release with `pip install "noisevault[qiskit] @ git+https://github.com/dvgyl/noisevault@v0.3.0"`.
 - **Messages and help text.** Error messages, warnings, hints and help text now follow one
   writing standard, ASD-STE100 Simplified Technical English. Each concept has one term. Each
   message names qubits in one form: `qubit 3`, `qubits 0-2` for a pair, and

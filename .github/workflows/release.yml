@@ -1,11 +1,13 @@
 name: Release
 
-# Publishes to PyPI with trusted publishing. Nothing is uploaded until a trusted publisher for
-# this repository and the "pypi" environment are configured (see CONTRIBUTING.md).
+# A v* tag builds the wheel and sdist and creates a GitHub release with them. Nothing goes to
+# PyPI on a tag. Running the workflow by hand on a tag publishes that build to PyPI, once a
+# trusted publisher and the "pypi" environment exist (see CONTRIBUTING.md).
 
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -33,7 +35,41 @@ jobs:
           name: dist
           path: dist/
 
-  publish:
+  github-release:
+    if: github.event_name == 'push'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - name: Release notes from CHANGELOG.md
+        run: |
+          python - <<'PY'
+          import os, re
+          version = os.environ["GITHUB_REF_NAME"].removeprefix("v")
+          text = open("CHANGELOG.md", encoding="utf-8").read()
+          match = re.search(rf"^## {re.escape(version)} \(.*?\)\n(.*?)(?=^## |\Z)", text, re.M | re.S)
+          if not match:
+              raise SystemExit(f"CHANGELOG.md has no section for {version}")
+          install = (
+              "Install this release:\n\n```bash\n"
+              f'pip install "noisevault[qiskit] @ git+https://github.com/dvgyl/noisevault@v{version}"\n'
+              "```\n\n"
+          )
+          open("notes.md", "w", encoding="utf-8").write(install + match.group(1).strip() + "\n")
+          PY
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${GITHUB_REF_NAME}" dist/* --title "NoiseVault ${GITHUB_REF_NAME#v}" --notes-file notes.md --verify-tag
+
+  pypi:
+    if: github.event_name == 'workflow_dispatch'
     needs: build
     runs-on: ubuntu-latest
     environment:

@@ -10,10 +10,11 @@
 **Calibrated noise from real quantum computers, as one file that works in Qiskit, Cirq, PennyLane and Stim.**
 
 [![CI](https://github.com/dvgyl/noisevault/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/dvgyl/noisevault/actions/workflows/ci.yml)
+[![release](https://img.shields.io/github/v/release/dvgyl/noisevault?color=1f1f1f)](https://github.com/dvgyl/noisevault/releases/latest)
 [![license](https://img.shields.io/badge/license-Apache%202.0-1f1f1f.svg)](LICENSE)
 [![python](https://img.shields.io/badge/python-3.11%20to%203.14-1f1f1f.svg)](pyproject.toml)
 
-[Install](#install) · [Quickstart](#quickstart) · [25 devices](#what-ships) · [Docs](#documentation) · [Changelog](CHANGELOG.md)
+[Website](https://dvgyl.github.io/noisevault/) · [Install](#install) · [Quickstart](#quickstart) · [25 devices](#what-ships) · [Docs](#documentation) · [Changelog](CHANGELOG.md)
 
 </div>
 
@@ -68,7 +69,7 @@ counts = sim.run(compiled, seed_simulator=1).result().get_counts()
 print(counts)
 # {'111': 510, '011': 8, '101': 6, '100': 4, '001': 1, '110': 6, '010': 2, '000': 487}
 print(sim.report.summary())
-# NoiseVault 0.2.0 -> qiskit 2.5.2 (qiskit-aer 0.17.2): ibm_fez (nv:06404cefa54f)
+# NoiseVault 0.3.0 -> qiskit 2.5.2 (qiskit-aer 0.17.2): ibm_fez (nv:06404cefa54f)
 # options: unknown_gates='typical', readout=True
 # exact: gate noise: channels per exported native and physical locus (Aer QuantumError), ...
 # approximated: cz error: the stated error already includes single-qubit gate error ...
@@ -194,18 +195,18 @@ curl -O https://raw.githubusercontent.com/dvgyl/noisevault/main/examples/kingsto
 ```text
 $ nv compare ibm_kingston@2026-04-15 kingston-simulated.counts.json
 ibm_kingston@2026-04-15 nv:609c845ed934 on qubits 148-149-150-151
-counts kingston-simulated.counts.json, simulated, sha256:5e343e753c75
+counts kingston-simulated.counts.json, simulated, sha256:0f8013a17151
 run 2026-04-16 09:30Z, 26 h after calibration
 
 circuit       shots  profile TVD  fitted TVD  noise TVD 95%
-ghz_chain      4000       0.0217      0.0215         0.0327
-mirror         4000       0.0237      0.0050         0.0067
-single_qubit   4000       0.0067      0.0011         0.0037
-readout        4000       0.0096      0.0036         0.0046
+ghz_chain      4000       0.0217      0.0215         0.0321
+mirror         4000       0.0237      0.0050         0.0066
+single_qubit   4000       0.0067      0.0011         0.0041
+readout        4000       0.0096      0.0036         0.0047
 
 gate errors     x2.16 (95% interval 1.76 to 2.58)
 readout errors  x1.34 (95% interval 1.16 to 1.53)
-fit             within shot noise on every circuit (p = 0.66)
+fit             within shot noise on every circuit (p = 0.7)
 
 Factors multiply the profile's error rates, so x2 means about twice the errors.
 On these qubits, the factors absorb crosstalk, leakage, coherent error and idle

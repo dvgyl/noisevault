@@ -10,8 +10,8 @@ abstract: >-
   license and a SHA-256 fingerprint of their physics, so a simulation can be tied to the exact
   calibration it used.
 type: software
-version: 0.2.0
-date-released: 2026-10-01
+version: 0.3.0
+date-released: 2026-10-04
 authors:
   - family-names: "Goyal"
     given-names: "Dev D."

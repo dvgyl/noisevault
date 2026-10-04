@@ -10,3 +10,4 @@ dist/
 *.egg-info/
 .env
 .DS_Store
+_site/

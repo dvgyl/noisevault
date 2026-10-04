@@ -1,16 +1,16 @@
 ibm_kingston@2026-04-15 nv:609c845ed934 on qubits 148-149-150-151
-counts examples/kingston-simulated.counts.json, simulated, sha256:5e343e753c75
+counts examples/kingston-simulated.counts.json, simulated, sha256:0f8013a17151
 run 2026-04-16 09:30Z, 26 h after calibration
 
 circuit       shots  profile TVD  fitted TVD  noise TVD 95%
-ghz_chain      4000       0.0217      0.0215         0.0327
-mirror         4000       0.0237      0.0050         0.0067
-single_qubit   4000       0.0067      0.0011         0.0037
-readout        4000       0.0096      0.0036         0.0046
+ghz_chain      4000       0.0217      0.0215         0.0321
+mirror         4000       0.0237      0.0050         0.0066
+single_qubit   4000       0.0067      0.0011         0.0041
+readout        4000       0.0096      0.0036         0.0047
 
 gate errors     x2.16 (95% interval 1.76 to 2.58)
 readout errors  x1.34 (95% interval 1.16 to 1.53)
-fit             within shot noise on every circuit (p = 0.66)
+fit             within shot noise on every circuit (p = 0.7)
 
 Factors multiply the profile's error rates, so x2 means about twice the errors.
 On these qubits, the factors absorb crosstalk, leakage, coherent error and idle

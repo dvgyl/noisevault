@@ -111,12 +111,27 @@ nv schema > docs/schema/profile-1.0.json
 ## Release
 
 1. Update `version` in `pyproject.toml` and `__version__` in `src/noisevault/__init__.py`.
-2. Add the release to `CHANGELOG.md`. Update `version` and `date-released` in `CITATION.cff`.
+2. Add the release to `CHANGELOG.md` under a heading `## X.Y.Z (YYYY-MM-DD)`. Update `version`
+   and `date-released` in `CITATION.cff`.
 3. Merge to `main` when CI passes.
-4. To tag and push the release, run `git tag v0.2.0 && git push origin v0.2.0`.
+4. Tag the release and push the tag, as in `git tag v0.3.0 && git push origin v0.3.0`.
 
-The tag starts `.github/workflows/release.yml`, which builds the wheel and sdist and uploads
-them to PyPI with trusted publishing. Before the first release, add a trusted publisher on PyPI
-for this repository. Use owner `dvgyl`, repository `noisevault`, workflow
-`release.yml` and environment `pypi`. Then create the `pypi` environment in the GitHub
-repository settings. Until both exist, the upload step fails and publishes nothing.
+The tag starts `.github/workflows/release.yml`. The workflow checks that the tag matches the
+version, builds the wheel and sdist, and creates a GitHub release with the notes of that version
+from `CHANGELOG.md`. The wheel and sdist are attached to the release. A tag uploads nothing to
+PyPI. To publish a tagged build to PyPI later, run the workflow by hand on that tag. That step
+needs a trusted publisher on PyPI (owner `dvgyl`, repository `noisevault`, workflow
+`release.yml`, environment `pypi`) and the `pypi` environment in the repository settings.
+
+## Website
+
+`site/index.html` is the source of the project website. `scripts/build_site.py` writes the
+finished page to `_site/`, with data from the bundled profiles and the real output of `nv show`
+and `nv cite`:
+
+```bash
+python scripts/build_site.py
+```
+
+The script stops if a number in the text does not match the data. On a push to `main`, the
+`Website` workflow builds the page and publishes it to GitHub Pages.

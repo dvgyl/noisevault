@@ -1,15 +1,15 @@
 ibm_kingston@2026-04-15 nv:609c845ed934 on qubits 148-149-150-151
-counts kingston-excess-readout.counts.json, simulated, sha256:b8ec4fd87ac2
+counts kingston-excess-readout.counts.json, simulated, sha256:2f746052569a
 run 2026-04-16 09:30Z, 26 h after calibration
 
 circuit       shots  profile TVD  fitted TVD  noise TVD 95%
-ghz_chain      4000       0.0207      0.0205         0.0316
+ghz_chain      4000       0.0207      0.0205         0.0319
 mirror         4000       0.0093      0.0060         0.0059  beyond noise
-single_qubit   4000       0.0029      0.0041         0.0041
-readout        4000       0.0205      0.0142         0.0056  beyond noise
+single_qubit   4000       0.0029      0.0041         0.0043
+readout        4000       0.0205      0.0142         0.0060  beyond noise
 
-gate errors     x0.723 (95% interval 0.365 to 1.18)
-readout errors  x1.66 (95% interval 1.38 to 1.96)
+gate errors     x0.723 (95% interval 0.373 to 1.2)
+readout errors  x1.66 (95% interval 1.38 to 1.97)
 fit             beyond shot noise (p = 0.0025)
                 on mirror and readout
                 no one pair of factors fits every circuit
