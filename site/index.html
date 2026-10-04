@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>NoiseVault: calibrated noise from real quantum computers</title>
+<title>NoiseVault</title>
 <meta name="description" content="NoiseVault adds the measured errors of a real quantum computer to your simulations. One profile works in Qiskit, Cirq, PennyLane and Stim, and a fingerprint pins the exact numbers.">
 <link rel="canonical" href="https://dvgyl.github.io/noisevault/">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23fcfcfa'/%3E%3Cpolyline points='3,21 6,15 9,21 12,11 15,21' fill='none' stroke='%23b5590b' stroke-width='2.4' stroke-linejoin='round' stroke-linecap='round'/%3E%3Cpath d='M20 11V25H29' fill='none' stroke='%232f5fe0' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3Ccircle cx='20' cy='9' r='3' fill='%231d1c1a'/%3E%3C/svg%3E">
@@ -57,24 +57,28 @@ figure { margin: 0; }
 
 /* one grid for the whole page: text column, figure column; numbers hang in the margin */
 .wrap { max-width: 1320px; margin: 0 auto; padding: 0 clamp(20px, 6vw, 88px); }
-.cols { display: grid; grid-template-columns: minmax(0, var(--text)) minmax(0, 1fr); column-gap: var(--gap); }
+.cols { display: grid; grid-template-columns: minmax(0, min(var(--text), 46%)) minmax(0, 1fr); column-gap: var(--gap); }
 
 /* masthead */
-.mast { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; padding: 24px 0 16px; border-bottom: 1px solid var(--ink); }
+.mast { position: relative; display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; padding-top: 24px; }
+/* the logo's flat line runs on as the masthead rule */
+.mast::after { content: ""; position: absolute; left: 205px; right: 0; bottom: 1.15px; height: 1.1px; background: var(--ok); transform-origin: left; animation: rule 1100ms cubic-bezier(0.3, 0.3, 0.2, 1) 2250ms backwards; }
+@keyframes rule { from { transform: scaleX(0); } }
+.mast nav { margin-bottom: 14px; }
 .mast svg { display: block; width: 210px; height: auto; }
 .mast nav { display: flex; gap: 6px 24px; flex-wrap: wrap; justify-content: flex-end; font: 500 14.5px var(--sans); }
 .mast nav a { color: var(--ink); background-size: 0 1px; transition: background-size 260ms var(--ease-out), color 160ms; }
 .mast nav a:hover { background-size: 100% 1px; color: var(--ink); }
 .logo .wm { clip-path: inset(0 100% 0 0); animation: wipe 900ms var(--ease-out) 100ms forwards; }
 .logo .trace { stroke-dasharray: 1; stroke-dashoffset: 1; animation: draw 1100ms var(--ease-io) 450ms forwards; }
-.logo .flat { stroke-dasharray: 1; stroke-dashoffset: 1; animation: draw 700ms var(--ease-out) 1650ms forwards; }
+.logo .flat { stroke-dasharray: 1; stroke-dashoffset: 1; animation: draw 600ms cubic-bezier(0.4, 0, 0.9, 0.6) 1650ms forwards; }
 .logo .pin { opacity: 0; transform-box: fill-box; transform-origin: center; animation: pin 420ms var(--ease-out) 1500ms forwards; }
 @keyframes wipe { to { clip-path: inset(0 0 0 0); } }
 @keyframes draw { to { stroke-dashoffset: 0; } }
 @keyframes pin { from { opacity: 0; transform: scale(0.4); } to { opacity: 1; transform: none; } }
 
 /* opening: title and abstract on the left, figure 1 on the right */
-.hero { display: grid; grid-template-columns: minmax(0, 1.12fr) minmax(0, 1fr); column-gap: clamp(36px, 5vw, 84px); align-items: center; padding: clamp(32px, 7vh, 72px) 0 clamp(36px, 7vh, 72px); border-bottom: 1px solid var(--rule); }
+.hero { min-height: calc(100svh - 70px); align-content: center; display: grid; grid-template-columns: minmax(0, 1.12fr) minmax(0, 1fr); column-gap: clamp(36px, 5vw, 84px); align-items: center; padding: clamp(32px, 7vh, 72px) 0 clamp(36px, 7vh, 72px); border-bottom: 1px solid var(--rule); }
 .hero h1 { font: 500 clamp(28px, 2.75vw, 40px)/1.14 var(--serif); font-variation-settings: "opsz" 72; letter-spacing: -0.02em; margin: 0 0 18px; max-width: 28ch; font-variant-numeric: lining-nums; text-wrap: balance; }
 .author { font-size: 18px; }
 .meta { margin-top: 2px; font: 400 14px/1.5 var(--sans); color: var(--ink-2); }
@@ -91,14 +95,12 @@ figure { margin: 0; }
 .term { font-style: italic; cursor: help; background: linear-gradient(90deg, var(--err) 50%, transparent 0) 0 100% / 4px 1.5px repeat-x; padding-bottom: 1px; transition: color 160ms var(--ease-out); }
 .term:hover, .term:focus-visible { color: var(--err); outline: none; }
 
-/* headings and section numbers on the rail */
+/* headings */
 h2 { position: relative; font: 600 clamp(26px, 2.3vw, 31px)/1.2 var(--serif); font-variation-settings: "opsz" 48; letter-spacing: -0.012em; margin: 0 0 14px; font-variant-numeric: lining-nums; }
 .n { position: absolute; left: calc(-1 * var(--hang)); top: 0.12em; width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; background: var(--paper); border: 1.5px solid var(--rule); color: var(--ink-3); font: 600 12.5px/1 var(--sans); font-variant-numeric: lining-nums; transition: background-color 300ms var(--ease-out), border-color 300ms var(--ease-out), color 300ms var(--ease-out), transform 300ms var(--ease-out); }
 a.n:hover { transform: scale(1.12); color: var(--ink); }
 .step.done .n, .static .n { border-color: var(--ink); color: var(--ink); }
 .step.on .n { background: var(--err); border-color: var(--err); color: #fff; transform: scale(1.12); }
-.rail { position: absolute; left: calc(-1 * var(--hang) + 12px); width: 1.5px; background: var(--rule); }
-.rail-fill { position: absolute; inset: 0; background: var(--ink); transform-origin: top; transform: scaleY(0); }
 .prose p + p { margin-top: 0.9em; }
 
 /* figure text: a sans face separates it from the reading text */
@@ -123,10 +125,12 @@ figcaption b { font-weight: 600; color: var(--ink); margin-right: 4px; }
 
 /* the story */
 .story { margin-top: 24px; }
-.steps { position: relative; grid-column: 1; grid-row: 1; padding: 14vh 0 32vh; }
-.step { min-height: 86vh; }
-.step:last-child { min-height: 0; }
-.step > p { max-width: 33em; }
+.steps { position: relative; grid-column: 1; grid-row: 1; padding: 30vh 0 10vh; }
+/* each section is a tall block; its text sticks beside the figure, then scrolls away */
+.step { height: 118vh; padding-bottom: 28vh; }
+.step:last-child { height: 105vh; padding-bottom: 15vh; }
+.step-in { position: sticky; top: 50vh; transform: translateY(-50%); }
+.step-in > p { max-width: 33em; }
 .stage-wrap { grid-column: 2; grid-row: 1; align-self: start; position: sticky; top: 0; height: 100vh; }
 .stage { position: relative; height: 100%; }
 .sfig { position: absolute; inset: 9vh 0 7vh; display: flex; flex-direction: column; justify-content: center; opacity: 0; transform: translateY(16px) scale(0.99); transition: opacity 200ms ease-out, transform 200ms ease-out; pointer-events: none; }
@@ -190,7 +194,7 @@ figcaption b { font-weight: 600; color: var(--ink); margin-right: 4px; }
 .howto li:last-child { padding-bottom: 0; }
 .howto li::before { content: ""; position: absolute; left: calc(-1 * var(--hang) + 12px); top: 30px; bottom: 4px; width: 1.5px; background: var(--rule); }
 .howto li:last-child::before { display: none; }
-.howto .num { position: absolute; left: calc(-1 * var(--hang)); top: 2px; width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; background: var(--pass-ink); color: #fff; font: 600 12.5px/1 var(--sans); }
+.howto .num { position: absolute; left: calc(-1 * var(--hang) + 6px); top: 8px; width: 14px; height: 14px; border-radius: 50%; display: grid; place-items: center; background: var(--pass-ink); color: #fff; font: 600 12.5px/1 var(--sans); }
 .howto h3 { font: 600 20px/1.3 var(--serif); margin: 0 0 6px; }
 .howto p { font-size: 17px; color: var(--ink-2); }
 .win { background: var(--term); border-radius: 10px; overflow: hidden; box-shadow: 0 1px 0 rgb(255 255 255 / 0.05) inset, 0 18px 40px -24px rgb(20 20 30 / 0.55); min-width: 0; }
@@ -242,7 +246,7 @@ figcaption b { font-weight: 600; color: var(--ink); margin-right: 4px; }
 
 /* paragraphs and headings rise into place as they scroll into view */
 @supports (animation-timeline: view()) {
-  .step > p, .step > h2, .sec > p, .sec > h2, .howto li, .tabs, .more { animation: reveal linear both; animation-timeline: view(); animation-range: entry 5% entry 50%; }
+  .sec > p, .sec > h2, .howto li, .tabs, .more { animation: reveal linear both; animation-timeline: view(); animation-range: entry 5% entry 50%; }
 }
 @keyframes reveal { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: none; } }
 
@@ -251,19 +255,22 @@ figcaption b { font-weight: 600; color: var(--ink); margin-right: 4px; }
   .cols { display: block; }
   .mast { flex-wrap: wrap; }
   .mast svg { width: 150px; }
+  .mast::after { left: 148px; bottom: 1px; }
+  .hero { min-height: 0; }
   .mast nav { font-size: 13.5px; gap: 4px 16px; }
   .hero { display: block; padding: 28px 0 32px; }
   .hero-fig { margin-top: 28px; }
   .abstract p { font-size: 17.5px; }
   .tally b { font-size: 24px; }
   .n { position: static; display: inline-grid; margin-right: 10px; vertical-align: 0.15em; }
-  .rail { display: none; }
   .stage-wrap { position: sticky; top: 0; height: 50svh; z-index: 3; background: var(--paper); border-bottom: 1px solid var(--rule); margin: 0 calc(-1 * clamp(20px, 6vw, 88px)); }
   .sfig { inset: 12px 16px; }
   .sfig figcaption { display: none; }
   .sfig .plot > svg { max-height: none; }
-  .steps { padding: 6svh 0 36svh; }
-  .step { min-height: 72svh; }
+  .steps { padding: 4svh 0 20svh; }
+  .step { height: 108svh; padding-bottom: 30svh; }
+  .step:last-child { height: 90svh; padding-bottom: 10svh; }
+  .step-in { top: 54svh; transform: none; }
   .back > .sec { margin-top: 64px; }
   .howto li { grid-template-columns: 1fr; row-gap: 14px; padding-left: 40px; }
   .howto li::before { left: 12px; }
@@ -321,40 +328,53 @@ figcaption b { font-weight: 600; color: var(--ink); margin-right: 4px; }
     </div>
   </div>
   <div class="steps prose">
-    <div class="rail" aria-hidden="true"><div class="rail-fill"></div></div>
       <article class="step" id="s1" data-fig="chip" data-title="Device noise">
-        <h2><a class="n" href="#s1" aria-label="Section 1">1</a>Device noise</h2>
+        <div class="step-in">
+        <h2>Device noise</h2>
         <p>Every <dfn class="term" tabindex="0" data-tip="The basic unit of a quantum computer. A qubit holds 0, 1 or a mix of both.">qubit</dfn><span class="sr-only"> (The basic unit of a quantum computer. A qubit holds 0, 1 or a mix of both.)</span> on a real chip makes errors at its own rate. The manufacturer measures these rates in a <dfn class="term" tabindex="0" data-tip="A regular measurement of the error rates of each qubit. The rates change from one calibration to the next.">calibration</dfn><span class="sr-only"> (A regular measurement of the error rates of each qubit. The rates change from one calibration to the next.)</span>.</p>
         <p>On IBM Fez, the <dfn class="term" tabindex="0" data-tip="The chance that a measurement gives the wrong bit.">readout error</dfn><span class="sr-only"> (The chance that a measurement gives the wrong bit.)</span> goes from 0.15% to 10.6% across its 156 qubits.</p>
+        </div>
       </article>
       <article class="step" id="s2" data-fig="ghz" data-title="Simulation with a profile">
-        <h2><a class="n" href="#s2" aria-label="Section 2">2</a>Simulation with a profile</h2>
+        <div class="step-in">
+        <h2>Simulation with a profile</h2>
         <p>An ideal <dfn class="term" tabindex="0" data-tip="A program that calculates the results of a quantum computer.">simulator</dfn><span class="sr-only"> (A program that calculates the results of a quantum computer.)</span> adds no errors. In a <dfn class="term" tabindex="0" data-tip="A circuit that links qubits so that their measurements always agree.">GHZ circuit</dfn><span class="sr-only"> (A circuit that links qubits so that their measurements always agree.)</span>, all three qubits must agree, so each run gives 000 or 111.</p>
         <p>With the IBM Fez profile, 27 of 1,024 runs give a wrong result.</p>
+        </div>
       </article>
       <article class="step" id="s3" data-fig="four" data-title="One profile, four simulators">
-        <h2><a class="n" href="#s3" aria-label="Section 3">3</a>One profile, four simulators</h2>
+        <div class="step-in">
+        <h2>One profile, four simulators</h2>
         <p>Each simulator describes noise in its own format. NoiseVault converts one <dfn class="term" tabindex="0" data-tip="One file with the measured error rates of one device on one date.">profile</dfn><span class="sr-only"> (One file with the measured error rates of one device on one date.)</span> into all four.</p>
         <p><code>nv check</code> confirms that each conversion matches an exact reference calculation.</p>
+        </div>
       </article>
       <article class="step" id="s4" data-fig="hash" data-title="A fingerprint for each profile">
-        <h2><a class="n" href="#s4" aria-label="Section 4">4</a>A fingerprint for each profile</h2>
+        <div class="step-in">
+        <h2>A fingerprint for each profile</h2>
         <p>Each profile has a <dfn class="term" tabindex="0" data-tip="A SHA-256 hash: a 256-bit code calculated from every number in the profile.">fingerprint</dfn><span class="sr-only"> (A SHA-256 hash: a 256-bit code calculated from every number in the profile.)</span>. Change one number by 1%, and 116 of the 256 bits change.</p>
         <p>Put the fingerprint in your paper. If the numbers differ, the load stops with an error.</p>
+        </div>
       </article>
       <article class="step" id="s5" data-fig="report" data-title="A report of each conversion">
-        <h2><a class="n" href="#s5" aria-label="Section 5">5</a>A report of each conversion</h2>
+        <div class="step-in">
+        <h2>A report of each conversion</h2>
         <p>A simulator cannot always represent every effect. Each conversion comes with a <dfn class="term" tabindex="0" data-tip="A list, saved with your results, of what the noise model includes.">report</dfn><span class="sr-only"> (A list, saved with your results, of what the noise model includes.)</span> of what is exact, approximated or missing.</p>
+        </div>
       </article>
       <article class="step" id="s6" data-fig="compare" data-title="Comparison with a real device">
-        <h2><a class="n" href="#s6" aria-label="Section 6">6</a>Comparison with a real device</h2>
+        <div class="step-in">
+        <h2>Comparison with a real device</h2>
         <p><code>nv compare</code> scores a profile against counts from a real device. It fits two <dfn class="term" tabindex="0" data-tip="How much the gate errors and the readout errors must be multiplied to match the counts.">factors</dfn><span class="sr-only"> (How much the gate errors and the readout errors must be multiplied to match the counts.)</span>, each with a 95% interval.</p>
         <p>Here the counts are simulated with known factors, and both intervals contain the true values. No real-device counts have been compared yet.</p>
+        </div>
       </article>
       <article class="step" id="s7" data-fig="fleet" data-title="25 devices included">
-        <h2><a class="n" href="#s7" aria-label="Section 7">7</a>25 devices included</h2>
+        <div class="step-in">
+        <h2>25 devices included</h2>
         <p>The package includes 25 devices: 18 from IBM, 5 from Quantinuum and 2 from Google. They load offline, with no account.</p>
         <p><code>nv pull</code> gets newer calibrations from IBM.</p>
+        </div>
       </article>
   </div>
   <p class="sr-only" aria-live="polite" id="announce"></p>
@@ -370,17 +390,17 @@ figcaption b { font-weight: 600; color: var(--ink); margin-right: 4px; }
     </figure>
 
     <section class="sec wide-sec static" id="s8" aria-labelledby="h8">
-      <h2 id="h8"><span class="n">8</span>Get started</h2>
+      <h2 id="h8">Get started</h2>
       <p>NoiseVault needs Python 3.11 to 3.14.</p>
       <ol class="howto">
-        <li><span class="num" aria-hidden="true">1</span><div><h3>Try it without an install</h3><p>This needs <a href="https://docs.astral.sh/uv/">uv</a>. It prints the IBM Fez profile.</p></div><div class="win" data-win="0"></div></li>
-        <li><span class="num" aria-hidden="true">2</span><div><h3>Install for your simulator</h3><p>Use <code>cirq</code>, <code>pennylane</code> or <code>stim</code> in place of <code>qiskit</code>.</p></div><div class="win" data-win="1"></div></li>
-        <li><span class="num" aria-hidden="true">3</span><div><h3>Simulate with real noise</h3><p>The circuit from Figure 3. It runs offline.</p></div><div class="win" data-win="2"></div></li>
+        <li><span class="num" aria-hidden="true"></span><div><h3>Try it without an install</h3><p>This needs <a href="https://docs.astral.sh/uv/">uv</a>. It prints the IBM Fez profile.</p></div><div class="win" data-win="0"></div></li>
+        <li><span class="num" aria-hidden="true"></span><div><h3>Install for your simulator</h3><p>Use <code>cirq</code>, <code>pennylane</code> or <code>stim</code> in place of <code>qiskit</code>.</p></div><div class="win" data-win="1"></div></li>
+        <li><span class="num" aria-hidden="true"></span><div><h3>Simulate with real noise</h3><p>The circuit from Figure 3. It runs offline.</p></div><div class="win" data-win="2"></div></li>
       </ol>
     </section>
 
     <section class="sec prose static" id="s9" aria-labelledby="h9">
-      <h2 id="h9"><span class="n">9</span>Limitations</h2>
+      <h2 id="h9">Limitations</h2>
       <p>The models use average error rates and treat each error as independent. They do not include:</p>
       <ul class="limits">
       <li style="--i:0"><b>Crosstalk</b><span>An operation on one qubit disturbs its neighbors.</span></li>
@@ -867,21 +887,11 @@ const reduce = matchMedia("(prefers-reduced-motion: reduce)");
 const figs = [...document.querySelectorAll("[data-fig]")].filter((el) => !el.classList.contains("step") && el.dataset.fig !== "teaser").map((el) => ({ el, plot: el.querySelector(".plot"), name: el.dataset.fig, p: -1, render: null }));
 const steps = [...document.querySelectorAll(".step")];
 const stepOf = Object.fromEntries(steps.map((s) => [s.dataset.fig, s]));
-const rail = document.querySelector(".rail"), railFill = document.querySelector(".rail-fill");
-let railLen = 1;
-function layoutRail() {
-  if (!rail.offsetParent) return;
-  const box = rail.parentElement.getBoundingClientRect();
-  const c = steps.map((s) => { const r = s.querySelector(".n").getBoundingClientRect(); return r.top + r.height / 2 - box.top; });
-  railLen = Math.max(1, c[c.length - 1] - c[0]);
-  rail.style.top = c[0] + "px"; rail.style.height = railLen + "px";
-}
 function build() {
   readTokens();
   FIG.teaser(document.querySelector('[data-fig="teaser"] .plot'));
   for (const f of figs) { f.render = FIG[f.name](f.plot, true); f.p = -1; }
   tipify();
-  layoutRail();
 }
 let activeSectionId = null;
 const say = document.getElementById("announce");
@@ -895,7 +905,7 @@ function setActive(i) {
 }
 // A card takes over the figure when its top crosses the enter line, and the figure
 // finishes building when the card reaches the settle line, where the reader reads it.
-const lines = () => (innerWidth < 900 ? { enter: 0.96, settle: 0.63 } : { enter: 0.88, settle: 0.45 });
+const lines = () => (innerWidth < 900 ? { enter: 0.95, settle: 0.55 } : { enter: 0.75, settle: 0.25 });
 const follow = (cur, target, dt) => { const n = cur + (target - cur) * (1 - Math.exp(-dt / 90)); return Math.abs(target - n) < 0.0008 ? target : n; };
 let raf = 0, last = 0;
 function frame(now) {
@@ -905,7 +915,6 @@ function frame(now) {
   let ai = 0;
   tops.forEach((t, i) => { if (t <= enter * vh) ai = i; });
   setActive(ai);
-  if (rail.offsetParent) railFill.style.transform = `scaleY(${clamp((settle * vh - rail.getBoundingClientRect().top) / railLen).toFixed(4)})`;
   let again = false;
   for (const f of figs) {
     let target;
@@ -923,7 +932,7 @@ function frame(now) {
 const kick = () => { if (!raf) raf = requestAnimationFrame(frame); };
 addEventListener("scroll", kick, { passive: true });
 let lastW = innerWidth;
-addEventListener("resize", () => { if (innerWidth !== lastW) { lastW = innerWidth; build(); } else layoutRail(); kick(); });
+addEventListener("resize", () => { if (innerWidth !== lastW) { lastW = innerWidth; build(); } kick(); });
 reduce.addEventListener("change", () => { build(); kick(); });
 
 /* ---------- table 3 ---------- */
@@ -1057,7 +1066,7 @@ addEventListener("keydown", (e) => { if (e.key === "Escape") hideTip(); });
 addEventListener("scroll", hideTip, { passive: true });
 
 build();
-document.fonts?.ready.then(() => { layoutRail(); kick(); });
+document.fonts?.ready.then(kick);
 kick();
 </script>
 </body>
