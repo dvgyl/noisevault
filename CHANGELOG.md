@@ -94,6 +94,11 @@ This file lists all notable changes to NoiseVault. Versions follow
     set at each kept peak. When the grids are too coarse for a kept peak, the fit climbs from that
     peak in each set. Thus no drawn maximum is below the likelihood at a kept peak. In an example
     where one grid spans the whole range, the p-value was 0.586, and it is now 0.564.
+  - Below the lowest relaxation floor, every gate factor gives the same probabilities, so the
+    likelihood is flat there. A climb along the gate axis no longer goes below that floor. Thus it
+    cannot stop on the flat part. The fit also climbs from the best grid point when an end of the
+    factor range is higher than that point. Before, for a factor far below the estimate, a drawn
+    maximum could be 5.76 lower than the likelihood at a grid point.
   - The slope of a circuit counts in the Fisher information only when its probabilities 0.1% below
     and 0.1% above the estimate differ. The difference must be more than the rounding error of the
     reference. Before, rounding error could remove a degree of freedom. For one circuit that

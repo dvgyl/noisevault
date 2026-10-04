@@ -662,6 +662,10 @@ class _Surface:
         gate, value = _zoom(profile, start.gate)
         return _Peak(gate, nuisance[gate], value)
 
+    def flat_below(self) -> float:
+        moved = np.any(self.before_readout != self.before_readout[0], axis=1)
+        return float(self.gate_nodes[np.argmax(moved) - 1]) if moved.any() else _LO
+
     def moves(self, axis: Axis) -> list[bool]:
         nodes, ends = self.gate_nodes, np.array([_LO, _HI])
         probs = self.probs_at(np.repeat(nodes, 2), np.tile(ends, len(nodes)))
@@ -703,6 +707,7 @@ class _Fit:
         self.shots = shots
         self.dispersion = dispersion
         self.cutoff = CHI2_95 * dispersion
+        self.flat_below = surface.flat_below()
         self.seed = seed
         self._wilks: dict[Axis, dict[int, float | None]] = {}
         self._peak_ends: dict[Axis, dict[int, float | None]] = {}
@@ -939,10 +944,12 @@ class _Fit:
         vertex, pick = _highest(vertices)
         value = self.surface.loglik_each(vertex.gate, vertex.readout, draws)
         best, _ = _highest([*grids, vertex._replace(top=value)])
+        beaten = np.flatnonzero((pick > 0) & ~settled[0])
         settled = np.array(settled)[pick, np.arange(len(pick))]
         with np.errstate(invalid="ignore"):
             loose = np.flatnonzero(~settled | (np.abs(value - vertex.top) > TIE))
-        return _climbed(draws, best, loose, climb)
+        best = _climbed(draws, best, loose, climb)
+        return _highest([best, _climbed(draws, grids[0], beaten, climb)])[0]
 
     def _free_max(
         self, axis: Axis, held: ByColumn, counts: ByCellByDraw, others: ByColumn, span: float
@@ -951,8 +958,10 @@ class _Fit:
             point = (held[which], x) if axis == "gate" else (x, held[which])
             return self.surface.loglik_each(*point, counts[:, which]), x
 
+        lo = _LO if axis == "gate" else self.flat_below
+        others = np.maximum(others, lo)
         top, _ = f(others, np.arange(len(others)), others)
-        others, top, _ = _climb(f, others, top, others, span)
+        others, top, _ = _climb(f, others, top, others, span, lo)
         return top, others
 
     def windows(self) -> tuple[_Window, ...]:
@@ -1143,13 +1152,14 @@ def _climb(
     top: ByColumn,
     aux: ByColumn,
     span: float,
+    lo: float = _LO,
 ) -> tuple[ByColumn, ByColumn, ByColumn]:
     x, top, aux = x.copy(), top.copy(), aux.copy()
     spans = np.full(len(x), span)
     active = np.flatnonzero(spans > 0)
     while len(active):
         center, value, h = x[active], top[active], spans[active]
-        low, high = np.maximum(center - h, _LO), np.minimum(center + h, _HI)
+        low, high = np.maximum(center - h, lo), np.minimum(center + h, _HI)
         both = np.tile(active, 2)
         sides, aux_sides = f(np.concatenate([low, high]), both, aux[both])
         (f_low, f_high), (aux_low, aux_high) = np.split(sides, 2), np.split(aux_sides, 2)

@@ -278,13 +278,15 @@ OTHER_PEAK = (
 )
 
 
-def drawn_maxima(monkeypatch: pytest.MonkeyPatch) -> list[tuple[Any, np.ndarray, np.ndarray]]:
+def drawn_maxima(
+    monkeypatch: pytest.MonkeyPatch, held: bool = False
+) -> list[tuple[Any, np.ndarray, np.ndarray]]:
     found = []
     draw_max = fit._Fit.draw_max
 
     def recorded(self: Any, draws: np.ndarray, windows: Any = ()) -> Any:
         best = draw_max(self, draws, windows)
-        if not windows:
+        if bool(windows) == held:
             found.append((self, draws, best.top))
         return best
 
@@ -342,6 +344,35 @@ def test_no_drawn_maximum_is_below_the_likelihood_at_a_kept_peak(
         assert (at_peak <= top).all(), (peak, float((at_peak - top).max()))
 
 
+def assert_each_held_maximum_reaches_the_grid(
+    found: list[tuple[Any, np.ndarray, np.ndarray]],
+) -> None:
+    assert found
+    for fitted, draws, top in found:
+        above = fitted.surface.loglik(draws).max(axis=(0, 1)) - top
+        assert above.max() <= fit.TIE, (int(above.argmax()), above.max())
+
+
+END_HIGHER = (
+    (1.5388235517986604, 0.6200689061258465),
+    (1.4908331026741775, 2.251421135121015),
+    (1.6451867538740885, 2.250085372747919),
+    (1.4696510705733379, 1.0525008338374768),
+    (-3.102152313951698, -2.335052332028416),
+)
+
+
+def test_a_drawn_maximum_climbs_from_its_grid_when_an_end_of_the_range_is_higher(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    found = drawn_maxima(monkeypatch, held=True)
+    pauli = [0.0009939335043485835, 0.002291845372172767, 0.028796997812182916]
+    profile = one_qubit("ends", {"r": {"pauli": pauli}})
+    ops = tuple(Op("r", (0,), angles) for angles in END_HIGHER)
+    compare(profile, written(profile, [("c0", ops, {"0": 95913, "1": 4087})]))
+    assert_each_held_maximum_reaches_the_grid(found)
+
+
 def zero_error_loops(seed: int) -> tuple[Profile, MeasuredCounts]:
     profile = one_qubit("zloop2", {"r": {"pauli": [0, 0, 0.1]}})
     steps = [(0.01, [1] * 10 + [-1] * 10), (0.015, [1] * 5 + [-1] * 5)]
@@ -367,8 +398,8 @@ def test_an_interval_holds_a_peak_that_only_the_calibrated_test_accepts() -> Non
     assert covers(result.gates, 0.404558) and covers(result.gates, 1.0), result.gates
 
 
-def test_a_flat_likelihood_below_the_relaxation_floor_stays_outside_the_interval() -> None:
-    profile = Profile.uniform(
+def relaxed() -> Profile:
+    return Profile.uniform(
         "relaxed",
         technology="superconducting",
         num_qubits=1,
@@ -378,12 +409,26 @@ def test_a_flat_likelihood_below_the_relaxation_floor_stays_outside_the_interval
         t2_us=150,
         one_qubit_ns=40,
     )
+
+
+def test_a_flat_likelihood_below_the_relaxation_floor_stays_outside_the_interval() -> None:
+    profile = relaxed()
     counts = simulate(
         scaled(profile, 14, 1.5), plan(profile), shots=1_000_000, seed=2, run_at=LATER
     )
     result = compare(profile, counts)
     assert isinstance(result.gates, ErrorFactor) and result.gates.bound is None, result.gates
     assert 13.8 < result.gates.low < 14 < result.gates.high < 14.2, result.gates
+
+
+def test_a_drawn_maximum_does_not_stop_on_the_flat_likelihood_below_the_relaxation_floor(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    found = drawn_maxima(monkeypatch, held=True)
+    profile = relaxed()
+    counts = simulate(scaled(profile, 3, 1), plan(profile), shots=4000, seed=1, run_at=LATER)
+    compare(profile, counts)
+    assert_each_held_maximum_reaches_the_grid(found)
 
 
 def test_a_gate_response_equal_at_both_ends_of_the_range_still_moves() -> None:
