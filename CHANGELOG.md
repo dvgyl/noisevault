@@ -3,6 +3,18 @@
 This file lists all notable changes to NoiseVault. Versions follow
 [Semantic Versioning](https://semver.org).
 
+## Unreleased
+
+### Added
+
+- The package has a `py.typed` marker (PEP 561). Type checkers such as mypy and pyright now
+  read the annotations of NoiseVault, so `nv.load(ref)` has the type `Profile`, not `Any`. A
+  `layout` argument has the type `Mapping[Any, int] | Sequence[int]`, so a type checker accepts
+  the `dict[int, int]` that `suggest_layout()` returns.
+- The README gives the install line for a virtual environment from `uv venv`, which has no pip.
+  The README section [Coming from fake backends](README.md#coming-from-fake-backends) shows the
+  one-line change from `AerSimulator.from_backend` and what a profile adds.
+
 ## 0.3.0 (2026-10-04)
 
 ### Added

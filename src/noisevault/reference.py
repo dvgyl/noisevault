@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from collections.abc import Hashable, Iterable, Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from math import pi
+from typing import Any
 
 import numpy as np
 
@@ -36,7 +37,7 @@ def probabilities(
     ops: Iterable[Op],
     num_qubits: int,
     *,
-    layout: Mapping[Hashable, int] | Sequence[int] | None = None,
+    layout: Mapping[Any, int] | Sequence[int] | None = None,
     unknown_gates: UnknownGates = "typical",
     readout: bool = True,
     report: Report | None = None,

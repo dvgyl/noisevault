@@ -7,7 +7,7 @@ import warnings
 from collections.abc import Callable, Hashable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from itertools import combinations
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
@@ -53,7 +53,7 @@ def _int_label(label: Hashable) -> int | None:
 
 def normalize_layout(
     labels: Iterable[Hashable],
-    layout: Mapping[Hashable, int] | Sequence[int] | None,
+    layout: Mapping[Any, int] | Sequence[int] | None,
     profile: Profile,
     *,
     index_of: Callable[[Hashable], int | None] = _int_label,

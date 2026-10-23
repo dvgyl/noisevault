@@ -4,13 +4,18 @@ on:
   push:
     branches: [main]
   pull_request:
+  # The jobs install the newest framework releases. A weekly run finds a release that breaks an
+  # export between pushes. GitHub turns the schedule off after 60 days with no repository activity.
+  schedule:
+    - cron: "17 6 * * 1"
   workflow_dispatch:
 
 permissions:
   contents: read
 
+# The event is in the group, so a push to main does not cancel the scheduled run on main.
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 env:
@@ -129,6 +134,8 @@ jobs:
           size=$(stat -c %s dist/*.whl)
           echo "wheel: ${size} bytes"
           test "$size" -lt 3000000
+      - name: Wheel has the py.typed marker
+        run: unzip -l dist/*.whl | grep -q ' noisevault/py.typed$'
       - name: Install the wheel in a fresh venv outside the checkout
         run: |
           cd "$RUNNER_TEMP"

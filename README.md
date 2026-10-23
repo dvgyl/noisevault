@@ -42,6 +42,12 @@ In a virtual environment with Python 3.11 to 3.14, install NoiseVault from GitHu
 pip install "noisevault[qiskit] @ git+https://github.com/dvgyl/noisevault"
 ```
 
+A virtual environment from `uv venv` has no pip. In that environment, use `uv pip install`:
+
+```bash
+uv pip install "noisevault[qiskit] @ git+https://github.com/dvgyl/noisevault"
+```
+
 For another framework, use `cirq`, `pennylane` or `stim` in place of `qiskit`. For several
 frameworks, name them all, as in `noisevault[qiskit,stim]`. For every extra, use `all`. In a uv
 project, `uv add` takes the same quoted argument. `nv doctor` lists what is installed.
@@ -91,6 +97,31 @@ lists as omitted, also pass `scheduling_method='alap'` to `transpile`.
 `to_cirq()`, `to_pennylane()` and `to_stim(circuit)` give the same noise to the other three
 frameworks. Each export is the framework's own type and has its own report.
 [Frameworks](docs/frameworks.md) has an example for each framework.
+
+## Coming from fake backends
+
+The 18 bundled IBM profiles hold the data of the qiskit-ibm-runtime 0.49.0 fake backends. To move
+code from a fake backend to NoiseVault, change one line:
+
+```python
+import noisevault as nv
+
+# was: sim = AerSimulator.from_backend(FakeFez())
+sim = nv.load("ibm_fez").to_qiskit()
+```
+
+A profile gives three things that a fake backend does not:
+
+- Fixed numbers. A fake backend holds the data of its qiskit-ibm-runtime release. Release 0.38.0
+  replaced the data of 10 fake backends, `FakeFez` among them. A profile keeps its numbers, and
+  its fingerprint [pins them](#pin-a-calibration).
+- Both readout errors. `from_backend` replaces the error to read 1 from 0 and the error to read 0
+  from 1 with their mean. On qubit 0 of the bundled Fez profile, these errors are 0.005 and 0.018.
+- Other dates and frameworks. `nv pull` fetches other calibrations of the device, and the same
+  profile also exports to Cirq, PennyLane and Stim.
+
+For a fake backend that NoiseVault does not bundle, `nv.from_qiskit_backend(backend)` makes a
+profile. This function needs the `ibm` extra.
 
 ## Pin a calibration
 

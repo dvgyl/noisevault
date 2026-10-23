@@ -13,7 +13,7 @@ from __future__ import annotations
 import json
 import math
 from collections import Counter
-from collections.abc import Hashable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from fractions import Fraction
@@ -499,7 +499,7 @@ def _first_issue(exc: ValidationError) -> tuple[str, str | None]:
 
 
 def plan(
-    profile: Profile, layout: Mapping[Hashable, int] | Sequence[int] | None = None
+    profile: Profile, layout: Mapping[Any, int] | Sequence[int] | None = None
 ) -> tuple[PlannedCircuit, ...]:
     """The circuits that a hardware run executes.
 

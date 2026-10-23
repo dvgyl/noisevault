@@ -39,7 +39,7 @@ from ..profile import Profile
 from ..report import Report
 from ..table import refuse_disabled
 
-Layout = Mapping[Hashable, int] | Sequence[int]
+Layout = Mapping[Any, int] | Sequence[int]
 Kraus = tuple[np.ndarray, ...]
 PhysicalChannel = tuple[Kraus, tuple[int, ...]]  # Kraus operators (big-endian) and their qubits
 EventCounts = tuple[tuple[str, str, int], ...]  # (event, key, count) added to the report

@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import warnings
 from collections import Counter
-from collections.abc import Callable, Hashable, Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from math import pi
 from typing import TYPE_CHECKING, Any, Literal
@@ -221,7 +221,7 @@ def check(
     profile: Profile,
     *,
     frameworks: Sequence[str] | None = None,
-    layout: Mapping[Hashable, int] | Sequence[int] | None = None,
+    layout: Mapping[Any, int] | Sequence[int] | None = None,
     shots: int = 20_000,
     seed: int | None = 0,
 ) -> CheckResult:
@@ -276,7 +276,7 @@ def validate_shots(shots: int) -> None:
 
 def plan_circuits(
     profile: Profile,
-    layout: Mapping[Hashable, int] | Sequence[int] | None,
+    layout: Mapping[Any, int] | Sequence[int] | None,
     *,
     purpose: Literal["check", "run"],
 ) -> tuple[list[int], tuple[Circuit, ...]]:
@@ -293,7 +293,7 @@ def plan_circuits(
 
 
 def _chain_and_circuits(
-    profile: Profile, layout: Mapping[Hashable, int] | Sequence[int] | None
+    profile: Profile, layout: Mapping[Any, int] | Sequence[int] | None
 ) -> tuple[list[int], tuple[Circuit, ...]]:
     if layout is not None:
         chain = _chain(profile, layout)
@@ -321,7 +321,7 @@ def _connected_chain(profile: Profile) -> tuple[list[int], tuple[Circuit, ...]] 
     return None
 
 
-def _chain(profile: Profile, layout: Mapping[Hashable, int] | Sequence[int]) -> list[int]:
+def _chain(profile: Profile, layout: Mapping[Any, int] | Sequence[int]) -> list[int]:
     n = len(layout)
     if not 1 <= n <= MAX_QUBITS:
         raise LayoutError(f"a check layout has 1 to {MAX_QUBITS} qubits, got {n}")

@@ -54,7 +54,7 @@ from .errors import (
 from .units import DURATION, T1, T2, normalize_times
 
 if TYPE_CHECKING:
-    from collections.abc import Hashable, Iterable, Sequence
+    from collections.abc import Iterable, Sequence
 
     from .check import CheckResult
     from .compare import Comparison
@@ -952,7 +952,7 @@ class Profile(_Model):
         self,
         *,
         frameworks: Sequence[str] | None = None,
-        layout: Mapping[Hashable, int] | Sequence[int] | None = None,
+        layout: Mapping[Any, int] | Sequence[int] | None = None,
         shots: int = 20_000,
         seed: int | None = 0,
     ) -> CheckResult:
