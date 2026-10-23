@@ -95,7 +95,9 @@ jobs:
       - uses: astral-sh/setup-uv@v6
       # Every direct dependency at its declared floor, so a floor that stops working fails here.
       # Python 3.11 because the numpy floor has no wheels for 3.13 or later.
-      - run: uv pip install --resolution lowest-direct -e '.[all,dev]'
+      # Wheels only: when python-dateutil 3.0.0 conflicted with ibm-cloud-sdk-core, uv backtracked
+      # to an ibm-platform-services sdist that the newest setuptools cannot build.
+      - run: uv pip install --resolution lowest-direct --only-binary ':all:' -e '.[all,dev]'
       # Speed budgets are set on current releases; the full jobs hold them.
       - run: pytest -q --ignore=tests/test_examples.py -m "not timing"
         env:
