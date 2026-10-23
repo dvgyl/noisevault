@@ -15,6 +15,12 @@ This file lists all notable changes to NoiseVault. Versions follow
   The README section [Coming from fake backends](README.md#coming-from-fake-backends) shows the
   one-line change from `AerSimulator.from_backend` and what a profile adds.
 
+### Changed
+
+- The Qiskit Aer note in [docs/frameworks.md](docs/frameworks.md#qiskit) names Aer 0.18.0 as
+  affected too. It gives `QuantumError: Kraus is empty.` as a second failure. It also says that
+  every gate error of a profile with T1 or T2 values goes through the failing conversion.
+
 ## 0.3.0 (2026-10-04)
 
 ### Added
