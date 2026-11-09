@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from math import pi
+from math import inf, pi
 from typing import Any
 
 import numpy as np
@@ -25,6 +25,7 @@ class Op:
     """One gate on circuit qubits ``qubits`` (indices ``0..n-1``) with numeric ``params``.
 
     ``Op("delay", (q,), (duration_ns,))`` idles circuit qubit ``q`` for ``duration_ns`` nanoseconds.
+    The duration is finite and 0 or more.
     """
 
     name: str
@@ -57,6 +58,11 @@ def probabilities(
     for op in ops:
         if op.name == "delay":
             (q,), (duration_ns,) = op.qubits, op.params
+            if not 0 <= duration_ns < inf:
+                raise ValueError(
+                    f"the delay on circuit qubit {q} needs a finite duration of 0 ns or more, "
+                    f"not {duration_ns} ns"
+                )
             refuse_disabled(table.gate("delay", (physical[q],)))
             channel = idle_channel(table, physical[q], duration_ns, report)
             if channel is not None:

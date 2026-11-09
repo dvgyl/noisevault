@@ -297,6 +297,20 @@ def test_a_delay_on_a_qubit_without_relaxation_data_adds_no_noise_and_is_unknown
     assert report.to_dict()["unknown"] == ["T1 and T2 of qubit 2 (no delay relaxation)"]
 
 
+@pytest.mark.parametrize("duration", [-1.0, float("nan"), float("inf"), float("-inf")])
+def test_a_delay_refuses_a_duration_that_is_negative_or_not_finite(duration) -> None:
+    profile = nv.Profile.model_validate(_IDLE)
+    ops = [Op("x", (0,)), Op("delay", (0,), (duration,))]
+    with pytest.raises(ValueError, match=f"delay on circuit qubit 0 .* not {duration} ns"):
+        probabilities(profile, ops, 1, layout=[1])
+
+
+def test_a_delay_of_zero_adds_no_noise() -> None:
+    profile = nv.Profile.model_validate(_IDLE)
+    ops = [Op("x", (0,)), Op("delay", (0,), (0.0,))]
+    assert probabilities(profile, ops, 1, layout=[1]) == pytest.approx([0, 1], abs=1e-15)
+
+
 def test_a_delay_clamps_t2_above_2_t1_and_reports_it() -> None:
     profile = nv.Profile.model_validate(_IDLE)
     coherence = exp(-_NS / (2 * 10_000))

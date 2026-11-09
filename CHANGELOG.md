@@ -115,6 +115,9 @@ This file lists all notable changes to NoiseVault. Versions follow
   "pairs removed". The JSON output and `ProfileDiff` have `pairs_added` and `pairs_removed`.
   Before, the diff did not show such a coupler, and the 2-qubit median changed with no stated
   cause. The drift report of the IBM campaign has the same lists.
+- `noisevault.reference.probabilities` refuses a delay with a negative, NaN or infinite duration
+  with a `ValueError`. Before, a negative delay added no noise, and NaN or infinity gave NaN
+  probabilities.
 - `nv diff` and `ProfileDiff.summary()` show "from 0" for a value that changes from 0. Before,
   they showed "-", the same symbol as for no data. The JSON keeps `relative: null`.
 - The noise report says "Pauli noise" for leakage in the stated error of a gate with a `pauli`
