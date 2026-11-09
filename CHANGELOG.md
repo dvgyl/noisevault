@@ -119,8 +119,6 @@ This file lists all notable changes to NoiseVault. Versions follow
   they showed "-", the same symbol as for no data. The JSON keeps `relative: null`.
 - The noise report says "Pauli noise" for leakage in the stated error of a gate with a `pauli`
   metric. Before, the report said "depolarizing noise" for every gate.
-- NoiseVault requires typer below 0.29. typer 0.29.0 removed `typer.main.get_click_type`,
-  so the CLI did not start on a new install.
 - The CLI works with typer 0.29. typer 0.29.0 removed `typer.main.get_click_type`, so the CLI
   did not start on a new install. With typer 0.29, the help has the same text as before: it
   shows no `<str>` beside an argument and no `<bool>` beside a flag. NoiseVault requires typer
