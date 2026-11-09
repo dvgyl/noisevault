@@ -18,7 +18,7 @@ This file lists all notable changes to NoiseVault. Versions follow
   erasure channel. A heralded effect adds `HERALDED_ERASE` in Stim, with later `rec[]` targets
   shifted past the herald records, and a `HeraldedErasure` gate with a measurement key in Cirq.
   An effect without a herald adds `DEPOLARIZE1(3p/4)` or `cirq.depolarize(3p/4)`. The report
-  calls `erasure` exact and the other two approximated.
+  calls `erasure` exact, except Stim's idle erasure, and the other two approximated.
   [docs/profile-format.md](docs/profile-format.md#effects) gives the rules.
 - `Profile.uniform` takes `effects`.
 - [examples/neutral_atom_erasure.py](examples/neutral_atom_erasure.py) runs a surface-code
