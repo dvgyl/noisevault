@@ -11,6 +11,7 @@ import pytest
 from typer.testing import CliRunner
 
 import noisevault as nv
+from noisevault.check import CheckResult
 from noisevault.cli import app
 from noisevault.sources.iqm import from_iqm
 
@@ -281,12 +282,20 @@ def test_a_file_that_is_not_json_names_the_file(tmp_path: Path) -> None:
     assert info.value.message.startswith("metrics.json is not JSON")
 
 
+def _checked(profile: nv.Profile) -> CheckResult:
+    result = profile.check()
+    if not result.frameworks:
+        pytest.skip("no framework is installed, so nv check runs nothing")
+    return result
+
+
 def test_the_profile_passes_nv_check(garnet: nv.Profile) -> None:
-    result = garnet.check()
+    result = _checked(garnet)
     assert result.passed, result.summary()
 
 
 def test_nv_check_runs_on_the_saved_profile(garnet: nv.Profile, tmp_path: Path) -> None:
+    _checked(garnet)
     path = tmp_path / "garnet.json"
     garnet.save(path)
     result = CliRunner().invoke(app, ["check", str(path)])

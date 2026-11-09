@@ -11,6 +11,7 @@ import pytest
 from typer.testing import CliRunner
 
 import noisevault as nv
+from noisevault.check import CheckResult
 from noisevault.cli import app
 from noisevault.sources.rigetti import from_rigetti
 
@@ -265,10 +266,17 @@ def test_data_it_cannot_read_raises_source_data_error(data: dict, message: str) 
     assert message in info.value.message
 
 
+def _checked(profile: nv.Profile) -> CheckResult:
+    result = profile.check()
+    if not result.frameworks:
+        pytest.skip("no framework is installed, so nv check runs nothing")
+    return result
+
+
 @pytest.mark.parametrize("path", [ANKAA, CEPHEUS], ids=["ankaa", "cepheus"])
 def test_the_profile_passes_nv_check(path: Path, tmp_path: Path) -> None:
     profile = from_rigetti(path)
-    assert profile.check().passed
+    assert _checked(profile).passed
     saved = tmp_path / "isa_profile.json"
     profile.save(saved)
     result = CliRunner().invoke(app, ["check", str(saved)])
