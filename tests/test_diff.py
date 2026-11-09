@@ -437,3 +437,51 @@ def test_a_median_is_none_when_no_qubit_or_pair_has_the_value() -> None:
         "error_2q": None,
         "readout_error": None,
     }
+
+
+def _line(edges: list[list[int]], **changes: Any) -> Profile:
+    """The toy on the couplers ``edges``, with a cz record on each coupler."""
+    records = [
+        {"gate": "cz", "qubits": edge, "avg_infidelity": 0.01 * (i + 1)}
+        for i, edge in enumerate(edges)
+    ]
+    return _profile(connectivity={"edges": edges}, calibrations=records, **changes)
+
+
+def test_a_coupler_that_the_device_gains_or_loses_is_listed() -> None:
+    both, one = _line([[0, 1], [1, 2]]), _line([[0, 1]])
+    lost = diff(both, one)
+    assert (lost.pairs_removed, lost.pairs_added) == (("1-2",), ())
+    assert (lost.newly_disabled, lost.reenabled, lost.pairs) == ((), (), ())
+    assert "pairs removed: 1-2" in lost.summary().splitlines()
+    assert lost.to_dict()["pairs_removed"] == ["1-2"]
+    gained = diff(one, both)
+    assert (gained.pairs_removed, gained.pairs_added) == ((), ("1-2",))
+    assert "pairs added: 1-2" in gained.summary().splitlines()
+    # The 2-qubit median moves from 0.015 to 0.01 only because the coupler is gone.
+    assert [c.after for c in lost.medians if c.metric == "error_2q"] == [0.01]
+
+
+def test_a_disabled_coupler_or_a_coupler_of_a_disabled_qubit_is_not_a_removed_pair() -> None:
+    both = _line([[0, 1], [1, 2]])
+    off = _line([[0, 1], [1, 2]])
+    off = off.model_copy(
+        update={
+            "calibrations": [
+                *off.calibrations[:1],
+                {"gate": "cz", "qubits": [1, 2], "disabled": True},
+            ]
+        }
+    )
+    off = Profile.model_validate(off.to_dict())
+    result = diff(both, off)
+    assert (result.pairs_removed, result.newly_disabled) == ((), ("cz 1-2",))
+    without_qubit = _line([[0, 1]], qubits=[{"index": 2, "disabled": True}])
+    result = diff(both, without_qubit)
+    assert (result.pairs_removed, result.newly_disabled) == ((), ("qubit 2",))
+
+
+def test_a_directed_gate_that_changed_direction_is_not_an_added_pair() -> None:
+    before, after = _directed([0, 1], disabled=False), _directed([1, 0], disabled=False)
+    result = diff(before, after)
+    assert (result.pairs_added, result.pairs_removed) == ((), ())

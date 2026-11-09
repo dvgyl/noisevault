@@ -136,7 +136,7 @@ nv diff ibm_fez@2025-02-26 ibm_fez@2025-05-31
 ```
 
 `nv diff` compares the device medians, lists the qubits and pairs that changed most, and names
-the gates that were disabled or re-enabled.
+the gates that were disabled or re-enabled and the pairs that were added or removed.
 
 A bare id such as `ibm_fez` loads the newest calibration that you have. After this pull, the
 quickstart's `nv.load("ibm_fez")` loads 2025-05-31 instead of the bundled 2025-02-26. To load

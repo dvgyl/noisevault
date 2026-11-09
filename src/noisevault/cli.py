@@ -905,6 +905,12 @@ def diff(
                 out.print()
                 _emit(label)
                 _emit(_loci_table(items))
+        for label, pairs in (
+            ("pairs added", result.pairs_added),
+            ("pairs removed", result.pairs_removed),
+        ):
+            if pairs:
+                _emit(f"{label}: {', '.join(pairs)}")
         for label, qubits in (
             ("qubits added", result.qubits_added),
             ("qubits removed", result.qubits_removed),

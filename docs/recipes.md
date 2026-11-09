@@ -62,8 +62,8 @@ nv diff ibm_fez@2026-07-02 ibm_fez@2026-09-30
 `nv pull --at` returns the newest calibration before that time. Here the pulls print
 `ibm_fez@2026-07-02T23:05:55Z` and `ibm_fez@2026-09-30T23:14:35Z`, so the diff uses those dates.
 For other dates, use the dates your pulls print. The diff lists device medians, the qubits and
-pairs that changed most, and gates that IBM disabled or re-enabled. The output starts with
-these lines:
+pairs that changed most, gates that IBM disabled or re-enabled, and pairs that only one of the
+two calibrations has. The output starts with these lines:
 
 ```
 ibm_fez 2026-07-02 -> 2026-09-30  (90 days later)

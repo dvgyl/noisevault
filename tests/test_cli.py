@@ -1974,6 +1974,16 @@ def test_diff_lists_added_qubits_as_ranges() -> None:
     assert "qubits added: 5 to 155" in out.splitlines()
 
 
+def test_diff_lists_a_coupler_that_the_second_profile_does_not_have(tmp_path: Path) -> None:
+    for name, edges in (("both", [[0, 1], [1, 2]]), ("one", [[0, 1]])):
+        nv.Profile.from_dict(toy(connectivity={"edges": edges})).save(tmp_path / f"{name}.json")
+    args = ["diff", str(tmp_path / "both.json"), str(tmp_path / "one.json")]
+    result = runner.invoke(app, args, env={"COLUMNS": "80"})
+    assert result.exit_code == 0, result.output
+    assert "pairs removed: 1-2" in result.stdout.splitlines()
+    assert json.loads(runner.invoke(app, [*args, "--json"]).stdout)["pairs_removed"] == ["1-2"]
+
+
 @pytest.mark.parametrize(
     ("args", "error"),
     [
