@@ -435,7 +435,8 @@ In the Stim and Cirq exports, a `leakage` effect on a gate adds nothing on a loc
 record lists `leakage` in `includes`. The record is the calibration record of that locus, or
 else the definition. The stated error of the gate already contains the leakage, as depolarizing
 noise. The report lists the effect as approximated, also when the effect has no `prob`. The
-bundled Quantinuum profiles are an example.
+bundled Quantinuum profiles are an example. A record without a stated error contains no
+leakage, so the effect acts there.
 
 ## Unmodeled error
 

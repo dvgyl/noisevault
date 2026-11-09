@@ -14,7 +14,7 @@ from itertools import permutations
 from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
-    from .profile import Effect, Profile
+    from .profile import Effect, GateSpec, Profile
     from .table import GateNoise
 
 Level = Literal["omit", "approximate", "exact"]
@@ -150,7 +150,7 @@ class Erasures:
         """
         source = name if name in self._gate else noise.gate
         effects = self._gate.get(source)
-        if effects and source == noise.gate and "leakage" in (noise.spec.includes or ()):
+        if effects and source == noise.gate and _counts_leakage(noise.spec):
             effects = [e for e in effects if e.type != "leakage"]
         if not effects:
             return ()
@@ -216,9 +216,15 @@ def _counted_in_gate(effect: Effect, profile: Profile) -> Literal["all", "some",
     else:
         records = [r.qubits for r in profile.calibrations if r.gate == effect.gate]
         loci = {order for qubits in records for order in permutations(qubits)}
-    counted = set() if effect.qubits else {"leakage" in (profile.gates[effect.gate].includes or ())}
+    counted = set() if effect.qubits else {_counts_leakage(profile.gates[effect.gate])}
     for locus in loci:
         found = table.gate(effect.gate, locus)
         if isinstance(found, GateNoise) and found.gate == effect.gate:
-            counted.add("leakage" in (found.spec.includes or ()))
+            counted.add(_counts_leakage(found.spec))
     return "all" if counted == {True} else "some" if True in counted else "none"
+
+
+def _counts_leakage(spec: GateSpec) -> bool:
+    """True when the stated error of ``spec`` contains leakage. A gate without a stated error
+    takes the noise of another gate, so its ``includes`` describes no error."""
+    return spec.metric is not None and "leakage" in (spec.includes or ())

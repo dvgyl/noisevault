@@ -392,3 +392,12 @@ def test_an_effect_on_the_gate_itself_replaces_the_effects_of_the_typical_gate()
         "CZ 0 1",
         "DEPOLARIZE1(0.15) 0 1",
     ]
+
+
+def test_leakage_listed_on_a_gate_without_an_error_is_not_counted():
+    data = _atoms({"type": "leakage", "gate": "x", "prob": 0.2, "heralded": True}).to_dict()
+    data["gates"]["x"] = {"includes": ["leakage"]}  # no error, so X takes the typical noise
+    with pytest.warns(NoiseApproximationWarning, match="x has no error metric"):
+        noisy = Profile.from_dict(data).to_stim("X 0")
+    assert str(noisy).splitlines() == ["X 0", "HERALDED_ERASE(0.2) 0"]
+    assert "counted in the stated error" not in noisy.report.summary()
