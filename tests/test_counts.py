@@ -711,7 +711,7 @@ def test_plan_writes_no_delay_on_a_qubit_where_the_profile_disables_delay(qubit:
 
 
 def test_simulate_refuses_a_shot_count_that_is_not_positive() -> None:
-    with pytest.raises(ValueError, match="give a positive number of shots"):
+    with pytest.raises(ValueError, match="shots=0: give an integer number of shots, 1 or more"):
         simulate(kingston(), plan(kingston()), shots=0, seed=0)
 
 
