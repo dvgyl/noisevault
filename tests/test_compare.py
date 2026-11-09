@@ -431,6 +431,69 @@ def test_a_drawn_maximum_does_not_stop_on_the_flat_likelihood_below_the_relaxati
     assert_each_held_maximum_reaches_the_grid(found)
 
 
+def test_a_drawn_maximum_climbs_past_a_dip_at_a_second_relaxation_floor(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    found = drawn_maxima(monkeypatch, held=True)
+    profile = Profile.uniform(
+        "floors",
+        technology="superconducting",
+        num_qubits=2,
+        one_qubit_error=0.0010854862521506102,
+        two_qubit_error=0.01786004603558759,
+        readout_error=0.029542449455023528,
+        t1_us=77.11015151161024,
+        t2_us=154.22030302322048,
+        one_qubit_ns=40.0,
+        two_qubit_ns=300.0,
+    )
+    truth = scaled(profile, 9.355373806925966, 1.323293984127582)
+    counts = simulate(truth, plan(profile), shots=4000, seed=877647690, run_at=LATER)
+    compare(profile, counts)
+    assert_each_held_maximum_reaches_the_grid(found)
+
+
+OUTSIDE_THE_WINDOWS = (
+    (-1.5089295577086173, 1.5430845964228301),
+    (0.4571615349216772, 2.4815694559131183),
+    (1.2567214137920466, 1.8300462113745555),
+    (0.14759337990252686, 2.6524716840987277),
+    (2.881123362250198, 0.6309881845440236),
+    (-1.9649966714728615, -1.7911162174376014),
+)
+
+
+def test_a_drawn_maximum_outside_every_window_is_found(monkeypatch: pytest.MonkeyPatch) -> None:
+    found = drawn_maxima(monkeypatch, held=True)
+    pauli = [0.007148428050196102, 0.011771866353600793, 0.05507875016297703]
+    profile = one_qubit("outside", {"r": {"pauli": pauli}})
+    one = (Op("r", (0,), (1.56557853051866, 0.8152115973567066)),)
+    six = tuple(Op("r", (0,), angles) for angles in OUTSIDE_THE_WINDOWS)
+    counts = written(
+        profile, [("c0", one, {"0": 50021, "1": 49979}), ("c1", six, {"0": 48278, "1": 51722})]
+    )
+    compare(profile, counts)
+    assert_each_held_maximum_reaches_the_grid(found)
+
+
+def test_a_drawn_maximum_climbs_from_a_grid_point_at_the_end_of_the_range(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    found = drawn_maxima(monkeypatch, held=True)
+    profile = Profile.uniform(
+        "u2",
+        technology="superconducting",
+        num_qubits=2,
+        one_qubit_error=0.0012171509148863648,
+        two_qubit_error=0.014014778079902932,
+        readout_error=0.0070824785095691175,
+    )
+    truth = scaled(profile, 5.0839364920584655, 0.4400056532854046)
+    counts = simulate(truth, plan(profile), shots=50, seed=79320368, run_at=LATER)
+    compare(profile, counts)
+    assert_each_held_maximum_reaches_the_grid(found)
+
+
 def test_a_gate_response_equal_at_both_ends_of_the_range_still_moves() -> None:
     profile, counts = two_peaks(0, last=EQUAL_ENDS, truth=5.0)
     assert dict(counts.circuits[0].counts) == {"0": 529106, "1": 470894}
@@ -754,6 +817,22 @@ def test_zero_probability_cells_give_finite_likelihoods_in_the_fit_and_every_dra
 
 
 @pytest.mark.filterwarnings("error::RuntimeWarning")
+@pytest.mark.filterwarnings("error")
+def test_a_gate_climb_between_floors_with_an_impossible_outcome_gives_no_warning() -> None:
+    gates = {
+        "id": {"avg_infidelity": 0.001, "duration_ns": 100},
+        "z": {"avg_infidelity": 0.0005, "duration_ns": 100},
+    }
+    profile = one_qubit("impossible", gates, idle={"t1_us": 100, "t2_us": 200})
+    one_id, one_z = (Op("id", (0,)),), (Op("z", (0,)),)
+    counts = written(
+        profile, [("id", one_id, {"0": 999, "1": 1}), ("z", one_z, {"0": 999, "1": 1})]
+    )
+    assert len(fit._floor_factors(profile, counts.circuits)) == 2
+    result = compare(profile, counts)
+    assert isinstance(result.gates, ErrorFactor) and result.p_value is not None
+
+
 def test_a_narrow_peak_that_rules_out_a_drawn_set_gives_no_warning() -> None:
     profile, counts = floor_counts(100_000_000, 0)
     (floor,) = fit._floor_factors(profile, counts.circuits)

@@ -452,6 +452,7 @@ class _Surface:
         readout: np.ndarray | None,
         run: Callable[[float], ByCell],
         rounding: ByCell,
+        floors: tuple[float, ...] = (),
     ) -> None:
         self.gate_nodes = gate_nodes
         self.before_readout = before_readout
@@ -461,6 +462,7 @@ class _Surface:
         self.readout = readout
         self.run = run
         self.rounding = rounding
+        self.floors = floors
         reads = _grid(readout)
         peaks = [self.probs_at(np.full(len(reads), x), reads).max(axis=0) for x in gate_nodes]
         self.supported = np.max(peaks, axis=0) > IMPOSSIBLE
@@ -479,14 +481,8 @@ class _Surface:
     @classmethod
     def build(cls, base: Profile, circuits: Sequence[PlannedCircuit]) -> _Surface:
         fine = np.linspace(_LO, _HI, FINE_POINTS)
-        nodes = np.unique(
-            np.concatenate(
-                [
-                    fine[:: (FINE_POINTS - 1) // (GATE_NODES - 1)],
-                    np.log(_floor_factors(base, circuits)),
-                ]
-            )
-        )
+        floors = tuple(float(x) for x in np.log(_floor_factors(base, circuits)))
+        nodes = np.unique(np.concatenate([fine[:: (FINE_POINTS - 1) // (GATE_NODES - 1)], floors]))
         sizes = [2 ** len(c.qubits) for c in circuits]
         starts = np.cumsum([0, *sizes])
         slices = tuple(slice(int(a), int(b)) for a, b in zip(starts[:-1], starts[1:], strict=True))
@@ -501,7 +497,7 @@ class _Surface:
         before_readout = np.array([run(x) for x in nodes])
         rounding = _rounding(circuits)
         if not any(_varies(before_readout[:, part], rounding[part]) for part in slices):
-            gate, nodes, before_readout = None, np.zeros(1), run(0.0)[None, :]
+            gate, nodes, before_readout, floors = None, np.zeros(1), run(0.0)[None, :], ()
         else:
             gate = np.unique(np.concatenate([fine, nodes]))
         pairs = tuple(tuple(base.table.qubit(q).readout for q in c.qubits) for c in circuits)
@@ -513,7 +509,7 @@ class _Surface:
             for pair in per_circuit
         )
         readout = fine if scales else None
-        return cls(nodes, before_readout, pairs, slices, gate, readout, run, rounding)
+        return cls(nodes, before_readout, pairs, slices, gate, readout, run, rounding, floors)
 
     def axis(self, axis: Axis) -> np.ndarray | None:
         return self.gate if axis == "gate" else self.readout
@@ -662,9 +658,14 @@ class _Surface:
         gate, value = _zoom(profile, start.gate)
         return _Peak(gate, nuisance[gate], value)
 
-    def flat_below(self) -> float:
+    def pieces(self) -> tuple[tuple[float, float], ...]:
+        # Each relaxation floor puts a kink in the likelihood along the gate axis, and the slope
+        # can change sign there. A climb thus cannot cross from one piece to the next. Below the
+        # first change, every gate factor gives the same probabilities, so no piece starts there.
         moved = np.any(self.before_readout != self.before_readout[0], axis=1)
-        return float(self.gate_nodes[np.argmax(moved) - 1]) if moved.any() else _LO
+        flat = float(self.gate_nodes[np.argmax(moved) - 1]) if moved.any() else _LO
+        cuts = [flat, *(x for x in self.floors if flat < x < _HI), _HI]
+        return tuple(zip(cuts[:-1], cuts[1:], strict=True))
 
     def moves(self, axis: Axis) -> list[bool]:
         nodes, ends = self.gate_nodes, np.array([_LO, _HI])
@@ -707,11 +708,12 @@ class _Fit:
         self.shots = shots
         self.dispersion = dispersion
         self.cutoff = CHI2_95 * dispersion
-        self.flat_below = surface.flat_below()
+        self.pieces = surface.pieces()
         self.seed = seed
         self._wilks: dict[Axis, dict[int, float | None]] = {}
         self._peak_ends: dict[Axis, dict[int, float | None]] = {}
         self._windows: tuple[_Window, ...] = ()
+        self._whole: _Window | None = None
         self._restricted: dict[tuple[Axis, float], tuple[float, float]] = {}
 
     def interval(self, axis: Axis) -> FactorResult:
@@ -890,7 +892,10 @@ class _Fit:
             if narrow:
                 start = _climbed(draws, start, np.flatnonzero(np.isfinite(top)), climb)
             starts.append(start)
-        return _highest(starts)[0]
+        best = _highest(starts)[0]
+        coarse, _, _ = _window_max(self.whole(), draws)
+        missed = np.flatnonzero(coarse.top > best.top)
+        return _highest([best, _climbed(draws, coarse, missed, climb)])[0]
 
     def _kept(self, windows: Sequence[_Window]) -> list[tuple[float, float, bool]]:
         step = [max(_spacing(_grid_line(window, axis)) for window in windows) for axis in _AXES]
@@ -952,17 +957,37 @@ class _Fit:
         return _highest([best, _climbed(draws, grids[0], beaten, climb)])[0]
 
     def _free_max(
-        self, axis: Axis, held: ByColumn, counts: ByCellByDraw, others: ByColumn, span: float
+        self,
+        axis: Axis,
+        held: ByColumn,
+        counts: ByCellByDraw,
+        others: ByColumn,
+        span: float,
     ) -> tuple[ByColumn, ByColumn]:
+        n = len(others)
+
         def f(x: ByColumn, which: np.ndarray, _: ByColumn) -> tuple[ByColumn, ByColumn]:
+            which = which % n
             point = (held[which], x) if axis == "gate" else (x, held[which])
             return self.surface.loglik_each(*point, counts[:, which]), x
 
-        lo = _LO if axis == "gate" else self.flat_below
-        others = np.maximum(others, lo)
-        top, _ = f(others, np.arange(len(others)), others)
-        others, top, _ = _climb(f, others, top, others, span, lo)
-        return top, others
+        pieces = ((_LO, _HI),) if axis == "gate" else self.pieces
+        lo, hi = (np.repeat(ends, n) for ends in zip(*pieces, strict=True))
+        start = np.clip(np.tile(others, len(pieces)), lo, hi)
+        top, _ = f(start, np.arange(len(start)), start)
+        x, top, _ = _climb(f, start, top, start, span, lo, hi)
+        k = np.argmax(top.reshape(len(pieces), n), axis=0)
+        columns = k * n + np.arange(n)
+        return top[columns], x[columns]
+
+    def whole(self) -> _Window:
+        if self._whole is None:
+            line = np.linspace(_LO, _HI, WINDOW_POINTS)
+            gate, readout = (
+                np.zeros(1) if self.surface.axis(axis) is None else line for axis in _AXES
+            )
+            self._whole = self._grid_window(gate, readout)
+        return self._whole
 
     def windows(self) -> tuple[_Window, ...]:
         if not self._windows:
@@ -1134,7 +1159,7 @@ def _window_max(window: _Window, draws: ByCellByDraw) -> tuple[_Best, _Best, np.
         np.where(on_gate, top - np.minimum(at(1, 0), at(-1, 0)), 0.0),
         np.where(on_readout, top - np.minimum(at(0, 1), at(0, -1)), 0.0),
     )
-    settled = fits & (drop <= CHI2_95) & ~_stuck(gate, i) & ~_stuck(readout, j)
+    settled = fits & (drop <= CHI2_95) & ~_at_end(gate, i) & ~_at_end(readout, j)
     return _Best(top, gate[i], readout[j]), vertex, settled
 
 
@@ -1142,8 +1167,8 @@ def _interior(line: np.ndarray, k: ByColumn) -> ByColumn:
     return (len(line) >= 3) & (k > 0) & (k < len(line) - 1)
 
 
-def _stuck(line: np.ndarray, k: ByColumn) -> ByColumn:
-    return (len(line) > 1) & ~_interior(line, k) & (line[k] > _LO) & (line[k] < _HI)
+def _at_end(line: np.ndarray, k: ByColumn) -> ByColumn:
+    return (len(line) > 1) & ~_interior(line, k)
 
 
 def _climb(
@@ -1152,25 +1177,27 @@ def _climb(
     top: ByColumn,
     aux: ByColumn,
     span: float,
-    lo: float = _LO,
+    lo: float | ByColumn = _LO,
+    hi: float | ByColumn = _HI,
 ) -> tuple[ByColumn, ByColumn, ByColumn]:
     x, top, aux = x.copy(), top.copy(), aux.copy()
+    lo, hi = np.broadcast_to(lo, x.shape), np.broadcast_to(hi, x.shape)
     spans = np.full(len(x), span)
     active = np.flatnonzero(spans > 0)
     while len(active):
         center, value, h = x[active], top[active], spans[active]
-        low, high = np.maximum(center - h, lo), np.minimum(center + h, _HI)
+        low, high = np.maximum(center - h, lo[active]), np.minimum(center + h, hi[active])
         both = np.tile(active, 2)
         sides, aux_sides = f(np.concatenate([low, high]), both, aux[both])
         (f_low, f_high), (aux_low, aux_high) = np.split(sides, 2), np.split(aux_sides, 2)
         up = f_high > f_low
         moved = np.where(up, f_high, f_low) > value
-        flat = ~moved & (
-            ((low == center) | (value - f_low <= ASCENT_TOL))
-            & ((high == center) | (value - f_high <= ASCENT_TOL))
-        )
-        a, b, da, db = low - center, high - center, f_low - value, f_high - value
         with np.errstate(divide="ignore", invalid="ignore"):
+            flat = ~moved & (
+                ((low == center) | (value - f_low <= ASCENT_TOL))
+                & ((high == center) | (value - f_high <= ASCENT_TOL))
+            )
+            a, b, da, db = low - center, high - center, f_low - value, f_high - value
             curve = (db / b - da / a) / (b - a)
             slope = da / a - curve * a
             vertex, predicted = center - slope / (2 * curve), value - slope**2 / (4 * curve)
@@ -1610,7 +1637,7 @@ class _Vertex(NamedTuple):
 def _refine(values: ByPointByColumn, best: ByColumn, line: np.ndarray) -> _Vertex:
     zero = np.zeros(values.shape[1])
     if len(values) < 3:
-        return _Vertex(zero, zero, ~_stuck(line, best))
+        return _Vertex(zero, zero, ~_at_end(line, best))
     columns = np.arange(values.shape[1])
     inner = np.clip(best, 1, len(values) - 2)
     left, mid, right = (values[inner + d, columns] for d in (-1, 0, 1))
@@ -1620,7 +1647,7 @@ def _refine(values: ByPointByColumn, best: ByColumn, line: np.ndarray) -> _Verte
         shift = np.where(usable, 0.5 * (right - left) / curve * _spacing(line), 0.0)
         gain = np.where(usable, (right - left) ** 2 / (8 * curve), 0.0)
     resolved = usable & (mid - np.minimum(left, right) <= CHI2_95)
-    return _Vertex(shift, gain, np.where(best == inner, resolved, ~_stuck(line, best)))
+    return _Vertex(shift, gain, np.where(best == inner, resolved, ~_at_end(line, best)))
 
 
 def _point(axis: Axis, held: float, others: ByPoint) -> tuple[ByPoint, ByPoint]:
