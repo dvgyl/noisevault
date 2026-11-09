@@ -6,7 +6,7 @@ from conftest import require
 
 cirq = require("cirq")
 
-from noisevault.errors import UnsupportedEffect  # noqa: E402
+from noisevault.errors import NoiseApproximationWarning, UnsupportedEffect  # noqa: E402
 from noisevault.frameworks.cirq import HeraldedErasure  # noqa: E402
 from noisevault.profile import Profile  # noqa: E402
 
@@ -136,3 +136,32 @@ def test_leakage_counted_in_a_locus_record_adds_nothing_there():
     ]
     assert depolarized == [(q1,), (q2,)]
     assert "loci whose record lists leakage" in model.report.summary()
+
+
+def test_herald_keys_skip_the_circuits_own_keys():
+    model = _atoms({"type": "erasure", "gate": "x", "prob": 0.1, "heralded": True}).to_cirq()
+    circuit = cirq.Circuit(cirq.X(q0), cirq.measure(q0, key="herald_erasure_m0_q0"))
+    keys = cirq.measurement_key_names(circuit.with_noise(model))
+    assert keys == {"herald_erasure_m0_q0", "herald_erasure_m0_q0_1"}
+
+
+def test_a_measurement_only_circuit_warns_that_its_heralds_are_lost():
+    profile = _atoms({"type": "erasure", "on": "readout", "prob": 0.5, "heralded": True})
+    circuit = cirq.Circuit(cirq.measure(q0, key="m"))
+    with pytest.warns(NoiseApproximationWarning, match="with_noise"):
+        cirq.Simulator(noise=profile.to_cirq(), seed=1).run(circuit, repetitions=5)
+    noisy = circuit.with_noise(profile.to_cirq())
+    result = cirq.Simulator(seed=1).run(noisy, repetitions=200)
+    _within_5_sigma(result.measurements["herald_erasure_m0_q0"].mean(), 0.5, 200)
+
+
+@pytest.mark.parametrize("gate", ["measure", "reset"])
+def test_an_effect_on_measure_or_reset_is_omitted_with_the_target_to_use(gate):
+    data = _atoms().to_dict()
+    data["gates"][gate] = {}
+    data["effects"] = [{"type": "erasure", "gate": gate, "prob": 0.5}]
+    model = Profile.from_dict(data).to_cirq()
+    assert f"use on: readout or on: idle, not gate: {gate}" in model.report.summary()
+    data["effects"][0]["allow"] = "exact"
+    with pytest.raises(UnsupportedEffect, match="use on: readout"):
+        Profile.from_dict(data).to_cirq()
