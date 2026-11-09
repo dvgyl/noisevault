@@ -617,6 +617,21 @@ def test_a_local_run_writes_simulated_counts_with_no_aws_account(
     assert sorted(p.name for p in tmp_path.iterdir()) == ["f.counts.json", "f.profile.json"]
 
 
+def test_a_gz_counts_file_from_a_local_run_is_gzip(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    out = tmp_path / "f.counts.json.gz"
+    properties = FIXTURES / DEVICES[IBEX]
+    code, _, stderr = _main(
+        capsys, "aqt_ibex-q1", "--local", str(properties), "--shots", "200", "-o", str(out)
+    )
+    assert code == 0, stderr
+    assert out.read_bytes()[:2] == b"\x1f\x8b"
+    counts = load_counts(out)
+    assert counts.source == "simulated"
+    assert out.read_bytes() == counts.file_bytes(out)
+
+
 def test_a_local_job_file_left_by_a_killed_run_is_refused(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

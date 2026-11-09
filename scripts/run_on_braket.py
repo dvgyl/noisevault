@@ -68,7 +68,7 @@ from noisevault.errors import (  # noqa: E402
     parse_json,
     qubit_loci,
 )
-from noisevault.profile import Profile, _readable_json, file_bytes, ref_on_day  # noqa: E402
+from noisevault.profile import Profile, file_bytes, ref_on_day  # noqa: E402
 
 DEFAULT_SHOTS = 4000
 LABEL = 16
@@ -577,7 +577,7 @@ def run(
         measured = counts_file(profile, submitted, ran, _client(submitted.local))
         _, profile_path = _files(output)
         files = {
-            output: (_readable_json(measured.to_dict()) + "\n").encode("utf-8"),
+            output: measured.file_bytes(output),
             profile_path: file_bytes(profile, profile_path),
         }
         try:
