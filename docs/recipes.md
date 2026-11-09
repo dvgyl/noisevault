@@ -139,7 +139,8 @@ print(f"noisy {p000(mirror):.3f}, mitigated {mitigated:.3f}")
 
 Richardson extrapolation from scale factors 1, 2 and 3 removes most of the error here.
 [examples/mitigation_zne.py](../examples/mitigation_zne.py) runs the same recipe with random
-angles.
+angles. The tutorial [Mitiq: ZNE and PEC](tutorials/mitiq.md) also runs PEC, with
+representations from the profile's gate errors.
 
 ## Run a QEC memory experiment with Stim and PyMatching
 

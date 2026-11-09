@@ -943,6 +943,22 @@ class Profile(_Model):
 
         return suggest_layout(self, n)
 
+    def pauli_error(
+        self, gate: str, qubits: Sequence[int], *, unknown_gates: str = "typical"
+    ) -> dict[str, float]:
+        """The Pauli-twirled error that the exports apply after ``gate`` on physical ``qubits``.
+
+        Each key is a non-identity Pauli label, and its value is a probability. Character i of
+        a label acts on ``qubits[i]``. For example, ``"XI"`` is an X error on ``qubits[0]`` only.
+        The twirl keeps the Pauli part of the gate's channels and drops the rest, such as the
+        pull of amplitude damping toward ``|0>``. The values include the ``unmodeled_error``
+        factors. A gate name resolves as in the exports, so ``"sx"`` uses ``rx`` on a profile
+        that defines only ``rx``. ``unknown_gates`` has the same meaning as in the exports.
+        """
+        from .conversion import pauli_error
+
+        return pauli_error(self, gate, qubits, unknown_gates=unknown_gates)
+
     def diff(self, other: Profile, *, top: int = 5) -> ProfileDiff:
         from .diff import diff
 

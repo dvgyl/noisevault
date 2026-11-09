@@ -14,6 +14,13 @@ This file lists all notable changes to NoiseVault. Versions follow
 - The README gives the install line for a virtual environment from `uv venv`, which has no pip.
   The README section [Coming from fake backends](README.md#coming-from-fake-backends) shows the
   one-line change from `AerSimulator.from_backend` and what a profile adds.
+- `profile.pauli_error(gate, qubits)` returns the Pauli-twirled error of a gate on physical
+  qubits, as the exports apply it. The keys are Pauli labels such as `"XI"`, and the values are
+  probabilities. The values include the `unmodeled_error` factors.
+- The tutorial [Mitiq: ZNE and PEC](docs/tutorials/mitiq.md) and the example
+  `examples/mitiq_zne_pec.py` run zero-noise extrapolation and probabilistic error cancellation
+  on IBM Fez noise. The tutorial builds each PEC representation from the profile's gate errors
+  and compares each mitigated value with the ideal value.
 
 ### Changed
 

@@ -10,6 +10,7 @@ Tests that need the network run only with NOISEVAULT_NETWORK=1. A Python block p
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import subprocess
@@ -30,6 +31,8 @@ EXAMPLES = ROOT / "examples"
 DOCS = ROOT / "docs"
 SCHEMA = DOCS / "schema" / "profile-1.0.json"
 HAS_MITIQ = find_spec("mitiq") is not None and find_spec("ply") is not None
+HAS_MITIQ_CIRQ = find_spec("mitiq") is not None and find_spec("cirq") is not None
+TUTORIALS = DOCS / "tutorials"
 # optional packages that the "all" extra does not install, so NOISEVAULT_REQUIRE_ALL never demands
 OUTSIDE_ALL = {"mitiq", "ply"}
 
@@ -41,7 +44,7 @@ LOCAL_EXAMPLES = {
     "custom_device.py": "omitted: effect atom_loss on readout",
     "qec_surface_code.py": "d=5: logical error",
 }
-OTHER_EXAMPLES = {"compare_devices.py", "drift.py", "mitigation_zne.py"}
+OTHER_EXAMPLES = {"compare_devices.py", "drift.py", "mitigation_zne.py", "mitiq_zne_pec.py"}
 
 FENCE = re.compile(r"^```(\w*)[^\n]*\n(.*?)^```", re.S | re.M)
 NOT_RUN = re.compile(r"<!--\s*not-run:[^>]*-->\s*$")
@@ -132,6 +135,48 @@ def test_mitigation_zne_says_how_to_install_mitiq(tmp_path: Path) -> None:
     assert "pip install mitiq ply" in result.stdout
 
 
+@pytest.mark.skipif(not HAS_MITIQ_CIRQ, reason="mitiq or cirq is not installed")
+def test_mitiq_zne_pec_prints_the_values_the_tutorial_shows(tmp_path: Path) -> None:
+    result = run(tmp_path, str(EXAMPLES / "mitiq_zne_pec.py"), "200")
+    check(result, "PEC    <ZZ>")
+    shown = next(
+        body
+        for language, body in FENCE.findall((TUTORIALS / "mitiq.md").read_text(encoding="utf-8"))
+        if language == "text" and "ideal  <ZZ>" in body
+    )
+    shown_lines, printed = shown.splitlines(), result.stdout.splitlines()
+    assert [line for line in shown_lines if not line.startswith("PEC    <ZZ>")] == [
+        line for line in printed if not line.startswith("PEC    <ZZ>")
+    ]
+    # The tutorial shows a run with more samples than this quick run, so the PEC values agree
+    # only within their standard errors.
+    pec = re.compile(r"PEC    <ZZ> = ([-+.\d]+).*standard error ([.\d]+)")
+    shown_pec = [m for m in map(pec.match, shown_lines) if m]
+    printed_pec = [m for m in map(pec.match, printed) if m]
+    assert len(shown_pec) == len(printed_pec) == 2
+    for shown_match, printed_match in zip(shown_pec, printed_pec, strict=True):
+        (shown_value, shown_error), (value, error) = (
+            map(float, match.groups()) for match in (shown_match, printed_match)
+        )
+        assert abs(shown_value - value) <= 4 * math.hypot(shown_error, error)
+
+
+@pytest.mark.skipif(HAS_MITIQ_CIRQ, reason="mitiq and cirq are installed")
+def test_mitiq_zne_pec_says_how_to_install_mitiq(tmp_path: Path) -> None:
+    result = run(tmp_path, str(EXAMPLES / "mitiq_zne_pec.py"))
+    skip_if_optional_missing(result)
+    assert result.returncode == 1
+    assert "pip install mitiq" in result.stdout
+
+
+def test_each_block_of_the_mitiq_tutorial_is_part_of_its_example() -> None:
+    example = (EXAMPLES / "mitiq_zne_pec.py").read_text(encoding="utf-8")
+    blocks = fenced(TUTORIALS / "mitiq.md", "python", runnable_only=False)
+    assert len(blocks) >= 4
+    for block in blocks:
+        assert block.code in example, f"mitiq.md:{block.line} is not in examples/mitiq_zne_pec.py"
+
+
 @dataclass(frozen=True)
 class Block:
     doc: str
@@ -149,18 +194,20 @@ class Block:
         return [text.split("...", 1)[0].rstrip() for text in shown if not text.startswith("...")]
 
 
-def fenced(path: Path, language: str) -> list[Block]:
+def fenced(path: Path, language: str, *, runnable_only: bool = True) -> list[Block]:
     text = path.read_text(encoding="utf-8")
     blocks = []
     for match in FENCE.finditer(text):
         before = text[: match.start()].rstrip().rsplit("\n", 1)[-1]
-        if match.group(1) == language and not NOT_RUN.search(before):
+        skipped = runnable_only and NOT_RUN.search(before)
+        if match.group(1) == language and not skipped:
             line = text.count("\n", 0, match.start()) + 1
             blocks.append(Block(path.name, line, match.group(2)))
     return blocks
 
 
-DOC_BLOCKS = [block for path in sorted(DOCS.glob("*.md")) for block in fenced(path, "python")]
+DOC_PAGES = sorted(DOCS.rglob("*.md"))
+DOC_BLOCKS = [block for path in DOC_PAGES for block in fenced(path, "python")]
 
 
 def test_docs_have_code() -> None:
@@ -178,9 +225,9 @@ def test_doc_python_block_runs_and_prints_what_it_shows(block: Block, tmp_path: 
         assert line in result.stdout, f"{line!r} not in output:\n{result.stdout[-3000:]}"
 
 
-@pytest.mark.parametrize("name", sorted(p.name for p in DOCS.glob("*.md")))
-def test_doc_profiles_are_valid(name: str) -> None:
-    for block in fenced(DOCS / name, "json"):
+@pytest.mark.parametrize("path", DOC_PAGES, ids=lambda path: str(path.relative_to(DOCS)))
+def test_doc_profiles_are_valid(path: Path) -> None:
+    for block in fenced(path, "json"):
         if '"noisevault"' in block.code:
             nv.Profile.from_dict(json.loads(block.code))
 
