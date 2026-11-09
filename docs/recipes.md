@@ -345,6 +345,37 @@ script then says that IBM recalibrated. When the newer calibration does not, the
 the planned calibration. A warning then names both fingerprints, says what changed and suggests
 running the script again.
 
+On an Amazon Braket device, `scripts/run_on_braket.py` runs the circuits and saves the counts
+file. It needs uv and AWS credentials for Amazon Braket. Give the device as an ARN or as one of
+`iqm_garnet`, `rigetti_cepheus-1-108q`, `aqt_ibex-q1` and `ionq_forte-1`:
+
+```bash
+uv run https://raw.githubusercontent.com/dvgyl/noisevault/main/scripts/run_on_braket.py iqm_garnet -o garnet-1020.counts.json
+```
+
+Braket charges for each task and for each shot. The script shows the circuits and the cost in US
+dollars, and then it stops. To submit, run the same command again with `--confirm-cost` and the
+amount that you accept, such as `--confirm-cost 23.50`. The script refuses an amount below its
+estimate. When the device runs a program set, all circuits go in one task. Otherwise, each
+circuit is one task. The script saves the task ids before it waits. If the wait stops, run the
+same command again to collect the tasks.
+
+To try the script with no AWS account and no cost, save the device properties with
+`AwsDevice(arn).properties.json()`. Then give the file to `--local`. The free Braket
+`LocalEmulator` runs the circuits with a noise model from the same file. It refuses a gate that
+is not native and a pair of qubits that is not connected, as the device does.
+[Counts from an Amazon Braket device](counts-format.md#counts-from-an-amazon-braket-device) gives
+the details, such as how the script treats delays.
+
+`scripts/build_realism_table.py` puts many runs in one table. Give it a folder of counts
+files. It fits the factors of each file and writes a JSON file and a Markdown page, with one row
+for each device and date. [The demo table](realism/demo.md) shows the result for simulated
+counts, and every one of its rows says so:
+
+```bash
+python scripts/build_realism_table.py runs/ -o docs/realism/table
+```
+
 On another device, take steps 1 to 3 by hand. Step 4 is the same for every device.
 
 1. Plan the circuits. `plan(profile)` from `noisevault.counts` returns the `nv check` circuits on
