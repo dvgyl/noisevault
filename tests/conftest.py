@@ -10,6 +10,7 @@ from __future__ import annotations
 import copy
 import gc
 import importlib
+import importlib.util
 import json
 import os
 import warnings
@@ -24,6 +25,36 @@ from packaging.version import Version
 
 from noisevault.errors import MigrationWarning
 from noisevault.profile import Profile, load_file
+
+# Property tests run under one Hypothesis profile. HYPOTHESIS_PROFILE selects it. Without it, CI
+# (where the CI variable is set) uses "ci" and a local run uses "dev". "ci" is derandomized, so a
+# CI failure is not flaky and repeats locally with HYPOTHESIS_PROFILE=ci. "deep" is for a long
+# local search: HYPOTHESIS_PROFILE=deep pytest tests/test_property_*.py
+HYPOTHESIS_PROFILES = {"ci": 25, "dev": 100, "deep": 2000}
+# A core install without the dev extra has no Hypothesis and runs the example tests only.
+# NOISEVAULT_REQUIRE_ALL=1 collects the property tests anyway, so their import error shows.
+collect_ignore_glob: list[str] = []
+if importlib.util.find_spec("hypothesis") is None:
+    if os.environ.get("NOISEVAULT_REQUIRE_ALL") != "1":
+        collect_ignore_glob.append("test_property_*.py")
+else:
+    from hypothesis import settings
+
+    for _name, _count in HYPOTHESIS_PROFILES.items():
+        settings.register_profile(
+            _name, max_examples=_count, deadline=None, derandomize=_name == "ci", print_blob=True
+        )
+    settings.load_profile(
+        os.environ.get("HYPOTHESIS_PROFILE") or ("ci" if os.environ.get("CI") else "dev")
+    )
+
+
+def examples(share: float) -> int:
+    """A share of the active profile's examples, for a property whose examples are slow."""
+    from hypothesis import settings
+
+    return max(1, round(settings().max_examples * share))
+
 
 V01 = Path(__file__).parent / "fixtures" / "v01"
 MANILA_V01 = V01 / "fake_manila_2024-05-27T15-27-23-03-00.json"

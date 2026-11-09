@@ -1853,3 +1853,31 @@ def test_an_output_the_run_could_not_write_is_refused_before_the_account_opens(
     assert capsys.readouterr() == ("", f"error: {message}\nhint: {hint}\n")
     assert sorted(tmp_path.iterdir()) == [tmp_path / existing]
     assert (tmp_path / existing).read_text() == "paid for\n"
+
+
+def test_a_qubit_that_the_backend_cannot_measure_is_refused() -> None:
+    profile = _fez_profile()
+    circuit = plan(profile)[0]
+    target = _fez().target
+    unmeasured = circuit.qubits[-1]
+
+    class NoMeasure:
+        """The fake's target, except that it cannot measure one qubit."""
+
+        def instruction_supported(self, name: str, qargs: Any = None, **kwargs: Any) -> bool:
+            if (name, qargs) == ("measure", (unmeasured,)):
+                return False
+            return bool(target.instruction_supported(name, qargs, **kwargs))
+
+        def __getattr__(self, name: str) -> Any:
+            return getattr(target, name)
+
+        def __getitem__(self, name: str) -> Any:
+            return target[name]
+
+    with pytest.raises(NoiseVaultError) as caught:
+        script.isa_circuit(circuit, profile, NoMeasure())
+    assert caught.value.message == (
+        f"circuit {circuit.name}: the backend does not support measure on qubit {unmeasured}"
+    )
+    script.isa_circuit(circuit, profile, target)

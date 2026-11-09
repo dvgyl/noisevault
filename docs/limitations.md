@@ -23,17 +23,21 @@ neighboring operations, the time since the last calibration) are not in the numb
   noise.
 - **Crosstalk.** A gate on one pair does not disturb its neighbors. No export models always-on ZZ
   coupling, spectator errors or measurement-induced disturbance of other qubits.
-- **Leakage.** Population never leaves the qubit subspace. Where a vendor's error includes
-  leakage (Quantinuum), the leakage counts toward the gate's error but acts as ordinary
-  depolarizing noise.
+- **Leakage and atom loss.** No export keeps population outside the qubit. The Stim and Cirq
+  exports apply `leakage` and `atom_loss` effects as an erasure: the qubit comes back at once in a
+  random state. On the device, a leaked qubit or an empty trap stays that way, and later gates do
+  not act on it. Where a vendor's error includes leakage (Quantinuum), the leakage counts toward
+  the gate's error but acts as ordinary depolarizing noise.
 - **Coherent errors.** Every gate error becomes stochastic noise. On hardware, systematic
   over-rotations add up coherently. In the noise model, they do not add up coherently. The
   profile records Google's fSim coherent errors, but no export applies them.
 - **Effects.** Profiles can record `leakage`, `atom_loss`, `erasure`, crosstalk and coherent
-  over-rotation. Neither the exports nor the reference simulator model them in this release. When
-  an effect sets `allow` to `omit`, the exports and the reference simulator leave it out. Every
-  report lists it as omitted, and `nv compare` names it in a note. For any other `allow` value,
-  each export, `simulate` and `compare` refuse the profile with an error.
+  over-rotation. The Stim and Cirq exports model `leakage`, `atom_loss` and `erasure` as an
+  erasure channel, heralded or not. No export models crosstalk or coherent over-rotation
+  effects. Qiskit, PennyLane and the reference simulator model no effects. An effect that an
+  export leaves out appears as omitted in the report, and `nv compare` names it in a note. When
+  an export models an effect less faithfully than the effect's `allow` value, the export raises
+  an error. [Profile format](profile-format.md#effects) gives the rules.
 - **Initial-state preparation error.** Circuits start in an ideal |0...0>. Preparation error
   applies only after explicit resets, and only when the profile has it. The bundled IBM
   profiles have no preparation error.

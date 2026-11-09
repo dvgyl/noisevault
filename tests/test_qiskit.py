@@ -1724,3 +1724,46 @@ def test_a_one_qubit_profile_runs_a_one_qubit_circuit(extra: dict) -> None:
     qc.measure(0, 0)
     counts = sim.run(transpile(qc, sim), shots=4000, seed_simulator=1).result().get_counts()
     assert 0.03 < counts.get("0", 0) / 4000 < 0.09
+
+
+def _density(sim: Any, circuit: QuantumCircuit) -> np.ndarray:
+    circuit = circuit.copy()
+    circuit.save_density_matrix(label="rho")
+    result = sim.run(circuit, method="density_matrix").result()
+    return np.asarray(result.data()["rho"])
+
+
+@pytest.mark.parametrize("two_qubit", [False, True])
+def test_a_gate_label_does_not_remove_its_noise(two_qubit: bool) -> None:
+    """Aer finds noise by label, so a labelled native gate must get the noise of its name."""
+    profile = Profile.uniform(
+        "lab",
+        technology="superconducting",
+        num_qubits=2,
+        one_qubit_error=0.2,
+        two_qubit_error=0.3,
+    )
+    sim = profile.to_qiskit()
+    plain, labelled = QuantumCircuit(2), QuantumCircuit(2)
+    if two_qubit:
+        plain.cz(0, 1)
+        labelled.cz(0, 1, label="tag")
+    else:
+        plain.x(0)
+        labelled.x(0, label="tag")
+    noisy = _density(sim, plain)
+    ideal = _density(AerSimulator(), plain)
+    assert not np.allclose(noisy, ideal)
+    np.testing.assert_allclose(_density(sim, labelled), noisy, atol=1e-12)
+    np.testing.assert_allclose(_density(sim, transpile(labelled, sim)), noisy, atol=1e-12)
+
+
+def test_the_label_of_a_save_instruction_is_kept() -> None:
+    profile = Profile.uniform(
+        "lab", technology="superconducting", num_qubits=1, one_qubit_error=0.2
+    )
+    circuit = QuantumCircuit(1)
+    circuit.x(0, label="tag")
+    circuit.save_density_matrix(label="kept")
+    data = profile.to_qiskit().run(circuit, method="density_matrix").result().data()
+    assert "kept" in data

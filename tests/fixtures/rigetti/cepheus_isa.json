@@ -1,0 +1,422 @@
+{
+ "name": "Cepheus-synthetic",
+ "architecture": {
+  "family": "None",
+  "nodes": [
+   {
+    "node_id": 0
+   },
+   {
+    "node_id": 1
+   },
+   {
+    "node_id": 2
+   },
+   {
+    "node_id": 3
+   }
+  ],
+  "edges": [
+   {
+    "node_ids": [
+     0,
+     1
+    ]
+   },
+   {
+    "node_ids": [
+     1,
+     2
+    ]
+   },
+   {
+    "node_ids": [
+     2,
+     3
+    ]
+   }
+  ]
+ },
+ "instructions": [
+  {
+   "name": "RX",
+   "node_count": 1,
+   "parameters": [
+    {
+     "name": "theta"
+    }
+   ],
+   "characteristics": [],
+   "sites": [
+    {
+     "node_ids": [
+      0
+     ],
+     "characteristics": []
+    },
+    {
+     "node_ids": [
+      1
+     ],
+     "characteristics": []
+    },
+    {
+     "node_ids": [
+      2
+     ],
+     "characteristics": []
+    },
+    {
+     "node_ids": [
+      3
+     ],
+     "characteristics": []
+    }
+   ]
+  },
+  {
+   "name": "RZ",
+   "node_count": 1,
+   "parameters": [
+    {
+     "name": "theta"
+    }
+   ],
+   "characteristics": [],
+   "sites": [
+    {
+     "node_ids": [
+      0
+     ],
+     "characteristics": []
+    },
+    {
+     "node_ids": [
+      1
+     ],
+     "characteristics": []
+    },
+    {
+     "node_ids": [
+      2
+     ],
+     "characteristics": []
+    },
+    {
+     "node_ids": [
+      3
+     ],
+     "characteristics": []
+    }
+   ]
+  },
+  {
+   "name": "MEASURE",
+   "node_count": 1,
+   "parameters": [],
+   "characteristics": [],
+   "sites": [
+    {
+     "node_ids": [
+      0
+     ],
+     "characteristics": [
+      {
+       "name": "fRO",
+       "value": 0.958,
+       "timestamp": "2026-10-30T07:15:00+00:00"
+      }
+     ]
+    },
+    {
+     "node_ids": [
+      1
+     ],
+     "characteristics": [
+      {
+       "name": "fRO",
+       "value": 0.947,
+       "timestamp": "2026-10-30T07:15:00+00:00"
+      }
+     ]
+    },
+    {
+     "node_ids": [
+      2
+     ],
+     "characteristics": [
+      {
+       "name": "fRO",
+       "value": 0.966,
+       "timestamp": "2026-10-30T07:15:00+00:00"
+      }
+     ]
+    },
+    {
+     "node_ids": [
+      3
+     ],
+     "characteristics": [
+      {
+       "name": "fRO",
+       "value": 0.951,
+       "timestamp": "2026-10-30T07:15:00+00:00"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "CZ",
+   "node_count": 2,
+   "parameters": [],
+   "characteristics": [],
+   "sites": [
+    {
+     "node_ids": [
+      0,
+      1
+     ],
+     "characteristics": [
+      {
+       "name": "fCZ",
+       "value": 0.985,
+       "timestamp": "2026-10-30T07:15:00+00:00",
+       "error": 0.004
+      }
+     ]
+    },
+    {
+     "node_ids": [
+      1,
+      2
+     ],
+     "characteristics": [
+      {
+       "name": "fCZ",
+       "value": 0.978,
+       "timestamp": "2026-10-30T07:15:00+00:00",
+       "error": 0.005
+      }
+     ]
+    },
+    {
+     "node_ids": [
+      2,
+      3
+     ],
+     "characteristics": [
+      {
+       "name": "fCZ",
+       "value": 0.15,
+       "timestamp": "2026-10-30T07:15:00+00:00",
+       "error": 0.02
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "CPHASE",
+   "node_count": 2,
+   "parameters": [
+    {
+     "name": "theta"
+    }
+   ],
+   "characteristics": [],
+   "sites": [
+    {
+     "node_ids": [
+      0,
+      1
+     ],
+     "characteristics": [
+      {
+       "name": "fCPHASE",
+       "value": 0.01,
+       "timestamp": "2026-10-30T07:15:00+00:00",
+       "error": 0.99
+      }
+     ]
+    }
+   ]
+  }
+ ],
+ "benchmarks": [
+  {
+   "name": "randomized_benchmark_simultaneous_1q",
+   "node_count": 4,
+   "parameters": [],
+   "characteristics": [],
+   "sites": [
+    {
+     "node_ids": [
+      0,
+      1,
+      2,
+      3
+     ],
+     "characteristics": [
+      {
+       "name": "fRB",
+       "value": 0.9975,
+       "timestamp": "2026-10-30T07:15:00+00:00",
+       "error": 0.0003,
+       "node_ids": [
+        0
+       ]
+      },
+      {
+       "name": "fRB",
+       "value": 0.9968,
+       "timestamp": "2026-10-30T07:15:00+00:00",
+       "error": 0.0003,
+       "node_ids": [
+        1
+       ]
+      },
+      {
+       "name": "fRB",
+       "value": 0.9981,
+       "timestamp": "2026-10-30T07:15:00+00:00",
+       "error": 0.0003,
+       "node_ids": [
+        2
+       ]
+      },
+      {
+       "name": "fRB",
+       "value": 0.9962,
+       "timestamp": "2026-10-30T07:15:00+00:00",
+       "error": 0.0003,
+       "node_ids": [
+        3
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "FreeInversionRecovery",
+   "node_count": 1,
+   "parameters": [],
+   "characteristics": [],
+   "sites": [
+    {
+     "node_ids": [
+      0
+     ],
+     "characteristics": [
+      {
+       "name": "T1",
+       "value": 2.8e-05,
+       "timestamp": "2026-10-30T07:15:00+00:00",
+       "error": 1e-06
+      }
+     ]
+    },
+    {
+     "node_ids": [
+      1
+     ],
+     "characteristics": [
+      {
+       "name": "T1",
+       "value": 3.4e-05,
+       "timestamp": "2026-10-30T07:15:00+00:00",
+       "error": 1e-06
+      }
+     ]
+    },
+    {
+     "node_ids": [
+      2
+     ],
+     "characteristics": [
+      {
+       "name": "T1",
+       "value": 2.1e-05,
+       "timestamp": "2026-10-30T07:15:00+00:00",
+       "error": 1e-06
+      }
+     ]
+    },
+    {
+     "node_ids": [
+      3
+     ],
+     "characteristics": [
+      {
+       "name": "T1",
+       "value": 0.0,
+       "timestamp": "2026-10-30T07:15:00+00:00",
+       "error": 1e-06
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "FreeInductionDecay",
+   "node_count": 1,
+   "parameters": [],
+   "characteristics": [],
+   "sites": [
+    {
+     "node_ids": [
+      0
+     ],
+     "characteristics": [
+      {
+       "name": "T2",
+       "value": 1.9e-05,
+       "timestamp": "2026-10-30T07:15:00+00:00",
+       "error": 1e-06
+      }
+     ]
+    },
+    {
+     "node_ids": [
+      1
+     ],
+     "characteristics": [
+      {
+       "name": "T2",
+       "value": 2.6e-05,
+       "timestamp": "2026-10-30T07:15:00+00:00",
+       "error": 1e-06
+      }
+     ]
+    },
+    {
+     "node_ids": [
+      2
+     ],
+     "characteristics": [
+      {
+       "name": "T2",
+       "value": 1.4e-05,
+       "timestamp": "2026-10-30T07:15:00+00:00",
+       "error": 1e-06
+      }
+     ]
+    },
+    {
+     "node_ids": [
+      3
+     ],
+     "characteristics": [
+      {
+       "name": "T2",
+       "value": 1.1e-05,
+       "timestamp": "2026-10-30T07:15:00+00:00",
+       "error": 1e-06
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

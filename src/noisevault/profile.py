@@ -16,12 +16,12 @@ import struct
 import warnings
 import zlib
 from collections import Counter
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from itertools import permutations
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, Any, Literal, NamedTuple, Self
+from typing import TYPE_CHECKING, Annotated, Any, Literal, NamedTuple, Self, TypedDict
 
 from pydantic import (
     AfterValidator,
@@ -46,6 +46,7 @@ from .errors import (
     LociText,
     MigrationWarning,
     NoiseVaultError,
+    json_path,
     parse_json,
     plural,
     qubit_loci,
@@ -54,7 +55,7 @@ from .errors import (
 from .units import DURATION, T1, T2, normalize_times
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Sequence
+    from collections.abc import Iterable
 
     from .check import CheckResult
     from .compare import Comparison
@@ -66,7 +67,17 @@ FORMAT_VERSION = "1.0"
 
 
 def _to_utc(value: datetime) -> datetime:
-    return value.astimezone(UTC)
+    try:
+        return value.astimezone(UTC)
+    except OverflowError:  # pydantic reports only ValueError as a validation error
+        raise ValueError(
+            f"{value.isoformat()} is outside the years 1 to 9999 when written in UTC"
+        ) from None
+
+
+def _unsigned_zero(value: float) -> float:
+    """-0.0 equals 0.0, but its repr differs, so it would give equal profiles two fingerprints."""
+    return value + 0.0  # -0.0 + 0.0 is 0.0, and every other value stays the same
 
 
 def iso_z(value: datetime) -> str:
@@ -118,12 +129,12 @@ UtcDatetime = Annotated[
 ]
 Text = Annotated[str, AfterValidator(_encodable)]
 # Strict scalars: a hand-written true, "1" or 3.0 is a typo to report, not a value to coerce.
-Real = Annotated[float, Strict()]  # still accepts an int
+Real = Annotated[float, Strict(), AfterValidator(_unsigned_zero)]  # still accepts an int
 Flag = Annotated[bool, Strict()]
 Count = Annotated[int, Strict(), Field(ge=1)]
 QubitIndex = Annotated[int, Strict(), Field(ge=0)]
-Probability = Annotated[float, Strict(), Field(ge=0, le=1)]
-NonNegative = Annotated[float, Strict(), Field(ge=0)]
+Probability = Annotated[float, Strict(), Field(ge=0, le=1), AfterValidator(_unsigned_zero)]
+NonNegative = Annotated[float, Strict(), Field(ge=0), AfterValidator(_unsigned_zero)]
 Positive = Annotated[float, Strict(), Field(gt=0)]
 Sha256 = Annotated[str, Field(pattern=r"^sha256:[0-9a-f]{64}$")]
 Fingerprint = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
@@ -193,7 +204,7 @@ class FrozenDict(dict):
 _MAX_NESTING = 64
 
 
-def _freeze(value: Any, where: str = "", depth: int = 1) -> Any:
+def _freeze(value: Any, path: tuple[str | int, ...] = (), depth: int = 1) -> Any:
     """Read-only copy of JSON data: mappings become FrozenDict, lists and tuples become tuples.
 
     The copy refuses each value that a save would change or cannot write. One such value is a
@@ -205,16 +216,18 @@ def _freeze(value: Any, where: str = "", depth: int = 1) -> Any:
     """
     if isinstance(value, Mapping | list | tuple) and depth > _MAX_NESTING:
         raise ValueError(f"nested more than {_MAX_NESTING} levels deep")
+    # json_path quotes a key that is not a name, so a key with a line break keeps one line.
+    where = json_path(path)
     if isinstance(value, Mapping):
         frozen = {}
         for key, item in value.items():
             if not isinstance(key, str):
                 raise ValueError(f"{where}: the key {key!r} is not a string")
             _encodable(key, f"{where}: the key {key!r}" if where else f"the key {key!r}")
-            frozen[key] = _freeze(item, f"{where}.{key}" if where else key, depth + 1)
+            frozen[key] = _freeze(item, (*path, key), depth + 1)
         return FrozenDict(frozen)
     if isinstance(value, list | tuple):
-        return tuple(_freeze(item, f"{where}[{i}]", depth + 1) for i, item in enumerate(value))
+        return tuple(_freeze(item, (*path, i), depth + 1) for i, item in enumerate(value))
     if isinstance(value, str):
         return _encodable(value, f"{where}: the string")
     if isinstance(value, float) and not math.isfinite(value):
@@ -401,11 +414,13 @@ class QubitRecord(Idle, _QubitKey):
 
 
 class Effect(_Model):
-    """Physics that the format records but no export and no reference simulator models yet.
+    """Physics outside the gate-and-readout model, such as leakage, atom loss and erasure.
 
-    With ``allow="omit"``, the exports and the reference simulator leave the effect out. Each
-    report lists the effect as omitted, and ``compare`` names it in a note. With any other
-    ``allow`` value, the exports, ``simulate`` and ``compare`` refuse the profile.
+    The Stim and Cirq exports model ``leakage``, ``atom_loss`` and ``erasure`` as an erasure
+    channel. The other exports and the reference simulator leave every effect out. ``allow``
+    is the least faithful treatment that the profile accepts (``omit``, ``approximate`` or
+    ``exact``). An export, ``simulate`` or ``compare`` whose treatment is less faithful refuses
+    the profile. docs/profile-format.md gives the rules.
     """
 
     type: EffectType
@@ -825,6 +840,7 @@ class Profile(_Model):
         one_qubit_ns: float | None = None,
         two_qubit_ns: float | None = None,
         connectivity: Literal["all_to_all"] | list[tuple[int, int]] = "all_to_all",
+        effects: Sequence[Mapping[str, Any]] = (),
     ) -> Profile:
         """A hypothetical device where every gate of an arity has the same error.
 
@@ -833,6 +849,8 @@ class Profile(_Model):
         multi-entangler gates need a decomposition, so the profile defines neither. Thus any
         circuit of the defined gates resolves to calibrated noise without approximation. Only a
         device of two or more qubits needs ``two_qubit_error`` and uses ``two_qubit_ns``.
+        ``effects`` are effect records, such as ``{"type": "erasure", "gate": "cz", "prob":
+        0.01, "heralded": True}``.
         """
         if num_qubits >= 2 and two_qubit_error is None:
             raise ValueError(
@@ -860,6 +878,7 @@ class Profile(_Model):
                 if t1_us is not None or t2_us is not None
                 else None,
                 "provenance": {"data_kind": "hypothetical", "source_kind": "hand_written"},
+                "effects": [dict(effect) for effect in effects],
             }
         )
 
@@ -942,6 +961,49 @@ class Profile(_Model):
         from .layout import suggest_layout
 
         return suggest_layout(self, n)
+
+    def medians(self) -> DeviceMedians:
+        """Device-wide medians over the enabled qubits and the usable ordered pairs.
+
+        ``t1_us`` and ``t2_us`` are in microseconds, as the profile states them. The exports
+        limit T2 to 2 T1. ``readout_error`` is the mean of P(1|0) and P(0|1) on each qubit.
+        ``error_1q`` and ``error_2q`` are average infidelities of the typical native gate on each
+        qubit or pair: the calibrated native gate with the most records, such as ``sx`` and
+        ``cz`` on IBM Heron. A value is None when no qubit or pair has it. The gate and readout
+        errors include the ``unmodeled_error`` factors, as the exports apply them, and
+        ``profile.uncorrected().medians()`` gives the calibration as stated. ``nv diff``
+        compares these medians. The result is a plain dict, ready for ``json.dumps``.
+        """
+        from .diff import device_medians
+
+        return device_medians(self)
+
+    def pauli_error(
+        self, gate: str, qubits: Sequence[int], *, unknown_gates: str = "typical"
+    ) -> dict[str, float]:
+        """The Pauli-twirled error that the Stim export applies after ``gate`` on ``qubits``.
+
+        Each key is a non-identity Pauli label, and its value is a probability. Character i of
+        a label acts on ``qubits[i]``, a physical qubit. For example, ``"XI"`` is an X error on
+        ``qubits[0]`` only. The error has two parts. The first part is the gate's channels: its
+        stated error with the ``unmodeled_error`` factor, and the relaxation during the gate.
+        The second part is each ``leakage``, ``atom_loss`` and ``erasure`` effect on the gate,
+        as an erasure of each qubit. A heralded erasure counts without its herald. The error
+        does not include idle noise, readout error or effects on ``readout`` and ``idle``.
+
+        The twirl keeps the Pauli part of the channels and drops the rest, such as the pull of
+        amplitude damping toward ``|0>``. The Cirq export applies the same channels before the
+        twirl. The Qiskit and PennyLane exports do so too, but they omit effects. When
+        relaxation alone is larger than the stated error, the values come from the relaxation.
+
+        ``gate`` is a registry gate or a gate of the profile. The name resolves as in the
+        exports, so ``"sx"`` uses ``rx`` on a profile that defines only ``rx``.
+        ``unknown_gates`` has the same meaning as in the exports. An effect on the gate that
+        the error leaves out, such as ``crosstalk_zz``, must have ``allow`` set to ``omit``.
+        """
+        from .conversion import pauli_error
+
+        return pauli_error(self, gate, qubits, unknown_gates=unknown_gates)
 
     def diff(self, other: Profile, *, top: int = 5) -> ProfileDiff:
         from .diff import diff
@@ -1047,6 +1109,16 @@ def _resolved_alike(a: GateNoise, b: GateNoise) -> bool:
     return (a.state, a.avg_infidelity, a.duration_ns) == (b.state, b.avg_infidelity, b.duration_ns)
 
 
+class DeviceMedians(TypedDict):
+    """Device-wide medians of a profile, from :meth:`Profile.medians`."""
+
+    t1_us: float | None
+    t2_us: float | None
+    error_1q: float | None
+    error_2q: float | None
+    readout_error: float | None
+
+
 @dataclass(frozen=True)
 class QubitMedians:
     t1_us: float | None
@@ -1142,6 +1214,10 @@ def _profile_issues(profile: Profile) -> list[str]:
         if info is not None and spec.qubits is not None and spec.qubits != info.arity:
             issues.append(f"gates.{name}: qubits={spec.qubits} but {name} acts on {info.arity}")
             continue
+        if spec.qubits is not None and spec.qubits > n:
+            # Also keeps the metric check from 2**qubits on an absurd arity.
+            issues.append(f"gates.{name}: qubits={spec.qubits}, but the device has {n}")
+            continue
         arity[name] = spec.qubits or info.arity  # type: ignore[union-attr]
         issues += [f"gates.{name}: {msg}" for msg in _spec_issues(spec, arity[name])]
 
@@ -1185,6 +1261,11 @@ def _profile_issues(profile: Profile) -> list[str]:
             issues.append(f"{where}: gate {effect.gate!r} is not defined in gates")
         if effect.qubits and max(effect.qubits) >= n:
             issues.append(f"{where}: qubit outside 0..{n - 1}")
+        if effect.qubits and len(set(effect.qubits)) != len(effect.qubits):
+            issues.append(f"{where}: the qubits must be distinct")
+        acts_on = arity.get(effect.gate or "")  # on a gate, qubits is one locus of the gate
+        if effect.qubits and acts_on is not None and len(effect.qubits) != acts_on:
+            issues.append(f"{where}: {effect.gate} acts on {acts_on} qubits")
 
     unmodeled = profile.unmodeled_error
     if unmodeled is None:

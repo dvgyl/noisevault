@@ -812,7 +812,8 @@ def test_report_describes_the_conversion() -> None:
     assert (report.profile_id, report.fingerprint) == (profile.id, profile.fingerprint)
     assert report.options == {"layout": NONCONTIGUOUS, "unknown_gates": "typical", "readout": True}
     assert any(e.startswith("readout assignment error") for e in report.exact)
-    assert "effect leakage on cz" in report.to_dict()["omitted"]
+    approximated = [a["what"] for a in report.to_dict()["approximated"]]
+    assert "effect leakage on cz" in approximated
     assert report.to_dict()["framework"] == "cirq"
 
     strict = _distinct(effects=[{"type": "leakage", "gate": "cz", "prob": 1e-4, "allow": "exact"}])

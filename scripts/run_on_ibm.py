@@ -26,14 +26,13 @@ from __future__ import annotations
 
 import argparse
 import contextlib
-import errno
 import json
 import os
 import shlex
 import sys
 import warnings
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, NoReturn
@@ -43,6 +42,10 @@ sys.path.insert(0, str(ROOT / "src"))
 
 import noisevault as nv  # noqa: E402
 from noisevault import catalog, gates  # noqa: E402
+from noisevault._jobfile import BINARY, Owned  # noqa: E402
+from noisevault._jobfile import beside as _beside  # noqa: E402
+from noisevault._jobfile import create as _create  # noqa: E402
+from noisevault._jobfile import line as _line  # noqa: E402
 from noisevault.compare import _bind  # noqa: E402
 from noisevault.counts import (  # noqa: E402
     _RUN_RULES,
@@ -78,7 +81,6 @@ ACCOUNT_SETUP = (
 )
 LABEL = 16
 SUB_JOB_OVERHEAD_S = 2.0
-BINARY = getattr(os, "O_BINARY", 0)
 
 Calibration = Callable[[datetime | None], Profile]
 
@@ -124,67 +126,14 @@ class Ran:
     timing: dict[str, Any]
 
 
-@dataclass
-class Owned:
-    path: Path
-    fd: int
-    data: bytes = b""
-    start: int = field(init=False)
-
-    def __post_init__(self) -> None:
-        self.start = len(self.data)
-
-    def _held(self) -> int | None:
-        try:
-            if not os.path.samestat(os.lstat(self.path), os.fstat(self.fd)):
-                return None
-            os.lseek(self.fd, 0, os.SEEK_SET)
-            content = b""
-            while len(content) <= len(self.data) and (
-                chunk := os.read(self.fd, len(self.data) + 1 - len(content))
-            ):
-                content += chunk
-        except OSError:
-            return None
-        if self.start <= len(content) <= len(self.data) and self.data.startswith(content):
-            return len(content)
-        return None
-
-    def holds(self) -> bool:
-        return self._held() is not None
-
-    def check(self) -> int:
-        held = self._held()
-        if held is None:
-            raise FileExistsError(errno.EEXIST, os.strerror(errno.EEXIST), str(self.path))
-        return held
-
-    def append(self, data: bytes) -> None:
-        held = self.check()
-        self.data += data
-        while held < len(self.data):
-            os.write(self.fd, memoryview(self.data)[held:])
-            held = self.check()
-        self.start = len(self.data)
-
-    def cut(self, size: int) -> None:
-        self.check()
-        os.ftruncate(self.fd, size)
-        self.data = self.data[:size]
-        self.start = size
-
-    def drop(self) -> None:
-        ours = self.holds()
-        os.close(self.fd)
-        if ours:
-            self.path.unlink(missing_ok=True)
-
-
 def prepare(
-    calibration: Calibration, open_backend: Callable[[bool], Any], shots: int
+    calibration: Calibration,
+    open_backend: Callable[[bool], Any],
+    shots: int,
+    layout: Sequence[int] | None = None,
 ) -> tuple[Any, Batch]:
     profile = calibration(None)
-    planned = plan(profile)
+    planned = plan(profile, layout)
     fractional = any(op.name in FRACTIONAL_GATES for c in planned for op in c.ops)
     try:
         backend = open_backend(fractional)
@@ -268,6 +217,9 @@ def isa_circuit(circuit: PlannedCircuit, profile: Profile, target: Any) -> IsaCi
             f"the measurements would start at {end:g} dt, off the backend's grid of"
             f" {target.acquire_alignment} dt"
         )
+    unmeasured = [(q,) for q in circuit.qubits if not target.instruction_supported("measure", (q,))]
+    if unmeasured:
+        raise refuse(f"the backend does not support measure on {qubit_loci(*unmeasured)}")
     qc.barrier(list(circuit.qubits))
     for i, q in enumerate(circuit.qubits):
         qc.measure(q, i)
@@ -459,15 +411,28 @@ def run(
     confirm: Callable[[str], bool] | None,
     collect_only: bool = False,
     job_id: str | None = None,
+    layout: Sequence[int] | None = None,
+    approve: Callable[[Batch], None] | None = None,
+    wait: bool = True,
+    keep_profile: bool = False,
 ) -> MeasuredCounts | None:
+    """Submit one job and save its counts, or collect the job that ``pending`` records.
+
+    ``layout`` gives the chain to plan on, else ``plan`` chooses one. ``approve`` sees the batch
+    before the script saves ``pending`` and submits, and can stop the run with NoiseVaultError.
+    With ``wait`` False, the function returns None after it submits, and a later call collects
+    the job. With ``keep_profile``, the profile file is always saved beside the counts file.
+    """
     if collect_only or pending.exists():
         record, submitted, job = _resume(pending, job_id, open_job)
         print(f"collecting job {submitted.job_id}, submitted earlier for {output}")
     else:
-        backend, batch = prepare(calibration, open_backend, shots)
+        backend, batch = prepare(calibration, open_backend, shots, layout)
         print(summary(batch, output))
         print()
         device = batch.profile.device.name
+        if approve is not None:
+            approve(batch)
         if confirm is not None and not confirm(f"Submit the job to {device}? [y/N] "):
             print("nothing submitted")
             return None
@@ -519,6 +484,10 @@ def run(
             os.close(record.fd)
             _save_elsewhere(changed, kept, submitted.job_id, plan + job_line)
         print(f"submitted job {submitted.job_id} to {device}")
+        if not wait:
+            os.close(record.fd)
+            print(f"run the same command again to collect it. {pending} records the job")
+            return None
     print("waiting for it to run")
     print("Ctrl-C stops waiting. Run the same command again to collect the job")
     again = f"run the same command again to collect them. {_new_job(pending)}"
@@ -535,7 +504,7 @@ def run(
         files = {output: (_readable_json(measured.to_dict()) + "\n").encode("utf-8")}
         if ran.timing:
             files[timing] = (json.dumps(ran.timing, indent=1) + "\n").encode("utf-8")
-        ref = catalog_ref(bound)
+        ref = None if keep_profile else catalog_ref(bound)
         if ref is None:
             ref = str(profile_file)
             files[profile_file] = file_bytes(bound, profile_file)
@@ -884,35 +853,6 @@ def _new_job(pending: Path) -> str:
 
 def _files(output: Path) -> tuple[Path, Path, Path]:
     return output, _beside(output, ".timing.json"), _beside(output, ".profile.json")
-
-
-def _create(files: dict[Path, bytes]) -> dict[Path, Owned]:
-    """``os.link`` would make each full file appear at once, but exFAT does not support hard
-    links."""
-    created: dict[Path, Owned] = {}
-    try:
-        for path in files:
-            fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_EXCL | BINARY, 0o666)
-            created[path] = Owned(path, fd)
-        for path, data in files.items():
-            created[path].append(data)
-        for owned in created.values():
-            owned.check()
-    except BaseException:
-        for owned in created.values():
-            with contextlib.suppress(OSError):
-                owned.drop()
-        raise
-    return created
-
-
-def _line(data: dict[str, Any]) -> bytes:
-    return (json.dumps(data) + "\n").encode("utf-8")
-
-
-def _beside(output: Path, suffix: str) -> Path:
-    stem = output.name.removesuffix(".gz").removesuffix(".json").removesuffix(".counts")
-    return output.with_name(stem + suffix)
 
 
 if __name__ == "__main__":

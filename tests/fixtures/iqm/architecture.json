@@ -1,0 +1,92 @@
+{
+ "calibration_set_id": "9e8d7c6b-5a49-4382-9170-6f5e4d3c2b1a",
+ "qubits": [
+  "QB1",
+  "QB2",
+  "QB3",
+  "QB4"
+ ],
+ "computational_resonators": [],
+ "gates": {
+  "prx": {
+   "implementations": {
+    "drag_crf": {
+     "loci": [
+      [
+       "QB1"
+      ],
+      [
+       "QB2"
+      ],
+      [
+       "QB3"
+      ],
+      [
+       "QB4"
+      ]
+     ]
+    }
+   },
+   "default_implementation": "drag_crf",
+   "override_default_implementation": {}
+  },
+  "cz": {
+   "implementations": {
+    "tgss": {
+     "loci": [
+      [
+       "QB1",
+       "QB2"
+      ],
+      [
+       "QB2",
+       "QB3"
+      ],
+      [
+       "QB3",
+       "QB4"
+      ],
+      [
+       "QB1",
+       "QB4"
+      ]
+     ]
+    },
+    "crf": {
+     "loci": [
+      [
+       "QB2",
+       "QB3"
+      ]
+     ]
+    }
+   },
+   "default_implementation": "tgss",
+   "override_default_implementation": {
+    "QB2,QB3": "crf"
+   }
+  },
+  "measure": {
+   "implementations": {
+    "constant": {
+     "loci": [
+      [
+       "QB1"
+      ],
+      [
+       "QB2"
+      ],
+      [
+       "QB3"
+      ],
+      [
+       "QB4"
+      ]
+     ]
+    }
+   },
+   "default_implementation": "constant",
+   "override_default_implementation": {}
+  }
+ }
+}

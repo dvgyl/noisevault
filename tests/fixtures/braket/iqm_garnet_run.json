@@ -1,0 +1,374 @@
+{
+ "braketSchemaHeader": {
+  "name": "braket.device_schema.iqm.iqm_device_capabilities",
+  "version": "1"
+ },
+ "service": {
+  "braketSchemaHeader": {
+   "name": "braket.device_schema.device_service_properties",
+   "version": "1"
+  },
+  "executionWindows": [
+   {
+    "executionDay": "Everyday",
+    "windowStartHour": "00:00",
+    "windowEndHour": "23:59:59"
+   }
+  ],
+  "shotsRange": [
+   1,
+   20000
+  ],
+  "updatedAt": "2026-10-20T06:00:00Z"
+ },
+ "action": {
+  "braket.ir.openqasm.program": {
+   "version": [
+    "1"
+   ],
+   "actionType": "braket.ir.openqasm.program",
+   "supportedOperations": [
+    "cnot",
+    "cz",
+    "h",
+    "prx",
+    "rx",
+    "ry",
+    "rz",
+    "x",
+    "y",
+    "z"
+   ],
+   "supportedModifiers": [],
+   "supportedPragmas": [
+    "verbatim"
+   ],
+   "forbiddenPragmas": [],
+   "supportedResultTypes": [
+    {
+     "name": "Sample",
+     "observables": [
+      "x",
+      "y",
+      "z",
+      "h",
+      "i"
+     ],
+     "minShots": 1,
+     "maxShots": 20000
+    },
+    {
+     "name": "Probability",
+     "minShots": 1,
+     "maxShots": 20000
+    }
+   ],
+   "supportPhysicalQubits": true,
+   "requiresAllQubitsMeasurement": false,
+   "requiresContiguousQubitIndices": false,
+   "supportsPartialVerbatimBox": true,
+   "supportsUnassignedMeasurements": true,
+   "disabledQubitRewiringSupported": true
+  },
+  "braket.ir.openqasm.program_set": {
+   "version": [
+    "1"
+   ],
+   "actionType": "braket.ir.openqasm.program_set",
+   "maximumExecutables": 100,
+   "maximumTotalShots": 200000
+  }
+ },
+ "deviceParameters": {},
+ "paradigm": {
+  "braketSchemaHeader": {
+   "name": "braket.device_schema.gate_model_qpu_paradigm_properties",
+   "version": "1"
+  },
+  "qubitCount": 6,
+  "nativeGateSet": [
+   "cz",
+   "prx"
+  ],
+  "connectivity": {
+   "fullyConnected": false,
+   "connectivityGraph": {
+    "1": [
+     "2"
+    ],
+    "2": [
+     "3"
+    ],
+    "3": [
+     "4"
+    ],
+    "4": [
+     "5"
+    ],
+    "5": [
+     "6"
+    ]
+   }
+  }
+ },
+ "standardized": {
+  "braketSchemaHeader": {
+   "name": "braket.device_schema.standardized_gate_model_qpu_device_properties",
+   "version": "1"
+  },
+  "oneQubitProperties": {
+   "1": {
+    "T1": {
+     "value": 40.0,
+     "standardError": null,
+     "unit": "us"
+    },
+    "T2": {
+     "value": 25.0,
+     "standardError": null,
+     "unit": "us"
+    },
+    "oneQubitFidelity": [
+     {
+      "fidelityType": {
+       "name": "RANDOMIZED_BENCHMARKING",
+       "description": null
+      },
+      "fidelity": 0.9991,
+      "standardError": null
+     },
+     {
+      "fidelityType": {
+       "name": "READOUT",
+       "description": null
+      },
+      "fidelity": 0.975,
+      "standardError": null
+     }
+    ]
+   },
+   "2": {
+    "T1": {
+     "value": 42.0,
+     "standardError": null,
+     "unit": "us"
+    },
+    "T2": {
+     "value": 26.0,
+     "standardError": null,
+     "unit": "us"
+    },
+    "oneQubitFidelity": [
+     {
+      "fidelityType": {
+       "name": "RANDOMIZED_BENCHMARKING",
+       "description": null
+      },
+      "fidelity": 0.999,
+      "standardError": null
+     },
+     {
+      "fidelityType": {
+       "name": "READOUT",
+       "description": null
+      },
+      "fidelity": 0.973,
+      "standardError": null
+     }
+    ]
+   },
+   "3": {
+    "T1": {
+     "value": 44.0,
+     "standardError": null,
+     "unit": "us"
+    },
+    "T2": {
+     "value": 27.0,
+     "standardError": null,
+     "unit": "us"
+    },
+    "oneQubitFidelity": [
+     {
+      "fidelityType": {
+       "name": "RANDOMIZED_BENCHMARKING",
+       "description": null
+      },
+      "fidelity": 0.9989,
+      "standardError": null
+     },
+     {
+      "fidelityType": {
+       "name": "READOUT",
+       "description": null
+      },
+      "fidelity": 0.971,
+      "standardError": null
+     }
+    ]
+   },
+   "4": {
+    "T1": {
+     "value": 46.0,
+     "standardError": null,
+     "unit": "us"
+    },
+    "T2": {
+     "value": 28.0,
+     "standardError": null,
+     "unit": "us"
+    },
+    "oneQubitFidelity": [
+     {
+      "fidelityType": {
+       "name": "RANDOMIZED_BENCHMARKING",
+       "description": null
+      },
+      "fidelity": 0.9988,
+      "standardError": null
+     },
+     {
+      "fidelityType": {
+       "name": "READOUT",
+       "description": null
+      },
+      "fidelity": 0.969,
+      "standardError": null
+     }
+    ]
+   },
+   "5": {
+    "T1": {
+     "value": 48.0,
+     "standardError": null,
+     "unit": "us"
+    },
+    "T2": {
+     "value": 29.0,
+     "standardError": null,
+     "unit": "us"
+    },
+    "oneQubitFidelity": [
+     {
+      "fidelityType": {
+       "name": "RANDOMIZED_BENCHMARKING",
+       "description": null
+      },
+      "fidelity": 0.9987,
+      "standardError": null
+     },
+     {
+      "fidelityType": {
+       "name": "READOUT",
+       "description": null
+      },
+      "fidelity": 0.967,
+      "standardError": null
+     }
+    ]
+   },
+   "6": {
+    "T1": {
+     "value": 50.0,
+     "standardError": null,
+     "unit": "us"
+    },
+    "T2": {
+     "value": 30.0,
+     "standardError": null,
+     "unit": "us"
+    },
+    "oneQubitFidelity": [
+     {
+      "fidelityType": {
+       "name": "RANDOMIZED_BENCHMARKING",
+       "description": null
+      },
+      "fidelity": 0.9986,
+      "standardError": null
+     },
+     {
+      "fidelityType": {
+       "name": "READOUT",
+       "description": null
+      },
+      "fidelity": 0.965,
+      "standardError": null
+     }
+    ]
+   }
+  },
+  "twoQubitProperties": {
+   "1-2": {
+    "twoQubitGateFidelity": [
+     {
+      "direction": null,
+      "gateName": "CZ",
+      "fidelity": 0.991,
+      "standardError": null,
+      "fidelityType": {
+       "name": "RANDOMIZED_BENCHMARKING",
+       "description": null
+      }
+     }
+    ]
+   },
+   "2-3": {
+    "twoQubitGateFidelity": [
+     {
+      "direction": null,
+      "gateName": "CZ",
+      "fidelity": 0.99,
+      "standardError": null,
+      "fidelityType": {
+       "name": "RANDOMIZED_BENCHMARKING",
+       "description": null
+      }
+     }
+    ]
+   },
+   "3-4": {
+    "twoQubitGateFidelity": [
+     {
+      "direction": null,
+      "gateName": "CZ",
+      "fidelity": 0.989,
+      "standardError": null,
+      "fidelityType": {
+       "name": "RANDOMIZED_BENCHMARKING",
+       "description": null
+      }
+     }
+    ]
+   },
+   "4-5": {
+    "twoQubitGateFidelity": [
+     {
+      "direction": null,
+      "gateName": "CZ",
+      "fidelity": 0.988,
+      "standardError": null,
+      "fidelityType": {
+       "name": "RANDOMIZED_BENCHMARKING",
+       "description": null
+      }
+     }
+    ]
+   },
+   "5-6": {
+    "twoQubitGateFidelity": [
+     {
+      "direction": null,
+      "gateName": "CZ",
+      "fidelity": 0.987,
+      "standardError": null,
+      "fidelityType": {
+       "name": "RANDOMIZED_BENCHMARKING",
+       "description": null
+      }
+     }
+    ]
+   }
+  }
+ }
+}

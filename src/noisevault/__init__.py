@@ -29,7 +29,7 @@ from .errors import (
     SourceUnavailable,
     UnsupportedEffect,
 )
-from .profile import Profile, json_schema
+from .profile import DeviceMedians, Profile, json_schema
 from .report import Report
 
 if TYPE_CHECKING:
@@ -61,6 +61,37 @@ def from_braket(path_or_dict: str | Path | dict[str, Any], *, device: str | None
     name the profile. By default, the name is the file name without its suffix.
     """
     from .sources.braket import from_braket as convert
+
+    return convert(path_or_dict, device=device)
+
+
+def from_iqm(
+    metrics: str | Path | dict[str, Any],
+    *,
+    architecture: str | Path | dict[str, Any] | None = None,
+    device: str | None = None,
+) -> Profile:
+    """A profile from a saved IQM Resonance quality metric set.
+
+    Save ``IQMClient.get_quality_metric_set().model_dump_json()``. Pass the dynamic quantum
+    architecture of the same calibration set as ``architecture`` to disable the qubits and pairs
+    that IQM did not calibrate. ``device`` names the profile, such as ``"garnet"``. By default,
+    the name is the file name without its suffix.
+    """
+    from .sources.iqm import from_iqm as convert
+
+    return convert(metrics, architecture=architecture, device=device)
+
+
+def from_rigetti(
+    path_or_dict: str | Path | dict[str, Any], *, device: str | None = None
+) -> Profile:
+    """A profile from a saved Rigetti QCS instruction set architecture (ISA).
+
+    Save ``qcs_sdk.qpu.isa.get_instruction_set_architecture(id).json()``. ``device`` names the
+    profile. By default, the name is the ISA's ``name``, such as ``"Ankaa-3"``.
+    """
+    from .sources.rigetti import from_rigetti as convert
 
     return convert(path_or_dict, device=device)
 
@@ -105,6 +136,7 @@ def __getattr__(name: str) -> Any:
 __all__ = [
     "AmbiguousRef",
     "CountsError",
+    "DeviceMedians",
     "DisabledGateError",
     "FingerprintMismatch",
     "LayoutError",
@@ -126,7 +158,9 @@ __all__ = [
     "from_calibration_archive",
     "from_cirq_google",
     "from_ibm_csv",
+    "from_iqm",
     "from_qiskit_backend",
+    "from_rigetti",
     "json_schema",
     "load",
     "profiles",

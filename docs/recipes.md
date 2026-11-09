@@ -139,7 +139,8 @@ print(f"noisy {p000(mirror):.3f}, mitigated {mitigated:.3f}")
 
 Richardson extrapolation from scale factors 1, 2 and 3 removes most of the error here.
 [examples/mitigation_zne.py](../examples/mitigation_zne.py) runs the same recipe with random
-angles.
+angles. The tutorial [Mitiq: ZNE and PEC](tutorials/mitiq.md) also runs PEC, with
+representations from the profile's gate errors.
 
 ## Run a QEC memory experiment with Stim and PyMatching
 
@@ -189,6 +190,8 @@ The CNOTs in Stim's circuit get the grid's `cx` calibration, and `tick_ns=50` ad
 idle qubits at each `TICK`. To run on a real device's topology, use a profile whose qubits record
 `coords`, such as `google_weber`. Then check that `layout_from_coords` finds a placement.
 [examples/qec_surface_code.py](../examples/qec_surface_code.py) compares distances 3 and 5.
+[examples/neutral_atom_erasure.py](../examples/neutral_atom_erasure.py) adds heralded erasures
+to a neutral-atom device and decodes with and without the heralds.
 
 ## Describe a hypothetical device
 
@@ -217,8 +220,8 @@ print(nv.load("toy-ions.json").short_fingerprint == ions.short_fingerprint)
 ```
 
 A neutral-atom device in gate mode loses atoms during imaging. Record the atom loss as an
-`atom_loss` effect. No export models effects yet, so the report lists the effect as omitted
-rather than dropping it silently:
+`atom_loss` effect. The Stim and Cirq exports apply the loss as an erasure, and the report
+states the approximation. The other exports list the effect as omitted:
 
 ```python
 import stim
@@ -239,12 +242,13 @@ atoms = nv.Profile.uniform(
 )
 atoms = atoms.model_copy(update={"effects": [{"type": "atom_loss", "on": "readout", "prob": 5e-3}]})
 noisy = atoms.to_stim(stim.Circuit("H 0\nCX 0 1\nM 0 1"))
-print([line for line in noisy.report.summary().splitlines() if line.startswith("omitted")])
-# ['omitted: effect atom_loss on readout, initial state preparation error ...']
+print([line for line in noisy.report.summary().splitlines() if "atom_loss" in line])
+# ['approximated: effect atom_loss on readout: an erasure (the qubit becomes I/2) ...']
 ```
 
 To require that the exports model an effect, set `"allow": "approximate"` or `"exact"` on the
-effect. Exports then raise `UnsupportedEffect` instead of omitting it.
+effect. An export that models the effect less faithfully then raises `UnsupportedEffect`. Add
+`"heralded": true` when the device reports each loss.
 
 To give qubits or pairs their own values, edit the saved JSON by hand. See
 [Profile format](profile-format.md). Then run `nv validate toy-ions.json`.
@@ -345,6 +349,37 @@ script then says that IBM recalibrated. When the newer calibration does not, the
 the planned calibration. A warning then names both fingerprints, says what changed and suggests
 running the script again.
 
+On an Amazon Braket device, `scripts/run_on_braket.py` runs the circuits and saves the counts
+file. It needs uv and AWS credentials for Amazon Braket. Give the device as an ARN or as one of
+`iqm_garnet`, `rigetti_cepheus-1-108q`, `aqt_ibex-q1` and `ionq_forte-1`:
+
+```bash
+uv run https://raw.githubusercontent.com/dvgyl/noisevault/main/scripts/run_on_braket.py iqm_garnet -o garnet-1020.counts.json
+```
+
+Braket charges for each task and for each shot. The script shows the circuits and the cost in US
+dollars, and then it stops. To submit, run the same command again with `--confirm-cost` and the
+amount that you accept, such as `--confirm-cost 23.50`. The script refuses an amount below its
+estimate. When the device runs a program set, all circuits go in one task. Otherwise, each
+circuit is one task. The script saves the task ids before it waits. If the wait stops, run the
+same command again to collect the tasks.
+
+To try the script with no AWS account and no cost, save the device properties with
+`AwsDevice(arn).properties.json()`. Then give the file to `--local`. The free Braket
+`LocalEmulator` runs the circuits with a noise model from the same file. It refuses a gate that
+is not native and a pair of qubits that is not connected, as the device does.
+[Counts from an Amazon Braket device](counts-format.md#counts-from-an-amazon-braket-device) gives
+the details, such as how the script treats delays.
+
+`scripts/build_realism_table.py` puts many runs in one table. Give it a folder of counts
+files. It fits the factors of each file and writes a JSON file and a Markdown page, with one row
+for each device and date. [The demo table](realism/demo.md) shows the result for simulated
+counts, and every one of its rows says so:
+
+```bash
+python scripts/build_realism_table.py runs/ -o docs/realism/table
+```
+
 On another device, take steps 1 to 3 by hand. Step 4 is the same for every device.
 
 1. Plan the circuits. `plan(profile)` from `noisevault.counts` returns the `nv check` circuits on
@@ -402,3 +437,101 @@ then has probability 0 at every factor. `nv compare` counts the shots that read 
 reports p = 0 and names the qubit.
 [Limitations](limitations.md#what-the-unmodeled-error-factors-absorb) lists what the factors absorb
 and what they cannot express.
+
+## Run the weekly IBM campaign
+
+`scripts/ibm_campaign.py` runs the circuits of the previous recipe on IBM devices each week. For
+each device, it pulls the current calibration and picks two chains of qubits:
+
+- The best chain is the chain that `nv check` and `scripts/run_on_ibm.py` pick.
+- The median chain has the median summed error of all chains of the same length.
+
+Before each submission, the script reads the QPU time that is left on your IBM Quantum instance.
+It submits a job only when IBM's estimate for the job and a reserve of 20 s fit in that time. The
+Open Plan gives 600 s for each 28 days, and one job uses about 6 to 7 s. The script saves the
+counts and the calibration of each chain in `campaign/<device>/<date>/`. A second run in the same
+ISO week (Monday to Sunday) uses the same folder. It submits a job only for a chain that has no
+job yet, for example after the budget check stopped it. It also collects each job that is not
+collected yet, also the jobs of earlier weeks.
+
+`scripts/drift_report.py` reads the campaign folder and writes `campaign/drift.json` and
+`campaign/drift.md`. For each date and chain, the report gives the gate and readout factors of
+`nv compare` with their 95% intervals. For each two consecutive dates, it gives the `nv diff` of
+the two calibrations, with the largest changes by qubit and by pair.
+
+### Run the campaign on your computer
+
+1. Install NoiseVault with the `ibm` extra in a clone of the repository:
+
+   ```bash
+   pip install -e '.[ibm]'
+   ```
+
+2. Put your IBM Quantum API key in `IBM_QUANTUM_TOKEN`, or save the account once with
+   `QiskitRuntimeService.save_account(token=...)`. When the key sees more than one instance, also
+   put the instance in `IBM_QUANTUM_INSTANCE`.
+3. Run the campaign on your devices:
+
+   ```bash
+   python scripts/ibm_campaign.py ibm_kingston ibm_fez
+   ```
+
+   The script submits the jobs, waits for them and ends with a table of each device, week, chain
+   and state. To submit without a wait, add `--no-wait`. Run the same command later to collect
+   the jobs.
+4. Write the drift report:
+
+   ```bash
+   python scripts/drift_report.py
+   ```
+
+When IBM cannot run a job, the script cannot collect it, and each run reports the error again.
+To submit a new job for that chain, delete its `.job.json` file. The `campaign` folder holds
+your account data under IBM's terms, so Git ignores it.
+
+### Run the campaign on GitHub
+
+The workflow `.github/workflows/ibm-campaign.yml` runs the campaign each Monday at 07:41 UTC.
+You can also start it from the Actions tab. The workflow does nothing until the repository has a
+secret named `IBM_QUANTUM_TOKEN`. Without the secret, the run shows a note that tells you to add
+it. To add the secret, do these steps:
+
+1. Open the repository on GitHub. Go to **Settings**, then **Secrets and variables**, then
+   **Actions**.
+2. Select **New repository secret**. Type the name `IBM_QUANTUM_TOKEN`, paste your IBM Quantum
+   API key as the value and select **Add secret**. You can also use the GitHub CLI:
+
+   ```bash
+   gh secret set IBM_QUANTUM_TOKEN --repo dvgyl/noisevault
+   ```
+
+3. If the key sees more than one instance, add a second secret named `IBM_QUANTUM_INSTANCE` with
+   the instance CRN.
+4. Optional: to run other devices than `ibm_kingston ibm_fez`, add a repository variable named
+   `IBM_CAMPAIGN_DEVICES` (on the **Variables** tab), such as `ibm_kingston ibm_marrakesh`.
+5. Start the first run: on the **Actions** tab, select **IBM campaign**, then **Run workflow**.
+
+The campaign runs only on the default branch, `main`. The logs and artifacts of a public
+repository are public. For this reason, the log shows only the status table. Each run encrypts
+the campaign folder, with the full output in `campaign/logs/`, with the token. Then it uploads
+the folder as the artifact `ibm-campaign`, which GitHub keeps for 90 days. The next
+run downloads the newest artifact and continues from it. A job that waits in IBM's queue for
+more than 5 hours stays in the artifact, and the next run collects it. To start a run sooner,
+use **Run workflow**. To get the campaign folder on your computer, download the newest artifact
+and decrypt it with the same token:
+
+```bash
+run=$(gh api --paginate 'repos/dvgyl/noisevault/actions/artifacts?name=ibm-campaign' --jq '.artifacts[] | select((.expired | not) and .workflow_run.head_branch == "main") | [.created_at, .workflow_run.id] | @tsv' | sort | tail -n 1 | cut -f 2)
+```
+
+```bash
+gh run download "$run" --repo dvgyl/noisevault --name ibm-campaign
+```
+
+```bash
+openssl enc -d -aes-256-cbc -pbkdf2 -pass env:IBM_QUANTUM_TOKEN -in campaign.tar.gz.enc | tar -xz
+```
+
+A new token cannot decrypt an archive that the old token encrypted. Before you change the
+token, download and decrypt the newest artifact. Then delete the old `ibm-campaign` artifacts,
+so that the next run starts with an empty folder.
