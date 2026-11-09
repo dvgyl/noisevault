@@ -217,8 +217,8 @@ print(nv.load("toy-ions.json").short_fingerprint == ions.short_fingerprint)
 ```
 
 A neutral-atom device in gate mode loses atoms during imaging. Record the atom loss as an
-`atom_loss` effect. No export models effects yet, so the report lists the effect as omitted
-rather than dropping it silently:
+`atom_loss` effect. The Stim and Cirq exports apply the loss as an erasure, and the report
+states the approximation. The other exports list the effect as omitted:
 
 ```python
 import stim
@@ -239,12 +239,13 @@ atoms = nv.Profile.uniform(
 )
 atoms = atoms.model_copy(update={"effects": [{"type": "atom_loss", "on": "readout", "prob": 5e-3}]})
 noisy = atoms.to_stim(stim.Circuit("H 0\nCX 0 1\nM 0 1"))
-print([line for line in noisy.report.summary().splitlines() if line.startswith("omitted")])
-# ['omitted: effect atom_loss on readout, initial state preparation error ...']
+print([line for line in noisy.report.summary().splitlines() if "atom_loss" in line])
+# ['approximated: effect atom_loss on readout: an erasure (the qubit becomes I/2) ...']
 ```
 
 To require that the exports model an effect, set `"allow": "approximate"` or `"exact"` on the
-effect. Exports then raise `UnsupportedEffect` instead of omitting it.
+effect. An export that models the effect less faithfully then raises `UnsupportedEffect`. Add
+`"heralded": true` when the device reports each loss.
 
 To give qubits or pairs their own values, edit the saved JSON by hand. See
 [Profile format](profile-format.md). Then run `nv validate toy-ions.json`.

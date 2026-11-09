@@ -38,7 +38,7 @@ atoms = nv.Profile.uniform(
     one_qubit_ns=500,
     two_qubit_ns=250,
 )
-# Record that imaging loses atoms. No export models loss yet, so reports list it as omitted.
+# Record that imaging loses atoms. Stim and Cirq apply the loss as an erasure. Qiskit omits it.
 atoms = atoms.model_copy(update={"effects": [{"type": "atom_loss", "on": "readout", "prob": 5e-3}]})
 
 with tempfile.TemporaryDirectory() as folder:
@@ -70,5 +70,6 @@ for device in (ions, atoms):
     stim_ok = (shots.all(axis=1) | ~shots.any(axis=1)).mean()
 
     print(f"{device.id:<10} GHZ-{N} success  Qiskit {qiskit_ok:.3f}   Stim {stim_ok:.3f}")
-    omitted = [line for line in noisy.report.summary().splitlines() if line.startswith("omitted")]
-    print(textwrap.fill(omitted[0], 88, initial_indent=" " * 11, subsequent_indent=" " * 15))
+    for line in sim.report.summary().splitlines() + noisy.report.summary().splitlines():
+        if "atom_loss" in line:
+            print(textwrap.fill(line, 88, initial_indent=" " * 11, subsequent_indent=" " * 15))

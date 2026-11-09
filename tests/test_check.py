@@ -449,10 +449,16 @@ def _asks_for_an_effect() -> Profile:
 
 
 def _refused(framework: str) -> str:
+    start = "the export refused this profile: effect atom_loss on readout asks for allow='exact',"
+    if framework in ("stim",):
+        return (
+            f"{start} but the {framework} export approximates it as an erasure (the qubit becomes"
+            " I/2) (the atom comes back at once; on the device the trap stays empty); set allow"
+            " to 'approximate' to accept the approximation"
+        )
     return (
-        "the export refused this profile: effect atom_loss on readout asks for allow='exact',"
-        f" but {framework} export does not model effects yet; set allow to 'omit' to export"
-        " without the effect"
+        f"{start} but {framework} export does not model effects yet; set allow to 'omit' to"
+        " export without the effect"
     )
 
 
