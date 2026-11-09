@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import numbers
 import re
-from collections import Counter, defaultdict
+import sys
+from collections import defaultdict
 from collections.abc import Container, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from itertools import product
@@ -347,7 +348,7 @@ class NoiseVaultNoiseModel(cirq.NoiseModel):
         self._readout = readout
         self._erasures = Erasures(profile, readout=readout)
         self._moment: int | None = None  # index of the moment that _noisy works on
-        self._keys: Counter[str] = Counter()  # herald keys given out in this noisy circuit
+        self._keys: set[str] = set()  # measurement keys in use in this noisy circuit
         self._last: tuple[tuple[cirq.Moment, ...], list[cirq.OP_TREE]] | None = None
 
     def __repr__(self) -> str:
@@ -376,11 +377,21 @@ class NoiseVaultNoiseModel(cirq.NoiseModel):
                     terminal.add((i, op))
             later.update(moments[i].qubits)
         noisy: list[cirq.OP_TREE] = []
-        self._keys.clear()
+        self._keys = {key for moment in moments for key in cirq.measurement_key_names(moment)}
+        circuit_keys = len(self._keys)
         for i, moment in enumerate(moments):
             self._moment = i
             noisy.append([self._noisy(op, terminal=(i, op) in terminal) for op in moment])
         self._moment = None
+        ops = [op for moment in moments for op in moment]
+        heralds = len(self._keys) > circuit_keys
+        if heralds and all(cirq.is_measurement(op) for op in ops) and _inside_simulator():
+            self.report.warn_once(
+                "measurement_only_heralds",
+                "a circuit of measurements only: a Cirq simulator built with noise=model samples"
+                " it from one simulation and returns no herald records. Simulate"
+                " circuit.with_noise(model) instead",
+            )
         self._last = (moments, noisy)
         return noisy
 
@@ -464,10 +475,13 @@ class NoiseVaultNoiseModel(cirq.NoiseModel):
                 out.append(cirq.depolarize(0.75 * erasure.prob).on(qid))
                 continue
             where = f"m{self._moment}_" if self._moment is not None else ""
-            key = f"herald_{erasure.type}_{where}q{index}"
-            n = self._keys[key]
-            self._keys[key] += 1
-            out.append(HeraldedErasure(erasure.prob, key if n == 0 else f"{key}_{n}").on(qid))
+            key = base = f"herald_{erasure.type}_{where}q{index}"
+            n = 0
+            while key in self._keys:  # a key of the circuit or of an earlier herald
+                n += 1
+                key = f"{base}_{n}"
+            self._keys.add(key)
+            out.append(HeraldedErasure(erasure.prob, key).on(qid))
             self.report.count("herald_added", erasure.type)
         return out
 
@@ -576,6 +590,16 @@ class NoiseVaultNoiseModel(cirq.NoiseModel):
                 out.append(cirq.KrausChannel(list(channel.kraus)).on(qid))
             out += self._erase(qid, index, self._erasures.idle(index, duration))
         return out
+
+
+def _inside_simulator() -> bool:
+    """True when a Cirq simulator asks for the noise (not, for example, Circuit.with_noise)."""
+    frame = sys._getframe(1)
+    while frame is not None:
+        if frame.f_globals.get("__name__", "").startswith("cirq.sim"):
+            return True
+        frame = frame.f_back  # type: ignore[assignment]
+    return False
 
 
 def _assignment_kraus(matrix: np.ndarray) -> list[np.ndarray]:

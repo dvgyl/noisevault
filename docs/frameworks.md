@@ -202,7 +202,9 @@ What the report can list:
   crosstalk and coherent effects.
 
 A heralded effect adds a measurement key for each erasure location. A herald is a mid-circuit
-measurement, so Cirq simulates each repetition separately.
+measurement, so Cirq simulates each repetition separately. A simulator built with `noise=model`
+samples a circuit of measurements only from one simulation and returns no herald records. The
+model warns in that case. Simulate `circuit.with_noise(model)` instead.
 [Profile format](profile-format.md#effects) gives the rules for effects.
 
 Classically controlled operations raise an error that says how to restructure the circuit. An
