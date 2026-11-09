@@ -406,6 +406,7 @@ class NoiseVaultNoiseModel(cirq.NoiseModel):
 
     def noisy_operation(self, operation: cirq.Operation) -> cirq.OP_TREE:
         """The operation followed by its noise. A measurement gets a ``confusion_map``."""
+        self._keys |= cirq.measurement_key_names(operation)  # a herald must not reuse them
         return self._noisy(operation, terminal=False)
 
     def _noisy(self, operation: cirq.Operation, *, terminal: bool) -> cirq.OP_TREE:

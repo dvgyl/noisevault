@@ -204,3 +204,18 @@ def test_a_gate_with_typical_noise_takes_the_effects_of_the_typical_gate():
     with pytest.warns(NoiseApproximationWarning, match="noise of cz"):
         noisy = cirq.Circuit(cirq.CNOT(q0, q1)).with_noise(model)
     assert cirq.measurement_key_names(noisy) == {"herald_erasure_m0_q0", "herald_erasure_m0_q1"}
+
+
+def test_a_certain_heralded_erasure_leaves_the_mixed_state():
+    model = _atoms({"type": "erasure", "gate": "x", "prob": 1.0, "heralded": True}).to_cirq()
+    out = cirq.DensityMatrixSimulator(noise=model, seed=1).simulate(cirq.Circuit(cirq.X(q0)))
+    np.testing.assert_allclose(out.final_density_matrix, np.eye(2) / 2, atol=1e-6)
+    assert out.measurements["herald_erasure_m0_q0"].tolist() == [1]
+
+
+def test_a_herald_from_noisy_operation_skips_the_key_of_its_operation():
+    model = _atoms({"type": "erasure", "on": "readout", "prob": 1.0, "heralded": True}).to_cirq()
+    noisy = cirq.Circuit(model.noisy_operation(cirq.measure(q0, key="herald_erasure_q0")))
+    assert cirq.measurement_key_names(noisy) == {"herald_erasure_q0", "herald_erasure_q0_1"}
+    result = cirq.Simulator(seed=1).run(noisy, repetitions=3)
+    assert result.measurements["herald_erasure_q0_1"].tolist() == [[1]] * 3
