@@ -14,6 +14,19 @@ This file lists all notable changes to NoiseVault. Versions follow
 - The README gives the install line for a virtual environment from `uv venv`, which has no pip.
   The README section [Coming from fake backends](README.md#coming-from-fake-backends) shows the
   one-line change from `AerSimulator.from_backend` and what a profile adds.
+- **Weekly IBM campaign.** `scripts/ibm_campaign.py` runs the `nv compare` circuits on a best
+  and a median chain of each IBM device with one command. Before each job, it checks IBM's
+  estimate of the QPU time against the time left on the instance. It saves counts and
+  calibrations in `campaign/<device>/<date>/`, and a rerun in the same week collects jobs
+  instead of submitting them again. `.github/workflows/ibm-campaign.yml` runs the script each
+  week once the repository has the secret `IBM_QUANTUM_TOKEN`.
+  [Run the weekly IBM campaign](docs/recipes.md#run-the-weekly-ibm-campaign) tells how.
+- **Drift report.** `scripts/drift_report.py` reads the campaign folders and writes
+  `drift.json` and `drift.md`: the gate and readout factors with their 95% intervals for each
+  date and chain, and the largest calibration changes between consecutive dates.
+- `scripts/run_on_ibm.py`: `run()` takes a chain of qubits (`layout`), a check before it submits
+  (`approve`), `wait=False` to return after it submits, and `keep_profile` to always save the
+  profile file.
 
 ### Changed
 
