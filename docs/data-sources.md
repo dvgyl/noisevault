@@ -11,11 +11,13 @@ NoiseVault gets calibrations three ways:
   metric set or a saved Rigetti QCS ISA. The data can also be a calibration that cirq-google
   ships, or a local copy of a published archive of IBM calibrations.
 
-`nv list` shows the vault first, then the bundled set. A vault profile with the same id,
-calibration time and fingerprint as a bundled profile hides that bundled profile. When one
-device has several calibrations on the same date, `nv list` adds the UTC time under the date. A
-ref with the full time, such as `ibm_fez@2025-02-26T20:16:25Z`, loads the calibration at that
-time.
+`nv list` groups the profiles by technology. In each group, it sorts the profiles by id, and the
+newest calibration of an id comes first. A `*` marks a profile in your vault. `nv list --json`
+sorts all profiles by id, and the oldest calibration of an id comes first. A vault profile with
+the same id, calibration time and fingerprint as a bundled profile hides that bundled profile.
+When one device has several calibrations on the same date, `nv list` adds the UTC time under the
+date. A ref with the full time, such as `ibm_fez@2025-02-26T20:16:25Z`, loads the calibration at
+that time.
 
 ## Licensing policy
 
