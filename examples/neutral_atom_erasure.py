@@ -35,21 +35,24 @@ def erasure_models(circuit: stim.Circuit) -> tuple[stim.DetectorErrorModel, list
     """The error model when no herald fires, and the extra errors of each herald that fires.
 
     A fired herald fully depolarizes its qubit. A silent herald adds no error. MPAD keeps each
-    herald's place in the measurement record, so the detectors stay the same.
+    herald's place in the measurement record, so the detectors stay the same. A tagged
+    identity marks each herald's place, because without_noise() moves the other instructions.
     """
-    silent, sites = stim.Circuit(), []
+    silent = stim.Circuit()
     for inst in circuit.flattened():
         if inst.name != "HERALDED_ERASE":
             silent.append(inst)
             continue
         for target in inst.targets_copy():
-            sites.append((len(silent), target.value))
             silent.append("MPAD", [0])
+            silent.append(stim.CircuitInstruction("I", [target], tag="herald"))
     clean = silent.without_noise()
     extra = []
-    for at, qubit in sites:
-        alone = clean[: at + 1] + stim.Circuit(f"DEPOLARIZE1(0.75) {qubit}") + clean[at + 1 :]
-        extra.append(alone.detector_error_model(decompose_errors=True))
+    for at, inst in enumerate(clean):
+        if inst.tag == "herald":
+            erase = stim.CircuitInstruction("DEPOLARIZE1", inst.targets_copy(), [0.75])
+            alone = clean[:at] + stim.Circuit(str(erase)) + clean[at + 1 :]
+            extra.append(alone.detector_error_model(decompose_errors=True))
     base = silent.detector_error_model(decompose_errors=True, approximate_disjoint_errors=True)
     return base, extra
 
