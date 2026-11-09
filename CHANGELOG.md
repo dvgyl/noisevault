@@ -76,7 +76,8 @@ This file lists all notable changes to NoiseVault. Versions follow
   memory on a neutral-atom device with heralded erasures. It compares the logical error of a
   decoder that ignores the heralds with one that uses them.
 - `profile.pauli_error(gate, qubits)` returns the Pauli-twirled error of a gate on physical
-  qubits, as the exports apply it. The keys are Pauli labels such as `"XI"`, and the values are
+  qubits, as the Stim export applies it: the gate's channels, and the `leakage`, `atom_loss` and
+  `erasure` effects on the gate. The keys are Pauli labels such as `"XI"`, and the values are
   probabilities. The values include the `unmodeled_error` factors.
 - The tutorial [Mitiq: ZNE and PEC](docs/tutorials/mitiq.md) and the example
   `examples/mitiq_zne_pec.py` run zero-noise extrapolation and probabilistic error cancellation

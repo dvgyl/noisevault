@@ -17,6 +17,7 @@ from noisevault.errors import (
     LayoutError,
     MissingCalibrationError,
     NoiseApproximationWarning,
+    UnsupportedEffect,
 )
 from noisevault.profile import Profile
 from noisevault.report import Report
@@ -563,3 +564,67 @@ def test_pauli_error_resolves_names_and_unknown_gates_as_the_exports_do() -> Non
         profile.pauli_error("sx", [0], unknown_gates="ignore")
     with pytest.raises(LayoutError):
         profile.pauli_error("sx", [7])
+
+
+def _atoms(*effects: dict, error: float = 0.0) -> Profile:
+    return Profile.uniform(
+        "atoms",
+        technology="neutral_atom",
+        num_qubits=3,
+        one_qubit_error=error,
+        two_qubit_error=error,
+        effects=effects,
+    )
+
+
+def test_pauli_error_includes_the_erasing_effects_on_the_gate() -> None:
+    p = 0.08
+    profile = _atoms(
+        {"type": "atom_loss", "gate": "cz", "prob": p, "heralded": True},
+        {"type": "erasure", "on": "readout", "prob": 0.5},  # not a part of a gate's error
+    )
+    error = profile.pauli_error("cz", [0, 1])
+    each = 3 * p / 4  # an erasure is a depolarizing channel with this Pauli error on its qubit
+    assert error["XI"] == pytest.approx(each / 3 * (1 - each))
+    assert error["ZY"] == pytest.approx((each / 3) ** 2)
+    assert sum(error.values()) == pytest.approx(1 - (1 - each) ** 2)
+    assert sum(profile.pauli_error("h", [0]).values()) == pytest.approx(0.0, abs=1e-15)
+
+
+def test_pauli_error_is_the_noise_that_the_stim_export_adds_after_the_gate() -> None:
+    stim = require("stim")
+    profile = _atoms({"type": "erasure", "gate": "cz", "prob": 0.06}, error=1e-2)
+    noisy = profile.to_stim(stim.Circuit("CZ 0 1"))
+    gate_noise, erasure = noisy[1], noisy[2]
+    assert (gate_noise.name, erasure.name) == ("PAULI_CHANNEL_2", "DEPOLARIZE1")
+    labels = [a + b for a in "IXYZ" for b in "IXYZ"]
+    first = dict(zip(labels, [0.0, *gate_noise.gate_args_copy()], strict=True))
+    first["II"] = 1 - sum(first.values())
+    q = erasure.gate_args_copy()[0] / 3
+    one = {"I": 1 - 3 * q, "X": q, "Y": q, "Z": q}
+    times = {a + b: c for a, b, c in ("XYZ", "YZX", "ZXY", "YXZ", "ZYX", "XZY")}
+
+    def product(a: str, b: str) -> str:
+        return b if a == "I" else a if b == "I" else "I" if a == b else times[a + b]
+
+    expected = dict.fromkeys(labels, 0.0)
+    for label, weight in first.items():
+        for a, pa in one.items():
+            for b, pb in one.items():
+                expected[product(label[0], a) + product(label[1], b)] += weight * pa * pb
+    del expected["II"]
+    assert profile.pauli_error("cz", [0, 1]) == pytest.approx(expected, rel=1e-9)
+
+
+def test_pauli_error_refuses_a_name_that_is_no_gate() -> None:
+    with pytest.raises(ValueError, match="'hadamard' is not a gate"):
+        _pauli_profile().pauli_error("hadamard", [0])
+
+
+def test_pauli_error_refuses_a_gate_effect_that_it_leaves_out() -> None:
+    effect = {"type": "crosstalk_zz", "gate": "cz", "strength_hz": 1e3}
+    assert sum(_atoms(effect, error=1e-2).pauli_error("cz", [0, 1]).values()) > 0
+    with pytest.raises(UnsupportedEffect, match="crosstalk_zz on cz asks for allow='approximate'"):
+        _atoms({**effect, "allow": "approximate"}, error=1e-2).pauli_error("cz", [0, 1])
+    # An effect on another gate is not a part of the error of cz.
+    _atoms({**effect, "gate": "cx", "allow": "exact"}, error=1e-2).pauli_error("cz", [0, 1])

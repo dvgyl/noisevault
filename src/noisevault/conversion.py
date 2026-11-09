@@ -9,9 +9,11 @@ from .channels import (
     ChannelSpec,
     GateChannels,
     gate_channels,
+    pauli_kraus,
     pauli_twirl,
     thermal_relaxation_kraus,
 )
+from .effects import Erasures, treatment
 from .errors import LayoutError, MissingCalibrationError, qubit_loci
 from .report import Report
 from .table import GateNoise, NoiseTable, Unavailable, refuse_disabled
@@ -97,16 +99,34 @@ def pauli_error(
     """See :meth:`noisevault.Profile.pauli_error`."""
     if unknown_gates not in get_args(UnknownGates):
         raise ValueError(f"unknown_gates={unknown_gates!r}: choose 'typical' or 'error'")
+    if gates.lookup(gate) is None and gate not in profile.gates:
+        raise ValueError(f"{gate!r} is not a gate of the registry or of {profile.id}")
     qubits = tuple(qubits)
     name = native_name(gate, profile.gates)
     report = Report.start(profile, "pauli_error", None)
     built = resolve_op(
         profile.table, name, qubits, unknown_gates=cast(UnknownGates, unknown_gates), report=report
     )
+    # The effects on the gate that gives the noise are a part of the error, as in the Stim and
+    # Cirq exports. An effect that this error leaves out must have allow "omit".
+    on_gate = [e for e in profile.effects if e.gate in (name, built.gate.gate)]
+    report.record_effects(
+        on_gate, lambda e: treatment(e, profile, "pauli_error", idle="omit", readout=False)
+    )
+    erasures = Erasures(profile, readout=False).gate(name, qubits, built.gate)
+    channels = [
+        *built.channels,
+        *(
+            # An erasure with probability p is each of X, Y and Z with probability p / 4.
+            ChannelSpec("pauli", (q,), tuple(pauli_kraus([erasure.prob / 4] * 3)))
+            for q in qubits
+            for erasure in erasures
+        ),
+    ]
     labels = metrics.pauli_labels(len(qubits))
-    if not built.channels:
+    if not channels:
         return dict.fromkeys(labels, 0.0)
-    return dict(zip(labels, pauli_twirl(built.channels, qubits), strict=True))
+    return dict(zip(labels, pauli_twirl(channels, qubits), strict=True))
 
 
 def resolve_gate(

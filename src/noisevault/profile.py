@@ -979,14 +979,25 @@ class Profile(_Model):
     def pauli_error(
         self, gate: str, qubits: Sequence[int], *, unknown_gates: str = "typical"
     ) -> dict[str, float]:
-        """The Pauli-twirled error that the exports apply after ``gate`` on physical ``qubits``.
+        """The Pauli-twirled error that the Stim export applies after ``gate`` on ``qubits``.
 
         Each key is a non-identity Pauli label, and its value is a probability. Character i of
-        a label acts on ``qubits[i]``. For example, ``"XI"`` is an X error on ``qubits[0]`` only.
-        The twirl keeps the Pauli part of the gate's channels and drops the rest, such as the
-        pull of amplitude damping toward ``|0>``. The values include the ``unmodeled_error``
-        factors. A gate name resolves as in the exports, so ``"sx"`` uses ``rx`` on a profile
-        that defines only ``rx``. ``unknown_gates`` has the same meaning as in the exports.
+        a label acts on ``qubits[i]``, a physical qubit. For example, ``"XI"`` is an X error on
+        ``qubits[0]`` only. The error has two parts. The first part is the gate's channels: its
+        stated error with the ``unmodeled_error`` factor, and the relaxation during the gate.
+        The second part is each ``leakage``, ``atom_loss`` and ``erasure`` effect on the gate,
+        as an erasure of each qubit. A heralded erasure counts without its herald. The error
+        does not include idle noise, readout error or effects on ``readout`` and ``idle``.
+
+        The twirl keeps the Pauli part of the channels and drops the rest, such as the pull of
+        amplitude damping toward ``|0>``. The Cirq export applies the same channels before the
+        twirl. The Qiskit and PennyLane exports do so too, but they omit effects. When
+        relaxation alone is larger than the stated error, the values come from the relaxation.
+
+        ``gate`` is a registry gate or a gate of the profile. The name resolves as in the
+        exports, so ``"sx"`` uses ``rx`` on a profile that defines only ``rx``.
+        ``unknown_gates`` has the same meaning as in the exports. An effect on the gate that
+        the error leaves out, such as ``crosstalk_zz``, must have ``allow`` set to ``omit``.
         """
         from .conversion import pauli_error
 
