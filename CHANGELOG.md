@@ -175,6 +175,9 @@ This file lists all notable changes to NoiseVault. Versions follow
   dates.
 - `load_counts` gives a `CountsError` for an execution flag nested as deep as the JSON parser
   takes, not a `RecursionError`.
+- A profile or counts file can hold at most 64 MiB of JSON, after decompression. NoiseVault
+  decompresses a `.json.gz` file in a stream and stops at the limit. Before, a small gzip file
+  could expand to gigabytes in memory before validation.
 - `scripts/run_on_ibm.py` stops with an error that names the two devices when it collects a job
   for one device and the command or IBM names another device. Before, the script bound the
   counts to the calibration of the wrong device or gave a false recalibration warning.

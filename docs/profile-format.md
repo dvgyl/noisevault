@@ -7,7 +7,8 @@ pairs exist. It also records where the numbers came from and under what license.
 
 NoiseVault reads a profile with `nv.load(path_or_ref)` and checks one with `nv validate FILE`.
 Every export (`to_qiskit`, `to_cirq`, `to_pennylane`, `to_stim`) starts from the same rules,
-described on this page. A file may be gzip-compressed (`.json.gz`).
+described on this page. A file may be gzip-compressed (`.json.gz`). A file can hold at most
+64 MiB of JSON, after decompression.
 
 The JSON Schema in [`schema/profile-1.0.json`](schema/profile-1.0.json) describes the structure of
 a saved file. The schema does not express the cross-field rules below (one metric per spec,

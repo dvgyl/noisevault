@@ -6,7 +6,8 @@ physical qubits that the circuits ran on and to the exact ops that the device ex
 `nv compare` scores a profile on a counts file.
 
 NoiseVault reads a counts file with `load_counts(path)` from `noisevault.counts`. A file may be
-gzip-compressed (`.json.gz`). `plan(profile)` gives the circuits to run, and
+gzip-compressed (`.json.gz`). A file can hold at most 64 MiB of JSON, after decompression.
+`plan(profile)` gives the circuits to run, and
 `simulate(profile, circuits, shots=..., seed=...)` draws counts for them from a profile.
 
 ## An example

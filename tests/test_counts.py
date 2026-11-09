@@ -22,6 +22,7 @@ from noisevault import (
     NoiseVaultError,
     UnsupportedEffect,
 )
+from noisevault import profile as profile_module
 from noisevault.counts import (
     SAMPLER_V2_OPTIONS,
     MeasuredCircuit,
@@ -408,6 +409,22 @@ def test_a_file_that_is_not_counts_is_named_with_what_to_give(tmp_path: Path) ->
     assert errors[wrong].message.startswith(f"{wrong} is a damaged gzip file (")
     assert errors[wrong].hint == "the file is damaged or truncated. Save the counts again"
     assert all("\n" not in str(e) for e in errors.values())
+
+
+def test_a_counts_file_that_expands_past_the_limit_is_one_counts_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(profile_module, "JSON_LIMIT", 2**20)
+    path = tmp_path / "big.counts.json.gz"
+    path.write_bytes(gzip.compress(b'{"nv_counts": "1.0"' + b" " * 2**21 + b"}"))
+
+    with pytest.raises(CountsError) as caught:
+        load_counts(path)
+
+    assert (caught.value.message, caught.value.hint) == (
+        f"{path} holds more than 1 MiB of JSON, the limit",
+        "check that the file is a NoiseVault counts file",
+    )
 
 
 def test_an_outcome_counted_twice_is_refused_before_the_second_count_replaces_the_first(

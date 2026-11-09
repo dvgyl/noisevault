@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import gzip
 import hashlib
+import io
 import json
 import math
 import os
@@ -46,6 +47,7 @@ from .errors import (
     LociText,
     MigrationWarning,
     NoiseVaultError,
+    TooLargeError,
     json_path,
     parse_json,
     plural,
@@ -1496,17 +1498,39 @@ def _fill(fd: int, path: Path, data: bytes) -> os.stat_result:
     return os.fstat(fd)
 
 
+JSON_LIMIT = 64 * 2**20
+"""Most bytes of JSON that a profile or counts file can hold, after decompression."""
+
+
 def load_file(path: str | Path) -> Profile:
     """Read a profile from ``.json`` or gzip-compressed JSON, and upgrade a 0.1 file."""
-    return load_bytes(Path(path).read_bytes())
+    return load_bytes(read_limited(Path(path)))
 
 
 def load_bytes(raw: bytes) -> Profile:
     return Profile.from_dict(json_bytes(raw))
 
 
+def read_limited(path: Path) -> bytes:
+    with path.open("rb") as file:
+        return _limited(file)
+
+
 def json_bytes(raw: bytes) -> Any:
-    return parse_json(gzip.decompress(raw) if raw[:2] == b"\x1f\x8b" else raw)
+    if raw[:2] == b"\x1f\x8b":
+        with gzip.GzipFile(fileobj=io.BytesIO(raw)) as file:
+            raw = _limited(file)
+    return parse_json(raw)
+
+
+def _limited(file: io.BufferedIOBase) -> bytes:
+    # One read of JSON_LIMIT + 1 bytes would allocate that much for every file.
+    data = bytearray()
+    while chunk := file.read(2**16):
+        data += chunk
+        if len(data) > JSON_LIMIT:
+            raise TooLargeError(JSON_LIMIT)
+    return bytes(data)
 
 
 _REDO = {"profile": "Pull or export the profile again", "counts": "Save the counts again"}
@@ -1517,11 +1541,12 @@ def read_json_file(
     kind: Literal["profile", "counts"],
     error: type[NoiseVaultError] = NoiseVaultError,
 ) -> Any:
-    raw = path.read_bytes()
     try:
-        return json_bytes(raw)
+        return json_bytes(read_limited(path))
     except (ValueError, EOFError, zlib.error, gzip.BadGzipFile) as exc:
-        if isinstance(exc, DuplicateKeyError):
+        if isinstance(exc, TooLargeError):
+            hint = f"check that the file is a NoiseVault {kind} file"
+        elif isinstance(exc, DuplicateKeyError):
             hint = f"the file is damaged. {_REDO[kind]}, or keep one of the two keys"
         elif path.name.endswith((".json", ".json.gz")):
             hint = f"the file is damaged or truncated. {_REDO[kind]}"

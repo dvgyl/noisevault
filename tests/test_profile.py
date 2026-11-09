@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import errno
+import gzip
 import json
 import os
 import pickle
@@ -10,6 +11,7 @@ import re
 import shutil
 import stat
 import threading
+import tracemalloc
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, date, datetime
@@ -331,6 +333,48 @@ def test_gzip_output_is_reproducible(tmp_path: Path) -> None:
         profile.save(tmp_path / "a.json.gz").read_bytes()
         == profile.save(tmp_path / "b.json.gz").read_bytes()
     )
+
+
+def test_a_gzip_file_that_expands_past_the_limit_is_refused_before_it_expands_fully(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(profile_module, "JSON_LIMIT", 2**20)
+    bomb = tmp_path / "bomb.json.gz"
+    block = gzip.compress(b" " * 2**20)
+    bomb.write_bytes(gzip.compress(b'{"noisevault": "1.0"') + block * 32 + gzip.compress(b"}"))
+
+    tracemalloc.start()
+    try:
+        with pytest.raises(nv.NoiseVaultError) as caught:
+            read_json_file(bomb, "profile")
+        peak = tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+
+    assert (caught.value.message, caught.value.hint) == (
+        f"{bomb} holds more than 1 MiB of JSON, the limit",
+        "check that the file is a NoiseVault profile file",
+    )
+    assert peak < 4 * 2**20
+    with pytest.raises(ValueError, match=r"^the JSON is over the 1 MiB limit$"):
+        load_file(bomb)
+
+
+@pytest.mark.parametrize("name", ["p.json", "p.json.gz"])
+def test_a_profile_file_at_the_limit_loads_and_one_byte_more_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, name: str
+) -> None:
+    text = json.dumps(toy()).encode()
+    monkeypatch.setattr(profile_module, "JSON_LIMIT", len(text) + 10)
+    at, over = tmp_path / "at" / name, tmp_path / "over" / name
+    for path, padding in ((at, 10), (over, 11)):
+        path.parent.mkdir()
+        data = text + b" " * padding
+        path.write_bytes(gzip.compress(data) if name.endswith(".gz") else data)
+
+    assert load_file(at) == Profile.model_validate(toy())
+    with pytest.raises(ValueError, match=r"^the JSON is over the .* MiB limit$"):
+        load_file(over)
 
 
 @pytest.mark.parametrize("name", ["p.json", "p.json.gz"])

@@ -79,6 +79,18 @@ class DuplicateKeyError(ValueError):
         self.path = path
 
 
+class TooLargeError(ValueError):
+    """A file holds more JSON than ``limit`` bytes, after decompression."""
+
+    def __init__(self, limit: int) -> None:
+        super().__init__(f"the JSON is over the {mib(limit)} limit")
+        self.limit = limit
+
+
+def mib(size: int) -> str:
+    return f"{size / 2**20:g} MiB"
+
+
 def json_path(keys: Sequence[str | int]) -> str:
     return "".join(
         f".{key}" if isinstance(key, str) and key.isidentifier() else f"[{key!r}]" for key in keys
@@ -166,6 +178,8 @@ def unreadable(source: str, exc: Exception) -> str:
         return f"{source} is not JSON ({_lower_first(where)})"
     if isinstance(exc, DuplicateKeyError):
         return f"{source} has the key {json_path(exc.path)} twice"
+    if isinstance(exc, TooLargeError):
+        return f"{source} holds more than {mib(exc.limit)} of JSON, the limit"
     if isinstance(exc, ValueError):
         digits = _DIGIT_LIMIT.search(str(exc))
         reason = (
