@@ -1202,6 +1202,7 @@ def test_check_shows_an_import_error_in_an_installed_export_as_a_failure(monkeyp
 
 def test_check_json_and_skips() -> None:
     require("cirq")
+    require("stim")  # the Stim export must be there to refuse the profile
     result = runner.invoke(app, ["check", "quantinuum_h1-1", "--framework", "stim,cirq", "--json"])
     data = json.loads(result.stdout)
     assert [f["framework"] for f in data["frameworks"]] == ["cirq"]
@@ -1211,6 +1212,7 @@ def test_check_json_and_skips() -> None:
 
 def test_check_exits_1_when_it_skips_a_framework_that_framework_names(monkeypatch) -> None:
     require("cirq")
+    require("stim")  # the Stim export must be there to refuse the profile
     refused = runner.invoke(app, ["check", "quantinuum_h1-1", "--framework", "stim,cirq"])
     assert refused.exit_code == 1, refused.output
     assert refused.stderr == "error: --framework names stim, but the check skipped it\n"
