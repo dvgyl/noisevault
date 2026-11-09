@@ -454,17 +454,17 @@ class _Exporter:
         return after
 
     def _copy(self, inst: stim.CircuitInstruction, busy: set[int], lines: list[str]) -> set[int]:
-        lines.append(str(inst))
+        lines.append(_text(inst))
         return busy
 
     def _pad(self, inst: stim.CircuitInstruction, busy: set[int], lines: list[str]) -> set[int]:
         keep = self.keep_noise or not inst.gate_args_copy()
-        lines.append(str(inst) if keep else _text(inst, inst.target_groups(), []))
+        lines.append(_text(inst) if keep else _text(inst, inst.target_groups(), []))
         return busy
 
     def _noise(self, inst: stim.CircuitInstruction, busy: set[int], lines: list[str]) -> set[int]:
         if self.keep_noise:
-            lines.append(str(inst))
+            lines.append(_text(inst))
         return busy
 
     def _tick(self, inst: stim.CircuitInstruction, busy: set[int], lines: list[str]) -> set[int]:
@@ -920,17 +920,32 @@ def _pauli_product(group: Sequence[stim.GateTarget]) -> _PauliProduct:
 
 def _text(
     inst: stim.CircuitInstruction,
-    groups: list[list[stim.GateTarget]],
+    groups: list[list[stim.GateTarget]] | None = None,
     args: list[float] | None = None,
 ) -> str:
-    targets: list[stim.GateTarget] = []
-    for group in groups:
+    """The text of ``inst`` with the targets of ``groups`` (default all) and ``args``.
+
+    Stim writes arguments with 6 significant digits. This text keeps every digit, as the noise
+    lines of the export do.
+    """
+    if groups is None and args is None:
+        args = inst.gate_args_copy()
+        # Most arguments, such as DETECTOR coordinates, survive 6 digits, and str(inst) is fast.
+        if all(float(f"{a:.6g}") == a for a in args):
+            return str(inst)
+    targets: list[stim.GateTarget] = [] if groups is not None else inst.targets_copy()
+    for group in groups or ():
         for i, target in enumerate(group):
             if i and inst.name in _COMBINED:
                 targets.append(stim.target_combiner())
             targets.append(target)
     args = inst.gate_args_copy() if args is None else args
-    return str(stim.CircuitInstruction(inst.name, targets, args, tag=inst.tag))
+    text = str(stim.CircuitInstruction(inst.name, targets, args, tag=inst.tag))
+    if not args:
+        return text
+    bare = str(stim.CircuitInstruction(inst.name, [], args, tag=inst.tag))
+    head = bare[: bare.rindex("(")]  # a tag can hold "(", but the arguments come after it
+    return f"{head}({', '.join(repr(float(a)) for a in args)}){text[len(bare) :]}"
 
 
 def _added_events(before: dict[str, Counter[str]], after: dict[str, Counter[str]]) -> EventCounts:
