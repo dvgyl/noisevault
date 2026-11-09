@@ -194,10 +194,12 @@ What the report can list:
 
 - **Exact.** Gate noise as Kraus channels after each gate. Readout error, as a `confusion_map`
   on mid-circuit measurements and the equivalent channel before terminal ones. The preparation
-  error after each reset. Thermal relaxation during `cirq.WaitGate`. `erasure` effects.
+  error after each reset. Thermal relaxation during `cirq.WaitGate`. `erasure` effects, except
+  an idle `erasure` on a qubit with T1 or T2.
 - **Approximated.** The state after a terminal measurement includes the readout flips. Sampled
   results are exact. To inspect states, build the model with `readout=False`. `leakage` and
-  `atom_loss` effects, as an erasure.
+  `atom_loss` effects, as an erasure. An idle `erasure` on a qubit with T1 or T2, because it
+  acts after the relaxation of the wait.
 - **Omitted.** The preparation error of the initial state, idle time outside `WaitGate`, and
   crosstalk and coherent effects.
 

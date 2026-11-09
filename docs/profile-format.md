@@ -417,9 +417,13 @@ raises `UnsupportedEffect`.
 | Effect | Stim | Cirq | Qiskit, PennyLane, reference simulator |
 | --- | --- | --- | --- |
 | `erasure` on a gate or on `readout` | exact | exact | omitted |
-| `erasure` on `idle` | approximated, see below | exact, during `cirq.WaitGate` | omitted |
+| `erasure` on `idle` | approximated, see below | during `cirq.WaitGate`: exact on a qubit without T1 and T2, else approximated, see below | omitted |
 | `atom_loss`, `leakage` | approximated | approximated | omitted |
 | `crosstalk_measurement`, `crosstalk_zz`, `coherent_overrotation` | omitted | omitted | omitted |
+
+An idle effect acts after the relaxation of each idle time. On the device, the two act at the
+same time, and their order changes the result. Thus an idle effect is exact only on a qubit
+without T1 and T2.
 
 The Stim export applies idle effects only to qubits idle in a `TICK` layer with `tick_ns`, as
 for idle relaxation. The report also omits an effect in these cases:

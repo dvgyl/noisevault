@@ -122,6 +122,26 @@ def test_the_report_states_how_each_effect_is_treated():
     assert "effect crosstalk_zz on idle," in omitted
 
 
+def test_an_idle_erasure_on_a_qubit_with_relaxation_is_approximated():
+    effect = {"type": "erasure", "on": "idle", "rate_per_s": 1e6, "allow": "exact"}
+    with pytest.raises(UnsupportedEffect, match="after the relaxation of each idle time"):
+        _atoms(effect, t1_us=1, t2_us=2).to_cirq()
+    # The export applies all relaxation of a wait first. Two waits of half the time thus give
+    # another state: the order matters, so the report does not call the effect exact.
+    model = _atoms({**effect, "allow": "approximate"}, t1_us=1, t2_us=2).to_cirq()
+    assert "approximated: effect erasure on idle" in model.report.summary()
+
+    def excited(*nanos: int) -> float:
+        waits = [cirq.WaitGate(cirq.Duration(nanos=t)).on(q0) for t in nanos]
+        rho = cirq.DensityMatrixSimulator(noise=model).simulate(cirq.Circuit(waits))
+        return float(rho.final_density_matrix[1, 1].real)
+
+    # One wait of T1: relaxation keeps |0>, then the erasure gives p / 2 with p = 1 - 1/e.
+    assert excited(1000) == pytest.approx((1 - np.exp(-1)) / 2, abs=1e-6)
+    assert excited(500, 500) < excited(1000) - 0.04
+    _atoms(effect).to_cirq()  # without T1 and T2, the erasure alone is exact
+
+
 def test_approximated_atom_loss_does_not_meet_allow_exact():
     effect = {"type": "atom_loss", "gate": "cz", "prob": 0.01, "allow": "exact"}
     with pytest.raises(UnsupportedEffect, match="the cirq export approximates it as an erasure"):

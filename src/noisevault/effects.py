@@ -58,6 +58,7 @@ def treatment(
     """The treatment that an export with an erasure channel gives ``effect``.
 
     ``idle`` is the level of the export's idle model ("omit" when it models no idle time).
+    An exact idle model still gives an approximated idle effect on a qubit with relaxation.
     ``readout`` is False when the export adds no readout error, and so no readout effects.
     """
     if effect.type not in ERASING:
@@ -92,10 +93,24 @@ def treatment(
             ]
         )
     level: Level = "exact" if effect.type == "erasure" else "approximate"
-    if effect.on == "idle" and idle == "approximate":
+    if effect.on == "idle" and (note := _idle_note(effect, profile, idle)):
         level = "approximate"
-        detail = "; ".join(filter(None, [detail, "only where the export applies idle noise"]))
+        detail = "; ".join(filter(None, [detail, note]))
     return Treatment(level, how, detail)
+
+
+def _idle_note(effect: Effect, profile: Profile, idle: Level) -> str:
+    """Why an idle effect is approximated, or "" when the export applies it exactly."""
+    if idle == "approximate":
+        return "only where the export applies idle noise"
+    table = profile.table
+    qubits = effect.qubits or range(table.num_qubits)
+    if all(table.qubit(q).relaxation_unknown for q in qubits):
+        return ""
+    return (
+        "the erasure acts after the relaxation of each idle time; on the device both act"
+        " at the same time"
+    )
 
 
 class Erasures:
