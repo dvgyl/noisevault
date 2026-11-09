@@ -178,6 +178,9 @@ This file lists all notable changes to NoiseVault. Versions follow
 - A profile or counts file can hold at most 64 MiB of JSON, after decompression. NoiseVault
   decompresses a `.json.gz` file in a stream and stops at the limit. Before, a small gzip file
   could expand to gigabytes in memory before validation.
+- A download from IBM, IonQ or the Quantinuum repository stops at 64 MiB, also when the server
+  sends no `Content-Length`. The download follows a redirect only to https on the same host.
+  Before, a faulty server or proxy could send any size, or redirect to any host or to plain http.
 - `scripts/run_on_ibm.py` stops with an error that names the two devices when it collects a job
   for one device and the command or IBM names another device. Before, the script bound the
   counts to the calibration of the wrong device or gave a false recalibration warning.

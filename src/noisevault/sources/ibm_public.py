@@ -14,7 +14,7 @@ from pydantic import AfterValidator, BaseModel, TypeAdapter
 from .. import __version__
 from ..errors import SourceUnavailable, did_you_mean
 from ..profile import Profile, iso_z
-from . import OFFLINE_HINT, OLDER_HINT, Origin, checked_by, read_reply
+from . import OFFLINE_HINT, OLDER_HINT, Origin, checked_by, download, read_reply
 from .qiskit_backend import (
     as_utc,
     calibration_from_properties,
@@ -117,8 +117,7 @@ def fetch(url: str) -> bytes:
         url, headers={"Accept": "application/json", "User-Agent": f"noisevault/{__version__}"}
     )
     try:
-        with urllib.request.urlopen(request, timeout=TIMEOUT_S) as response:
-            return response.read()
+        return download(request, TIMEOUT_S)
     except urllib.error.HTTPError as exc:
         if exc.code == 404:
             raise _NotFound(url) from None

@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import csv
 import io
+import urllib.parse
+import urllib.request
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any
+from email.message import Message
+from typing import IO, Any
 
 from pydantic import TypeAdapter, ValidationError
 
@@ -15,6 +18,7 @@ from ..errors import (
     SourceDataError,
     SourceUnavailable,
     json_path,
+    mib,
     parse_json,
     qubit_loci,
     unreadable,
@@ -25,6 +29,50 @@ OFFLINE_HINT = (
     "check the network connection, or run nv list to see every profile you can load offline"
 )
 OLDER_HINT = "pass an earlier at= to use an older calibration"
+_TRY_LATER = "try again later"
+
+DOWNLOAD_LIMIT = 64 * 2**20
+"""Most bytes that one download from a vendor can have."""
+
+
+class _SameHostHttps(urllib.request.HTTPRedirectHandler):
+    def redirect_request(
+        self,
+        req: urllib.request.Request,
+        fp: IO[bytes],
+        code: int,
+        msg: str,
+        headers: Message,
+        newurl: str,
+    ) -> urllib.request.Request | None:
+        old, new = urllib.parse.urlsplit(req.full_url), urllib.parse.urlsplit(newurl)
+        if new.scheme != "https" or (new.hostname, new.port) != (old.hostname, old.port):
+            fp.close()
+            raise SourceUnavailable(
+                f"refused a redirect from {req.full_url} to {newurl}, which is not https on"
+                f" {old.hostname}",
+                hint=_TRY_LATER,
+            )
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+_OPENER = urllib.request.build_opener(_SameHostHttps)
+
+
+def download(request: urllib.request.Request, timeout: float) -> bytes:
+    """The body of ``request``. Raises what ``urlopen`` raises, and SourceUnavailable for a body
+    over DOWNLOAD_LIMIT or for a redirect to plain http or to another host.
+    """
+    body = bytearray()
+    with _OPENER.open(request, timeout=timeout) as response:
+        while chunk := response.read(2**16):
+            body += chunk
+            if len(body) > DOWNLOAD_LIMIT:
+                raise SourceUnavailable(
+                    f"{request.full_url} sent more than {mib(DOWNLOAD_LIMIT)}, the download limit",
+                    hint=_TRY_LATER,
+                )
+    return bytes(body)
 
 
 @dataclass(frozen=True)

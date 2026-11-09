@@ -543,11 +543,11 @@ def test_emptying_any_object_the_import_reads_names_it(name: str, path: tuple[st
 def test_a_failed_download_says_what_loads_offline(monkeypatch: pytest.MonkeyPatch) -> None:
     requested = []
 
-    def offline(request: urllib.request.Request, timeout: float) -> None:
+    def offline(handler: object, request: urllib.request.Request) -> None:
         requested.append(request.full_url)
         raise urllib.error.URLError("timed out")
 
-    monkeypatch.setattr(quantinuum.urllib.request, "urlopen", offline)
+    monkeypatch.setattr(urllib.request.HTTPSHandler, "https_open", offline)
     with pytest.raises(SourceUnavailable) as info:
         quantinuum.from_repository("H2-2")
     assert info.value.message == f"could not download {requested[0]} (timed out)"

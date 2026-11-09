@@ -214,16 +214,16 @@ def test_a_record_without_fidelities_cannot_make_a_profile() -> None:
     assert info.value.hint == "use a record from another date"
 
 
-def _refuse(request: urllib.request.Request, timeout: float) -> None:
+def _refuse(handler: object, request: urllib.request.Request) -> None:
     raise urllib.error.URLError("timed out")
 
 
-def _throttle(request: urllib.request.Request, timeout: float) -> None:
+def _throttle(handler: object, request: urllib.request.Request) -> None:
     raise urllib.error.HTTPError(request.full_url, 429, "Too Many Requests", {}, None)
 
 
 @pytest.mark.parametrize(
-    ("urlopen", "message", "hint"),
+    ("https_open", "message", "hint"),
     [
         (
             _refuse,
@@ -235,9 +235,9 @@ def _throttle(request: urllib.request.Request, timeout: float) -> None:
     ],
 )
 def test_a_failed_request_says_what_to_do(
-    monkeypatch: pytest.MonkeyPatch, urlopen, message: str, hint: str
+    monkeypatch: pytest.MonkeyPatch, https_open, message: str, hint: str
 ) -> None:
-    monkeypatch.setattr(ionq.urllib.request, "urlopen", urlopen)
+    monkeypatch.setattr(urllib.request.HTTPSHandler, "https_open", https_open)
     with pytest.raises(SourceUnavailable) as info:
         ionq.pull("forte-1")
     assert (info.value.message, info.value.hint) == (message, hint)

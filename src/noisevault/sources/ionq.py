@@ -24,7 +24,7 @@ from pydantic import AfterValidator, BaseModel, Field, TypeAdapter
 from .. import __version__
 from ..errors import SourceUnavailable, did_you_mean, plural
 from ..profile import Profile, iso_z
-from . import OFFLINE_HINT, OLDER_HINT, Origin, checked_by, read_reply
+from . import OFFLINE_HINT, OLDER_HINT, Origin, checked_by, download, read_reply
 
 API = "https://api.ionq.co/v0.4"
 _TIMEOUT_S = 30.0
@@ -413,8 +413,7 @@ def _get(url: str) -> bytes:
         url, headers={"Accept": "application/json", "User-Agent": f"noisevault/{__version__}"}
     )
     try:
-        with urllib.request.urlopen(request, timeout=_TIMEOUT_S) as response:
-            return response.read()
+        return download(request, _TIMEOUT_S)
     except urllib.error.HTTPError as exc:
         raise SourceUnavailable(
             f"IonQ's API answered HTTP {exc.code} for {url}", hint=_TRY_LATER

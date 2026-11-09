@@ -934,7 +934,7 @@ def test_pull_network_failure_gives_one_piece_of_advice(monkeypatch) -> None:
     def offline(*args, **kwargs):
         raise urllib.error.URLError("timed out")
 
-    monkeypatch.setattr(urllib.request, "urlopen", offline)
+    monkeypatch.setattr(urllib.request.HTTPSHandler, "https_open", offline)
     result = runner.invoke(app, ["pull", "ibm_fez", "--at", "2025-01-01"])
     assert result.exit_code == 1
     assert result.stderr == (

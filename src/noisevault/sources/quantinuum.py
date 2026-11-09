@@ -34,7 +34,7 @@ import numpy as np
 from .. import __version__
 from ..errors import SourceDataError, SourceUnavailable, plural
 from ..profile import Profile
-from . import OFFLINE_HINT, Origin, csv_by_line, source_json, source_text
+from . import OFFLINE_HINT, Origin, csv_by_line, download, source_json, source_text
 
 REPOSITORY = "https://github.com/Quantinuum/quantinuum-hardware-specifications"
 COMMIT = "59e68bb55bd616694dc8fa37a435e2a68fe1cb6b"  # pinned so a rebuild gives the same bundle
@@ -514,8 +514,7 @@ def _file_path(machine: str, date: str, name: str) -> str:
 def _get(url: str) -> bytes:
     request = urllib.request.Request(url, headers={"User-Agent": f"noisevault/{__version__}"})
     try:
-        with urllib.request.urlopen(request, timeout=_TIMEOUT_S) as response:
-            return response.read()
+        return download(request, _TIMEOUT_S)
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
         reason = getattr(exc, "reason", exc)
         raise SourceUnavailable(f"could not download {url} ({reason})", hint=OFFLINE_HINT) from None

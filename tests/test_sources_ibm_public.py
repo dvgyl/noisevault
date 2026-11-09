@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import math
 import os
@@ -8,8 +9,10 @@ import re
 import statistics
 import urllib.error
 import urllib.request
+import urllib.response
 from collections.abc import Callable
 from datetime import date
+from email.message import Message
 from pathlib import Path
 from typing import Any
 
@@ -17,8 +20,9 @@ import pytest
 from conftest import deeper_than_the_parser_takes
 
 import noisevault as nv
+from noisevault import sources
 from noisevault.metrics import max_avg_infidelity
-from noisevault.sources import Origin, ibm_public, qiskit_backend
+from noisevault.sources import Origin, ibm_public, ionq, qiskit_backend, quantinuum
 
 FIXTURES = Path(__file__).parent / "fixtures" / "ibm"
 # FakeManilaV2's packaged BackendProperties (Apache-2.0), the shape the endpoint returns
@@ -112,7 +116,7 @@ def test_network_failure_is_a_friendly_error(monkeypatch: pytest.MonkeyPatch) ->
     def refuse(*args: object, **kwargs: object) -> None:
         raise urllib.error.URLError("Name or service not known")
 
-    monkeypatch.setattr(ibm_public.urllib.request, "urlopen", refuse)
+    monkeypatch.setattr(urllib.request.HTTPSHandler, "https_open", refuse)
     with pytest.raises(nv.SourceUnavailable) as info:
         ibm_public.pull("ibm_fez")
     assert info.value.message == "could not reach IBM's public endpoint (Name or service not known)"
@@ -122,10 +126,10 @@ def test_network_failure_is_a_friendly_error(monkeypatch: pytest.MonkeyPatch) ->
 
 
 def test_an_http_error_says_to_try_again(monkeypatch: pytest.MonkeyPatch) -> None:
-    def unavailable(request: urllib.request.Request, timeout: float) -> None:
+    def unavailable(handler: object, request: urllib.request.Request) -> None:
         raise urllib.error.HTTPError(request.full_url, 503, "Service Unavailable", {}, None)
 
-    monkeypatch.setattr(ibm_public.urllib.request, "urlopen", unavailable)
+    monkeypatch.setattr(urllib.request.HTTPSHandler, "https_open", unavailable)
     with pytest.raises(nv.SourceUnavailable) as info:
         ibm_public.pull("ibm_fez")
     url = f"{ibm_public.BASE_URL}/ibm_fez/properties"
@@ -133,6 +137,110 @@ def test_an_http_error_says_to_try_again(monkeypatch: pytest.MonkeyPatch) -> Non
     assert info.value.hint == (
         "try again later, or pull through your IBM account with source='ibm-account'"
     )
+
+
+_URL = f"{ibm_public.BASE_URL}/ibm_fez/properties"
+_GETTERS = [ibm_public.fetch, ionq._get, quantinuum._get]
+
+
+class _Body(io.BytesIO):
+    sent = 0
+
+    def read(self, size: int | None = -1) -> bytes:
+        chunk = super().read(size)
+        self.sent += len(chunk)
+        return chunk
+
+
+def _serve(
+    monkeypatch: pytest.MonkeyPatch, replies: dict[str, tuple[int, dict[str, str], bytes]]
+) -> tuple[list[str], dict[str, _Body]]:
+    """Answer each request from ``replies`` with no network. Gives the visited URLs and bodies."""
+    visited: list[str] = []
+    bodies: dict[str, _Body] = {}
+
+    def reply(handler: object, request: urllib.request.Request) -> urllib.response.addinfourl:
+        visited.append(request.full_url)
+        status, fields, body = replies[request.full_url]
+        headers = Message()
+        for name, value in fields.items():
+            headers[name] = value
+        bodies[request.full_url] = _Body(body)
+        response = urllib.response.addinfourl(
+            bodies[request.full_url], headers, request.full_url, status
+        )
+        response.msg = "OK" if status == 200 else "Found"
+        return response
+
+    monkeypatch.setattr(urllib.request.HTTPSHandler, "https_open", reply)
+    monkeypatch.setattr(urllib.request.HTTPHandler, "http_open", reply)
+    return visited, bodies
+
+
+@pytest.mark.parametrize("length", [False, True], ids=["no Content-Length", "Content-Length"])
+@pytest.mark.parametrize("get", _GETTERS, ids=["ibm_public", "ionq", "quantinuum"])
+def test_a_download_stops_at_the_limit(
+    monkeypatch: pytest.MonkeyPatch, get: Callable[[str], bytes], length: bool
+) -> None:
+    monkeypatch.setattr(sources, "DOWNLOAD_LIMIT", 2**20)
+    body = b" " * 2**23
+    _, bodies = _serve(
+        monkeypatch, {_URL: (200, {"Content-Length": str(len(body))} if length else {}, body)}
+    )
+
+    with pytest.raises(nv.SourceUnavailable) as info:
+        get(_URL)
+
+    assert (info.value.message, info.value.hint) == (
+        f"{_URL} sent more than 1 MiB, the download limit",
+        "try again later",
+    )
+    assert bodies[_URL].sent < 2**21
+
+
+def test_a_download_at_the_limit_is_whole(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(sources, "DOWNLOAD_LIMIT", len(PROPERTIES))
+    _serve(monkeypatch, {_URL: (200, {}, PROPERTIES)})
+
+    assert ibm_public.fetch(_URL) == PROPERTIES
+
+
+@pytest.mark.parametrize(
+    "location",
+    [
+        "http://quantum.cloud.ibm.com/api/v1/public/backends/ibm_fez/properties",
+        "https://quantum.cloud.ibm.com:8443/api/v1/public/backends/ibm_fez/properties",
+        "https://127.0.0.1:8765/private",
+        "http://127.0.0.1:8765/private",
+    ],
+)
+@pytest.mark.parametrize("get", _GETTERS, ids=["ibm_public", "ionq", "quantinuum"])
+def test_a_redirect_to_plain_http_or_another_host_is_refused(
+    monkeypatch: pytest.MonkeyPatch, get: Callable[[str], bytes], location: str
+) -> None:
+    visited, _ = _serve(
+        monkeypatch, {_URL: (302, {"Location": location}, b""), location: (200, {}, PROPERTIES)}
+    )
+
+    with pytest.raises(nv.SourceUnavailable) as info:
+        get(_URL)
+
+    assert (info.value.message, info.value.hint) == (
+        f"refused a redirect from {_URL} to {location}, which is not https on"
+        " quantum.cloud.ibm.com",
+        "try again later",
+    )
+    assert visited == [_URL]
+
+
+def test_a_redirect_to_https_on_the_same_host_is_followed(monkeypatch: pytest.MonkeyPatch) -> None:
+    moved = "https://quantum.cloud.ibm.com/api/v2/public/backends/ibm_fez/properties"
+    visited, _ = _serve(
+        monkeypatch, {_URL: (301, {"Location": moved}, b""), moved: (200, {}, PROPERTIES)}
+    )
+
+    assert ibm_public.fetch(_URL) == PROPERTIES
+    assert visited == [_URL, moved]
 
 
 _NOT_JSON = {

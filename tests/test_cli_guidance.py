@@ -46,12 +46,12 @@ def test_pull_of_a_mistyped_ionq_device_names_the_close_one(monkeypatch) -> None
         ionq.pull("ionq_forte-11")
 
 
-def _refuse(request: urllib.request.Request, timeout: float) -> None:
+def _refuse(handler: object, request: urllib.request.Request) -> None:
     raise urllib.error.URLError("timed out")
 
 
 def _offline(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(urllib.request, "urlopen", _refuse)
+    monkeypatch.setattr(urllib.request.HTTPSHandler, "https_open", _refuse)
 
 
 def _without_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
