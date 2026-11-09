@@ -217,6 +217,9 @@ def isa_circuit(circuit: PlannedCircuit, profile: Profile, target: Any) -> IsaCi
             f"the measurements would start at {end:g} dt, off the backend's grid of"
             f" {target.acquire_alignment} dt"
         )
+    unmeasured = [(q,) for q in circuit.qubits if not target.instruction_supported("measure", (q,))]
+    if unmeasured:
+        raise refuse(f"the backend does not support measure on {qubit_loci(*unmeasured)}")
     qc.barrier(list(circuit.qubits))
     for i, q in enumerate(circuit.qubits):
         qc.measure(q, i)
