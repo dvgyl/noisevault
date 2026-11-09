@@ -16,7 +16,7 @@ import struct
 import warnings
 import zlib
 from collections import Counter
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from itertools import permutations
@@ -54,7 +54,7 @@ from .errors import (
 from .units import DURATION, T1, T2, normalize_times
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Sequence
+    from collections.abc import Iterable
 
     from .check import CheckResult
     from .compare import Comparison
@@ -401,11 +401,13 @@ class QubitRecord(Idle, _QubitKey):
 
 
 class Effect(_Model):
-    """Physics that the format records but no export and no reference simulator models yet.
+    """Physics outside the gate-and-readout model, such as leakage, atom loss and erasure.
 
-    With ``allow="omit"``, the exports and the reference simulator leave the effect out. Each
-    report lists the effect as omitted, and ``compare`` names it in a note. With any other
-    ``allow`` value, the exports, ``simulate`` and ``compare`` refuse the profile.
+    The Stim and Cirq exports model ``leakage``, ``atom_loss`` and ``erasure`` as an erasure
+    channel. The other exports and the reference simulator leave every effect out. ``allow``
+    is the least faithful treatment that the profile accepts (``omit``, ``approximate`` or
+    ``exact``). An export, ``simulate`` or ``compare`` whose treatment is less faithful refuses
+    the profile. docs/profile-format.md gives the rules.
     """
 
     type: EffectType
@@ -825,6 +827,7 @@ class Profile(_Model):
         one_qubit_ns: float | None = None,
         two_qubit_ns: float | None = None,
         connectivity: Literal["all_to_all"] | list[tuple[int, int]] = "all_to_all",
+        effects: Sequence[Mapping[str, Any]] = (),
     ) -> Profile:
         """A hypothetical device where every gate of an arity has the same error.
 
@@ -833,6 +836,8 @@ class Profile(_Model):
         multi-entangler gates need a decomposition, so the profile defines neither. Thus any
         circuit of the defined gates resolves to calibrated noise without approximation. Only a
         device of two or more qubits needs ``two_qubit_error`` and uses ``two_qubit_ns``.
+        ``effects`` are effect records, such as ``{"type": "erasure", "gate": "cz", "prob":
+        0.01, "heralded": True}``.
         """
         if num_qubits >= 2 and two_qubit_error is None:
             raise ValueError(
@@ -860,6 +865,7 @@ class Profile(_Model):
                 if t1_us is not None or t2_us is not None
                 else None,
                 "provenance": {"data_kind": "hypothetical", "source_kind": "hand_written"},
+                "effects": [dict(effect) for effect in effects],
             }
         )
 

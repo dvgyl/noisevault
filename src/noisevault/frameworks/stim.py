@@ -6,15 +6,17 @@ product on three or more qubits, the twirl is a CORRELATED_ERROR chain with the 
 probabilities. Twirling keeps the average fidelity of each gate but drops relaxation's bias
 toward |0>. Thus the export matches the twirled model, not the full channel. Measurements get
 readout error, and resets get preparation error. With ``tick_ns``, every qubit that stays idle
-in a TICK layer gets twirled relaxation for that time.
-Annotations, REPEAT blocks, detectors and observables pass through unchanged.
+in a TICK layer gets twirled relaxation for that time. Leakage, atom loss and erasure effects
+become HERALDED_ERASE or DEPOLARIZE1 (see noisevault.effects).
+Annotations, REPEAT blocks, detectors and observables pass through. When a herald adds a
+measurement record, later rec[] targets change so that they read the same measurements.
 """
 
 from __future__ import annotations
 
 import functools
 import warnings
-from collections import Counter
+from collections import Counter, deque
 from collections.abc import Callable, Container, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Literal, NamedTuple, NoReturn, get_args
@@ -39,6 +41,7 @@ except ImportError as exc:
 from .. import gates, metrics
 from ..channels import ChannelSpec, pauli_twirl
 from ..conversion import UnknownGates, idle_channel, native_name, resolve_op
+from ..effects import Erasure, Erasures, Level, treatment
 from ..layout import can_measure, has_chain, normalize_layout
 from ..profile import Profile
 from ..report import Report
@@ -175,18 +178,29 @@ def to_stim(
         existing_noise=existing_noise,
         unknown_gates=unknown_gates,
     )
-    report.record_effects(profile.effects)
+    idle: Level = "omit" if tick_ns is None else "approximate"
+    reads = readout != "none"
+    report.record_effects(
+        profile.effects, lambda e: treatment(e, profile, "stim", idle=idle, readout=reads)
+    )
     _describe(report, found, readout, tick_ns, existing_noise)
     exporter = _Exporter(
-        profile, circuit, physical, report, readout, tick_ns, existing_noise, unknown_gates
+        profile,
+        circuit,
+        physical,
+        report,
+        readout,
+        tick_ns,
+        existing_noise,
+        unknown_gates,
+        Erasures(profile, readout=reads),
     )
     lines, _ = exporter.block(circuit, set())
-    flips = exporter.record_flips(circuit) if readout == "exact" else None
     exporter.finish()
 
     out = NoiseVaultStimCircuit("\n".join(lines))
     out.report, out.profile, out.layout = report, profile, physical
-    out.readout_flips = flips
+    out.readout_flips = exporter.record_flips(out) if readout == "exact" else None
     return out
 
 
@@ -379,6 +393,7 @@ class _Resolved(NamedTuple):
     events: EventCounts
     prefix: str = ""
     lines: tuple[str, ...] = ()
+    erasures: tuple[Erasure, ...] = ()  # on each qubit of the gate, after its noise
 
 
 class _Exporter:
@@ -394,6 +409,7 @@ class _Exporter:
         tick_ns: float | None,
         existing_noise: ExistingNoise,
         unknown_gates: UnknownGates,
+        erasures: Erasures,
     ) -> None:
         self.profile = profile
         self.circuit = circuit
@@ -413,6 +429,14 @@ class _Exporter:
         self._passes = 1
         self._idle: dict[int, str] = {}
         self._twirls: dict[tuple, str] = {}
+        self.erasures = erasures
+        # Output record index of each of the last input measurement records that a rec[]
+        # target can reach. Only heralds that add records need it.
+        reach = _reach(circuit)
+        self._records: deque[int] | None = (
+            deque(maxlen=reach) if erasures.heralded and reach else None
+        )
+        self._written = 0  # measurement records in the output so far
         self._handlers = {
             "tick": self._tick,
             "annotation": self._copy,
@@ -435,54 +459,88 @@ class _Exporter:
 
     def _repeat(self, block: stim.CircuitRepeatBlock, busy: set[int], lines: list[str]) -> set[int]:
         body, count, outer = block.body_copy(), block.repeat_count, self._passes
-        peel = self.tick_ns is not None and count > 1
-        self._passes = outer * (1 if peel else count)
-        first, after = self.block(body, set(busy))
-        again = first
-        if peel:
-            # Idle noise at the body's first TICK depends on what ran before it, which differs
-            # between the first pass and later ones. Thus the exporter writes the first pass once.
-            # The two walks count 1 and count - 1 passes, so events total count either way.
-            self._passes = outer * (count - 1)
-            again, after = self.block(body, set(after))
+        # The first passes can differ from later ones: idle noise at the body's first TICK
+        # depends on what ran before the block, and so do rec[] targets that reach back past
+        # heralds before the block. The exporter writes these passes once each.
         self._passes = outer
+        peeled: list[list[str]] = []
+        for _ in range(self._peel(body, count)):
+            walked, busy = self.block(body, set(busy))
+            peeled.append(walked)
+        rest = count - len(peeled)
+        self._passes = outer * rest  # one walk counts the events of every remaining pass
+        written = self._written
+        again, busy = self.block(body, set(busy))
+        self._skip_passes(rest - 1, body.num_measurements, self._written - written)
+        self._passes = outer
+        while peeled and peeled[-1] == again:
+            peeled.pop()
+            rest += 1
+        for walked in peeled:
+            lines.extend(walked)
         tag = f"[{block.tag}]" if block.tag else ""
-        if again != first:
-            lines.extend(first)
-            count -= 1
-        lines.extend([f"REPEAT{tag} {count} {{", *again, "}"])
-        return after
+        lines.extend([f"REPEAT{tag} {rest} {{", *again, "}"])
+        return busy
+
+    def _peel(self, body: stim.Circuit, count: int) -> int:
+        """Passes of ``body`` to write on their own before the passes that are all equal."""
+        peel = 0 if self.tick_ns is None else 1
+        if self._records is not None and (reach := _reach(body)):
+            # A pass whose rec[] targets all land in earlier passes equals every later pass.
+            records = body.num_measurements
+            peel = max(peel, -(-reach // records) if records else count)
+        return min(peel, count - 1)
+
+    def _skip_passes(self, passes: int, records: int, written: int) -> None:
+        """Advance the record map over ``passes`` more passes equal to the last one, which
+        read ``records`` input records and wrote ``written`` output records."""
+        if self._records is None or passes <= 0:
+            return
+        if records:
+            last = list(self._records)[-records:]
+            first = max(1, passes - len(self._records) // records - 1)
+            for n in range(first, passes + 1):
+                self._records.extend(r + n * written for r in last)
+        self._written += passes * written
 
     def _copy(self, inst: stim.CircuitInstruction, busy: set[int], lines: list[str]) -> set[int]:
-        lines.append(str(inst))
+        lines.append(str(self._shifted(inst)))
         return busy
 
     def _pad(self, inst: stim.CircuitInstruction, busy: set[int], lines: list[str]) -> set[int]:
         keep = self.keep_noise or not inst.gate_args_copy()
         lines.append(str(inst) if keep else _text(inst, inst.target_groups(), []))
+        self._record(len(inst.targets_copy()))
         return busy
 
     def _noise(self, inst: stim.CircuitInstruction, busy: set[int], lines: list[str]) -> set[int]:
         if self.keep_noise:
             lines.append(str(inst))
+            if inst.name in _HERALDED:
+                self._record(len(inst.targets_copy()))
         return busy
 
     def _tick(self, inst: stim.CircuitInstruction, busy: set[int], lines: list[str]) -> set[int]:
         if self.tick_ns is not None:
             noise: dict[str, list[int]] = {}
-            for q in sorted(self.qubits - busy):
+            idle = sorted(self.qubits - busy)
+            for q in idle:
                 channel = self._idle_noise(q)
                 if channel:
                     noise.setdefault(channel, []).append(q)
             lines.extend(_noise_lines(noise))
+            tick = float(self.tick_ns)
+            self._erase([(q, self.erasures.idle(self.physical[q], tick)) for q in idle], lines)
         lines.append(str(inst))
         return set()
 
     def _gate(self, inst: stim.CircuitInstruction, busy: set[int], lines: list[str]) -> set[int]:
+        inst = self._shifted(inst)
         chunks = _disjoint_chunks(inst.target_groups())
         for chunk in chunks:
             lines.append(str(inst) if len(chunks) == 1 else _text(inst, chunk))
             noise: dict[str, list[int]] = {}
+            erased: list[tuple[int, tuple[Erasure, ...]]] = []
             for group in chunk:
                 if any(t.is_measurement_record_target or t.is_sweep_bit_target for t in group):
                     self._refuse_controlled_pauli(inst, group)
@@ -498,7 +556,9 @@ class _Exporter:
                 lines.extend(resolved.lines)
                 if resolved.prefix:
                     noise.setdefault(resolved.prefix, []).extend(qubits)
+                erased += ((q, resolved.erasures) for q in qubits)
             lines.extend(_noise_lines(noise))
+            self._erase(erased, lines)
         return busy
 
     def _measure(self, inst: stim.CircuitInstruction, busy: set[int], lines: list[str]) -> set[int]:
@@ -507,7 +567,8 @@ class _Exporter:
         resets = inst.name in _PREP_FLIP
         # A qubit measured and reset twice must get its preparation error between the two.
         groups = inst.target_groups()
-        for chunk in _disjoint_chunks(groups) if resets else [groups]:
+        split = resets or self.erasures.on_readout
+        for chunk in _disjoint_chunks(groups) if split else [groups]:
             runs: list[tuple[float, list[list[stim.GateTarget]]]] = []
             measured: list[int] = []
             for group in chunk:
@@ -522,8 +583,10 @@ class _Exporter:
                 else:
                     runs.append((flip, [group]))
             busy.update(measured)
+            self._erase([(q, self.erasures.readout(self.physical[q])) for q in measured], lines)
             # Runs of equal flip probability keep the targets, and so the record order, unchanged.
             lines.extend(_text(inst, run, [flip] if flip else []) for flip, run in runs)
+            self._record(len(chunk))
             if resets:
                 self._prep(inst.name, measured, lines)
         return busy
@@ -567,6 +630,46 @@ class _Exporter:
                 noise.setdefault(f"{_PREP_FLIP[name]}({error!r})", []).append(q)
         lines.extend(_noise_lines(noise))
 
+    def _erase(self, erased: Iterable[tuple[int, tuple[Erasure, ...]]], lines: list[str]) -> None:
+        """Write the erasures on each Stim qubit. A heralded erasure adds one record per qubit."""
+        noise: dict[str, list[int]] = {}
+        heralds: Counter[str] = Counter()
+        for q, erasures in erased:
+            for erasure in erasures:
+                if erasure.heralded:
+                    noise.setdefault(f"HERALDED_ERASE({erasure.prob!r})", []).append(q)
+                    heralds[erasure.type] += 1
+                else:
+                    noise.setdefault(f"DEPOLARIZE1({0.75 * erasure.prob!r})", []).append(q)
+        lines.extend(_noise_lines(noise))
+        for kind, n in heralds.items():
+            self.report.count("herald_added", kind, n * self._passes)
+        self._written += heralds.total()
+
+    def _record(self, n: int) -> None:
+        """Map the next ``n`` input measurement records to the next output records."""
+        if self._records is not None:
+            self._records.extend(range(self._written, self._written + n))
+        self._written += n
+
+    def _shifted(self, inst: stim.CircuitInstruction) -> stim.CircuitInstruction:
+        """``inst`` with each rec[-k] changed to read the same measurement in the output."""
+        targets = inst.targets_copy()
+        if self._records is None or not any(t.is_measurement_record_target for t in targets):
+            return inst
+        shifted = [
+            stim.target_rec(self._lookback(t.value)) if t.is_measurement_record_target else t
+            for t in targets
+        ]
+        return stim.CircuitInstruction(inst.name, shifted, inst.gate_args_copy(), tag=inst.tag)
+
+    def _lookback(self, value: int) -> int:
+        records = self._records
+        assert records is not None
+        if -value > len(records):
+            raise ValueError(f"rec[{value}] reaches back before the first measurement")
+        return records[value] - self._written
+
     # noise values -----------------------------------------------------------------------
 
     def _gate_channel(self, stim_name: str, qubits: tuple[int, ...]) -> _Resolved:
@@ -594,10 +697,12 @@ class _Exporter:
         except (MissingCalibrationError, DisabledGateError, LayoutError) as exc:
             raise self._explain(instruction, name, wires, exc, self._resolves) from exc
         events = _added_events(before, self.report.events)
+        own = built.gate.gate == name  # not the typical gate's record
+        erasures = self.erasures.gate(name, wires, built.gate.spec.includes if own else ())
         if len(qubits) > 2:
             probs = pauli_twirl(built.channels, wires)
-            return _Resolved(events, lines=_correlated_errors(probs, qubits))
-        return _Resolved(events, prefix=self._twirl(built.channels, wires))
+            return _Resolved(events, lines=_correlated_errors(probs, qubits), erasures=erasures)
+        return _Resolved(events, prefix=self._twirl(built.channels, wires), erasures=erasures)
 
     def _explain(
         self,
@@ -866,6 +971,19 @@ def _correlated_errors(probs: Sequence[float], qubits: Sequence[int]) -> tuple[s
             lines.append(f"{'ELSE_' if lines else ''}CORRELATED_ERROR({given!r}) {targets}")
             untouched -= p
     return tuple(lines)
+
+
+def _reach(circuit: stim.Circuit) -> int:
+    """The farthest any rec[-k] target in ``circuit`` reaches back: the largest k, or 0."""
+    reach = 0
+    for item in circuit:
+        if isinstance(item, stim.CircuitRepeatBlock):
+            reach = max(reach, _reach(item.body_copy()))
+        else:
+            for t in item.targets_copy():
+                if t.is_measurement_record_target:
+                    reach = max(reach, -t.value)
+    return reach
 
 
 def _noise_lines(noise: dict[str, list[int]]) -> list[str]:
