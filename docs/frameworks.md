@@ -194,11 +194,16 @@ What the report can list:
 
 - **Exact.** Gate noise as Kraus channels after each gate. Readout error, as a `confusion_map`
   on mid-circuit measurements and the equivalent channel before terminal ones. The preparation
-  error after each reset. Thermal relaxation during `cirq.WaitGate`.
+  error after each reset. Thermal relaxation during `cirq.WaitGate`. `erasure` effects.
 - **Approximated.** The state after a terminal measurement includes the readout flips. Sampled
-  results are exact. To inspect states, build the model with `readout=False`.
-- **Omitted.** The preparation error of the initial state, idle time outside `WaitGate`, and the
-  profile's leakage effects.
+  results are exact. To inspect states, build the model with `readout=False`. `leakage` and
+  `atom_loss` effects, as an erasure.
+- **Omitted.** The preparation error of the initial state, idle time outside `WaitGate`, and
+  crosstalk and coherent effects.
+
+A heralded effect adds a measurement key for each erasure location. A herald is a mid-circuit
+measurement, so Cirq simulates each repetition separately.
+[Profile format](profile-format.md#effects) gives the rules for effects.
 
 Classically controlled operations raise an error that says how to restructure the circuit. An
 operation on a qubit where the profile disables it raises `DisabledGateError`. Measurements,
@@ -356,12 +361,20 @@ Options:
 
 What the report can list:
 
-- **Exact.** Readout error, only with `readout="exact"` and `sample_with_readout`.
+- **Exact.** Readout error, only with `readout="exact"` and `sample_with_readout`. `erasure`
+  effects on gates and on readout.
 - **Approximated.** Gate noise is the Pauli twirl of each gate's channel. The twirl keeps each
   gate's average fidelity and drops relaxation's bias toward |0>. `detector_error_model()`
   treats the Pauli channel components as independent (Stim's `approximate_disjoint_errors`, on
-  by default here). Symmetric readout. Idle noise per `TICK` when you set `tick_ns`.
-- **Omitted.** The initial preparation error, idle noise without `tick_ns`, and effects.
+  by default here). Symmetric readout. Idle noise per `TICK` when you set `tick_ns`. `leakage`
+  and `atom_loss` effects, as an erasure, and idle effects.
+- **Omitted.** The initial preparation error, idle noise without `tick_ns`, and crosstalk and
+  coherent effects.
+
+A heralded effect adds a `HERALDED_ERASE` instruction, and so a measurement record, for each
+erasure location. The export changes later `rec[-k]` targets to skip the herald records, so
+detectors and observables keep their meaning. [Profile format](profile-format.md#effects) gives
+the rules for effects.
 
 Stim simulates Clifford circuits only. Write non-Clifford circuits for one of the other three
 frameworks.
