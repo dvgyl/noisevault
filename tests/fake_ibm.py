@@ -16,6 +16,7 @@ import pytest
 from conftest import require
 
 import noisevault as nv
+from noisevault import compat
 from noisevault.profile import Profile
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -61,7 +62,7 @@ class FakeIBM:
     """Fake backends by device name, a job store, and a QPU-time counter."""
 
     def __init__(self, monkeypatch: pytest.MonkeyPatch, backends: dict[str, Any]) -> None:
-        runtime = require("qiskit_ibm_runtime")
+        require("qiskit_ibm_runtime")
         self.backends = backends
         self.remaining: float | None = 600.0
         self.jobs: dict[str, Any] = {}
@@ -71,7 +72,7 @@ class FakeIBM:
         self.scales = dict.fromkeys(backends, 1.0)
         record = self
 
-        class Recording(runtime.SamplerV2):  # type: ignore[misc, name-defined]
+        class Recording(compat.ibm_sampler()):  # type: ignore[misc]
             def run(self, pubs: Any, **options: Any) -> Any:
                 job = super().run(pubs, **options)
                 record.jobs[job.job_id()] = job
@@ -79,7 +80,7 @@ class FakeIBM:
                 record.states[job.job_id()] = "QUEUED"
                 return job
 
-        monkeypatch.setattr(runtime, "SamplerV2", Recording)
+        monkeypatch.setattr(compat, "ibm_sampler", lambda: Recording)
 
     def account(self, campaign: ModuleType) -> Any:
         return campaign.Account(
