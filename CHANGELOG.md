@@ -185,6 +185,8 @@ This file lists all notable changes to NoiseVault. Versions follow
 - `nv check --framework` exits 1 when it skips a framework that `--framework` names, because the
   framework is not installed or its export refuses the profile. An error line names the skipped
   framework. Before, it exited 0 when another named framework passed.
+- `check(shots=...)` refuses a value that is not an integer, such as `True`, and a value below
+  100. Before, `shots=5` or fewer accepted any result, because no sampled circuit could fail.
 
 ### Changed
 

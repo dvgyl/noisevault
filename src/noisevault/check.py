@@ -51,6 +51,9 @@ if TYPE_CHECKING:
 FRAMEWORKS = ("qiskit", "cirq", "pennylane", "stim")
 EXACT_TOLERANCE = 1e-9
 SIGMAS = 5.0
+# With 5 shots or fewer, the sampled tolerance SIGMAS * sigma + SIGMAS / shots is 1 or more, so
+# no sampled circuit can fail. 100 shots give a tolerance of 0.05 or more on each outcome.
+MIN_SHOTS = 100
 MAX_QUBITS = 4
 NOTE = (
     "A pass means each export implements the same noise model as the NoiseVault reference on"
@@ -242,13 +245,14 @@ def check(
     connected neighbors. The default chain comes from the ``profile.suggest_layout(n)`` search
     for the largest ``n`` that has a check circuit on its chain. Here the search also requires a
     calibrated 2-qubit native with a known unitary on each pair of neighbors. ``shots`` and
-    ``seed`` apply to sampled frameworks (Stim).
+    ``seed`` apply to sampled frameworks (Stim). ``shots`` is an integer of ``MIN_SHOTS`` (100)
+    or more.
     """
     names = list(FRAMEWORKS if frameworks is None else frameworks)
     unknown = [n for n in names if n not in FRAMEWORKS]
     if unknown:
         raise ValueError(f"unknown framework {unknown[0]!r}. Choose from {', '.join(FRAMEWORKS)}")
-    validate_shots(shots)
+    validate_shots(shots, MIN_SHOTS)
     chain, circuits = plan_circuits(profile, layout, purpose="check")
     expected = _Expected(profile, chain)
     results, skipped, failed = [], [], []
@@ -285,9 +289,9 @@ def check(
 # circuits -----------------------------------------------------------------------------------
 
 
-def validate_shots(shots: int) -> None:
-    if not isinstance(shots, int) or shots < 1:
-        raise ValueError(f"shots={shots!r}: give a positive number of shots")
+def validate_shots(shots: int, minimum: int = 1) -> None:
+    if isinstance(shots, bool) or not isinstance(shots, int) or shots < minimum:
+        raise ValueError(f"shots={shots!r}: give an integer number of shots, {minimum} or more")
 
 
 def plan_circuits(

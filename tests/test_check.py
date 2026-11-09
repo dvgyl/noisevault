@@ -749,8 +749,32 @@ def test_bad_arguments_name_the_choices() -> None:
     profile = nv.load("ibm_manila")
     with pytest.raises(ValueError, match="Choose from qiskit, cirq, pennylane, stim"):
         check(profile, frameworks=["qiskt"])
-    with pytest.raises(ValueError, match="positive number of shots"):
+    with pytest.raises(
+        ValueError, match=r"^shots=0: give an integer number of shots, 100 or more$"
+    ):
         check(profile, shots=0)
+
+
+@pytest.mark.parametrize("shots", [True, 99, 5, 100.0, "100"])
+def test_check_refuses_shots_that_are_not_an_integer_or_too_few_to_fail(shots) -> None:
+    with pytest.raises(ValueError) as caught:
+        check(nv.load("ibm_manila"), frameworks=["stim"], shots=shots)
+    assert str(caught.value) == f"shots={shots!r}: give an integer number of shots, 100 or more"
+
+
+def test_a_broken_stim_export_fails_the_check_at_the_fewest_shots(monkeypatch) -> None:
+    require("stim")
+    from noisevault.frameworks import stim as nv_stim
+
+    def x_after_every_gate(probs):
+        flips = ["0"] * 3 + ["1"] + ["0"] * 11
+        return (
+            "PAULI_CHANNEL_1(1,0,0)" if len(probs) == 3 else f"PAULI_CHANNEL_2({','.join(flips)})"
+        )
+
+    monkeypatch.setattr(nv_stim, "_pauli_channel", x_after_every_gate)
+    (stim,) = check(nv.load("ibm_fez"), frameworks=["stim"], shots=100).frameworks
+    assert not stim.passed
 
 
 def test_result_serializes_and_prints() -> None:
