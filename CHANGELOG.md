@@ -119,6 +119,9 @@ This file lists all notable changes to NoiseVault. Versions follow
   instead of omitting every effect. `allow` is the least faithful treatment that a profile
   accepts. An export that treats an effect less faithfully raises `UnsupportedEffect`.
 - `nv show` lists effects under "effects" instead of "not modeled".
+- A profile is not valid when the `qubits` of an effect on a gate are not one locus of the
+  gate, for example one qubit for an effect on `cz`. A profile is also not valid when an effect
+  lists a qubit two times. Before, the profile loaded, and no export applied such an effect.
 
 ## 0.3.0 (2026-10-04)
 

@@ -1208,6 +1208,11 @@ def _profile_issues(profile: Profile) -> list[str]:
             issues.append(f"{where}: gate {effect.gate!r} is not defined in gates")
         if effect.qubits and max(effect.qubits) >= n:
             issues.append(f"{where}: qubit outside 0..{n - 1}")
+        if effect.qubits and len(set(effect.qubits)) != len(effect.qubits):
+            issues.append(f"{where}: the qubits must be distinct")
+        acts_on = arity.get(effect.gate or "")  # on a gate, qubits is one locus of the gate
+        if effect.qubits and acts_on is not None and len(effect.qubits) != acts_on:
+            issues.append(f"{where}: {effect.gate} acts on {acts_on} qubits")
 
     unmodeled = profile.unmodeled_error
     if unmodeled is None:

@@ -367,7 +367,8 @@ The target of an effect sets where the effect acts and which number it uses:
 | `"on": "idle"` | After each idle time that an export models, after the relaxation of that time. | `rate_per_s`. An idle time t gives the probability 1 - exp(-`rate_per_s` t). |
 
 Without `qubits`, the effect acts on every qubit. On a gate, `qubits` names one locus, in any
-order. On `readout` or `idle`, `qubits` lists the qubits. An effect with `qubits` replaces an
+order, so it has as many qubits as the gate acts on. On `readout` or `idle`, `qubits` lists the
+qubits. An effect with `qubits` replaces an
 effect of the same `type` and target without `qubits` on those qubits. When several effects
 still match one place, all of them act, each with its own probability.
 
