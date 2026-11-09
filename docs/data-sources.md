@@ -209,6 +209,170 @@ The archive has these limits:
 - The importer disables a qubit whose `prob_meas1_prep0` or `prob_meas0_prep1` is 1, and
   `provenance.notes` names that qubit. A gate error of 1 disables that gate, as in a pull.
 
+### IQM Resonance and Rigetti QCS field mapping
+
+This section gives the mapping from each IQM and Rigetti field to profile format 1.0. The
+mapping comes from the public SDKs and documentation, not from saved real payloads. The sources
+are `iqm-client` 36.0.0 with `iqm-station-control-client` 14.0.0, `pyquil` 4.23.0 and
+`qcs-sdk-python` 0.31.3. Each importer writes the interpretations below into the profile, and
+`nv show` prints them.
+
+#### IQM Resonance
+
+The importer reads two documents that you save with `iqm-client`:
+
+- The quality metric set, from `IQMClient.get_quality_metric_set()`. Its JSON has
+  `observations`, `describes_id` (the calibration set id), `invalid`, `created_timestamp` and
+  `end_timestamp`.
+- Optionally, the dynamic quantum architecture (DQA), from
+  `IQMClient.get_dynamic_quantum_architecture()`. Its JSON has `calibration_set_id`, `qubits`,
+  `computational_resonators` and `gates`. Each gate has `implementations` with `loci`,
+  `default_implementation` and `override_default_implementation`.
+
+Each observation has `dut_field`, `value`, `unit`, `uncertainty` and `invalid`. The `dut_field`
+is a dotted name. A `__` joins the components of a locus, and text after a `:` is a suffix, for
+example `metrics.irb.cz.tgss.QB1__QB2.fidelity:par=d2`. The importer reads these names:
+
+| `dut_field` | Unit | Profile field | Qualifiers |
+| --- | --- | --- | --- |
+| `characterization.model.QB<n>.t1_time` | `s` | `qubits[].t1_us` | |
+| `characterization.model.QB<n>.t2_echo_time` | `s` | `qubits[].t2_us` | `t2_kind: "echo"` |
+| `characterization.model.QB<n>.t2_time` | `s` | `qubits[].t2_us`, only when the qubit has no `t2_echo_time` | `t2_kind: "ramsey"` |
+| `metrics.ssro.<measure>.<impl>.QB<n>.error_0_to_1` | none | `qubits[].readout.p1_given_0` | |
+| `metrics.ssro.<measure>.<impl>.QB<n>.error_1_to_0` | none | `qubits[].readout.p0_given_1` | |
+| `metrics.ssro.<measure>.<impl>.QB<n>.fidelity` | none | `qubits[].readout.error` = 1 - fidelity, only when the two error values are missing | |
+| `metrics.rb.prx.<impl>.QB<n>.fidelity` | none | `calibrations[]` of `r`, `avg_infidelity` = 1 - fidelity | `method: "rb"`, `assumption` |
+| `metrics.irb.cz.<impl>.QB<a>__QB<b>.fidelity` | none | `calibrations[]` of `cz`, `avg_infidelity` = 1 - fidelity | `method: "irb"`, `assumption` |
+| `gates.<gate>.<impl>.<locus>.duration` | `s` | `duration_ns` of that record, or `readout.duration_ns` for a measure gate | |
+| `uncertainty` of a `prx` or `cz` fidelity | none | `stderr` of that record | `assumption` |
+
+`<measure>` is `measure` or `measure_fidelity`. The importer converts each time with its `unit`
+(`s`, `ms`, `us` or `ns`). A fidelity or a readout error must have the unit `""`, which IQM uses
+for a dimensionless value. The importer refuses any other unit.
+
+Other rules:
+
+- **Qubit numbers.** `QB<n>` becomes qubit index n - 1, with `label` `QB<n>`. This is the order
+  that `qiskit-iqm` uses. An index that no observation and no DQA entry names becomes
+  `disabled: true`.
+- **Gate names.** IQM's `prx` is the canonical `r`. IQM applies Z rotations in software, so
+  `rz` is `virtual: true`. `cz` stays `cz`.
+- **Implementations.** A gate can have several implementations, such as `tgss` and `crf` for
+  `cz`. With a DQA, the importer uses only the implementation that the DQA selects for the
+  locus (`override_default_implementation`, then `default_implementation`). When that
+  implementation has no fidelity, the gate stays uncalibrated on the locus, because a fidelity of
+  another implementation describes a different pulse. Without a DQA, the importer uses the first
+  implementation in alphabetical order. `provenance.notes` names each such choice.
+- **Disabled pairs and qubits.** The DQA lists only calibrated loci. There is no flag for a
+  disabled locus. With a DQA, the connectivity is the union of the `cz` loci. A pair that has a
+  fidelity but no DQA locus gets a `cz` record with `disabled: true`. A qubit that is not in the
+  DQA `qubits` list becomes `disabled: true`. Without a DQA, the connectivity is the set of pairs
+  that have a `cz` fidelity.
+- **Sentinels.** IQM marks data that automated systems must not use with `invalid: true`. The
+  importer skips an invalid observation and names it in `provenance.notes`. It refuses a whole
+  set that is invalid. The importer then applies these NoiseVault rules, in this order:
+  1. A fidelity of exactly 1, or of 0 or less, is unknown, and a note names it. `iqm-benchmarks`
+     says that IQM commonly fills an uncharacterized qubit with exactly 1.0.
+  2. A gate fidelity at or below 1/(d+1), with d = 2 for one qubit and d = 4 for two qubits,
+     gives a record with `disabled: true`. At 1/(d+1) the gate fully depolarizes, so it cannot
+     be useful. The IBM importers use the same rule.
+  3. A T1 or T2 that is not a positive number is unknown.
+
+  IQM does not say that `uncertainty` is a standard error. The importer stores it as `stderr`
+  of a gate record and writes that reading into the gate's `assumption`. An `uncertainty` of
+  `null` gives no `stderr`. The importer does not store the uncertainty of a T1, a T2 or a
+  readout value, because the format has no field for it.
+- **Suffixes.** A suffix qualifies a metric, for example with the conditions of the
+  measurement. The importer does not interpret suffixes. When two observations differ only in
+  the suffix, the importer keeps the first one and names the others in `provenance.notes`. This
+  is what `ObservationFinder` in `iqm-station-control-client` does.
+- **Calibration time.** `device.calibrated_at` is the `end_timestamp` of the metric set, or
+  `created_timestamp` when the set has no end time.
+- **Not read.** Two-qubit Clifford fidelities (`metrics.rb.clifford...`), `metrics.qndness`,
+  `metrics.ghz_state`, `move` gates and loci with a computational resonator. Loci with a
+  resonator occur on star devices such as Sirius, and the profile format cannot express a
+  resonator. `provenance.notes` names each kind that the importer did not read.
+
+The `assumption` of `r` says that IQM does not state whether its RB fidelity is per `prx` gate
+or per Clifford, and that NoiseVault reads it as the average gate fidelity of one `prx`. The
+`assumption` of `cz` says that NoiseVault reads the interleaved RB fidelity as the average gate
+fidelity of one `cz`.
+
+#### Rigetti QCS
+
+The importer reads the instruction set architecture (ISA) that you save with
+`qcs_sdk.qpu.isa.get_instruction_set_architecture(id).json()`. The REST endpoint is
+`GET /v1/quantumProcessors/<id>/instructionSetArchitecture`. The ISA has these keys:
+
+- `name`, the processor id, such as `Ankaa-3`.
+- `architecture`, with `family`, `nodes` (each with `node_id`) and `edges` (each with
+  `node_ids`).
+- `instructions` and `benchmarks`. Each is a list of operations with `name`, `sites` and
+  `characteristics`. Each site has `node_ids` and `characteristics`. Each characteristic has
+  `name`, `value` and `timestamp`, and optionally `error`, `node_ids` and `parameter_values`.
+
+The ISA has no unit field. Fidelities are from 0 to 1, and times are in seconds.
+
+| Operation | Characteristic | Profile field | Qualifiers |
+| --- | --- | --- | --- |
+| instruction `MEASURE`, one site per qubit | `fRO` | `qubits[].readout.error` = 1 - fRO | |
+| benchmark `randomized_benchmark_1q` | `fRB` | `calibrations[]` of `rx`, `avg_infidelity` = 1 - fRB | `method: "rb"`, `measured: "isolated"`, `assumption` |
+| benchmark `randomized_benchmark_simultaneous_1q` | `fRB` | the same, only for a qubit with no isolated value | `method: "srb"`, `measured: "simultaneous"`, `assumption` |
+| instruction `CZ`, one site per pair | `fCZ` | `calibrations[]` of `cz`, `avg_infidelity` = 1 - fCZ | `method: "vendor"`, `assumption` |
+| instruction `ISWAP`, one site per pair | `fISWAP` | `calibrations[]` of `iswap`, `avg_infidelity` = 1 - fISWAP | `method: "vendor"`, `assumption` |
+| benchmark `FreeInversionRecovery` | `T1` | `qubits[].t1_us` | |
+| benchmark `FreeInductionDecay` | `T2` | `qubits[].t2_us` | `t2_kind: "ramsey"` |
+| `fRB`, `fCZ` or `fISWAP` | `error` | `stderr` of that record | |
+| instruction `RZ` | none | `rz` with `virtual: true` | |
+
+In the simultaneous benchmark, one site lists all qubits, and each `fRB` names its qubit in its
+own `node_ids`. `fRO` is the mean of P(0|0) and P(1|1), as pyquil reads it. One number cannot give the two
+error probabilities, so the importer stores 1 - fRO as a symmetric `readout.error`. That is
+correct for the mean error only. For example, P(1|0) = 0.01 and P(0|1) = 0.09 give fRO = 0.95
+and `error` = 0.05. `provenance.notes` says so. Rigetti does not publish T1 and T2 for all processors, so both are optional.
+
+Other rules:
+
+- **Qubit numbers.** A `node_id` is the qubit index, with `label` the node id. Rigetti numbers
+  nodes with gaps, so an index that is not an `architecture` node becomes `disabled: true`.
+- **Disabled qubits and pairs.** The ISA has no `dead` flag. pyquil marks a node dead when it
+  has no site of `RX`, `RZ`, `MEASURE` or the wildcard `_`. A site of `I` or `RESET` does not
+  count. The importer applies the same rule and sets `disabled: true` on that qubit. The
+  connectivity is the `architecture` edges. For each two-qubit gate, an edge with no site for
+  that gate gets a record with `disabled: true`. pyquil marks an edge dead only when it has no
+  two-qubit site at all, so the importer is stricter per gate.
+- **Sentinels.** Rigetti reports a dead site as `value` 0.5 with `error` 1.0. That site gives a
+  record with `disabled: true`. The other rules are the same NoiseVault rules as for IQM, in the
+  same order: a fidelity of exactly 1, or of 0 or less, is unknown, and then a gate fidelity at
+  or below 1/(d+1) gives `disabled: true`. Rigetti's `error` is the standard error of the value,
+  and the importer stores it as `stderr`. A timestamp of
+  `1970-01-01T00:00:00+00:00` is a placeholder, and the importer ignores it.
+- **Calibration time.** `device.calibrated_at` is the newest timestamp of a characteristic that
+  the importer reads. `provenance.notes` gives the oldest timestamp too.
+- **Not read.** `RESET` with `fAR`, because the active reset fidelity possibly includes readout
+  error. `XY` and `CPHASE`, because they take an angle and no registry gate matches them, as in
+  pyquil's `NoiseModel.from_isa`. `I`, which is not a calibrated gate. `provenance.notes` names
+  each one that the ISA has.
+
+The `assumption` of `rx` says that Rigetti calibrates `RX` only at angles of plus or minus pi/2
+and pi, that Rigetti does not state whether fRB is per gate or per Clifford, and that NoiseVault
+reads it as the average gate fidelity of one `rx` at every angle. The `assumption` of each
+two-qubit gate says that Rigetti does not state the fidelity metric, and that NoiseVault reads
+1 - fidelity as the average gate infidelity.
+
+#### Values that need real payloads
+
+The mapping above is from SDK source code and documentation. These points need a saved real
+payload to confirm:
+
+- The exact IQM readout and T2 names on Garnet and Emerald: `measure` or `measure_fidelity`, and
+  `t2_time` or `t2_echo_time`.
+- The meaning of IQM suffixes such as `:par=d2`, and which observation to keep when two differ
+  only in the suffix.
+- Whether IQM fills an uncharacterized element with a fidelity of exactly 1.
+- Whether Rigetti `T1` and `T2` values are in seconds on every processor, and the name of the
+  Ankaa two-qubit instruction (`ISWAP` or other).
+
 ## How each source's numbers are read
 
 Each importer turns its source's conventions into explicit fields, so no export has to guess:
