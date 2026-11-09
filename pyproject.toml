@@ -51,9 +51,9 @@ stim = ["stim>=1.15"]
 google = ["noisevault[cirq]", "cirq-google>=1.6"]
 hf = ["pyarrow>=14.0.1"]
 braket = ["amazon-braket-sdk>=1.127"]
-all = ["noisevault[qiskit,ibm,cirq,pennylane,stim,google,hf,braket]"]
+all = ["noisevault[qiskit,ibm,cirq,pennylane,stim,google,hf]"]
 dev = [
-  "noisevault[all]",
+  "noisevault[all,braket]",
   "amazon-braket-schemas>=1.22",
   "pymatching>=2.2",
   "pytest>=8",
