@@ -349,7 +349,8 @@ class NoiseVaultNoiseModel(cirq.NoiseModel):
         self._erasures = Erasures(profile, readout=readout)
         self._moment: int | None = None  # index of the moment that _noisy works on
         self._keys: set[str] = set()  # measurement keys in use in this noisy circuit
-        self._last: tuple[tuple[cirq.Moment, ...], list[cirq.OP_TREE]] | None = None
+        # The last moments, their noisy moments, and whether heralds there need a warning.
+        self._last: tuple[tuple[cirq.Moment, ...], list[cirq.OP_TREE], bool] | None = None
 
     def __repr__(self) -> str:
         return f"NoiseVaultNoiseModel({self.profile.id}, nv:{self.profile.fingerprint[:12]})"
@@ -367,6 +368,8 @@ class NoiseVaultNoiseModel(cirq.NoiseModel):
         # moments on every repetition. The model returns its last result again, so these paths
         # stay fast and report events do not count shots.
         if self._last is not None and self._last[0] == moments:
+            if self._last[2]:
+                self._warn_lost_heralds()
             return self._last[1]
         self._qubits.physical(system_qubits)
         later: set[cirq.Qid] = set()
@@ -384,16 +387,20 @@ class NoiseVaultNoiseModel(cirq.NoiseModel):
             noisy.append([self._noisy(op, terminal=(i, op) in terminal) for op in moment])
         self._moment = None
         ops = [op for moment in moments for op in moment]
-        heralds = len(self._keys) > circuit_keys
-        if heralds and all(cirq.is_measurement(op) for op in ops) and _inside_simulator():
+        lost = len(self._keys) > circuit_keys and all(cirq.is_measurement(op) for op in ops)
+        if lost:
+            self._warn_lost_heralds()
+        self._last = (moments, noisy, lost)
+        return noisy
+
+    def _warn_lost_heralds(self) -> None:
+        if _inside_simulator_run():
             self.report.warn_once(
                 "measurement_only_heralds",
                 "a circuit of measurements only: a Cirq simulator built with noise=model samples"
                 " it from one simulation and returns no herald records. Simulate"
                 " circuit.with_noise(model) instead",
             )
-        self._last = (moments, noisy)
-        return noisy
 
     def noisy_operation(self, operation: cirq.Operation) -> cirq.OP_TREE:
         """The operation followed by its noise. A measurement gets a ``confusion_map``."""
@@ -592,11 +599,14 @@ class NoiseVaultNoiseModel(cirq.NoiseModel):
         return out
 
 
-def _inside_simulator() -> bool:
-    """True when a Cirq simulator asks for the noise (not, for example, Circuit.with_noise)."""
+def _inside_simulator_run() -> bool:
+    """True inside a Cirq simulator's run(), whose sampling of a circuit of measurements only
+    drops herald records. simulate() and Circuit.with_noise keep them."""
     frame = sys._getframe(1)
     while frame is not None:
-        if frame.f_globals.get("__name__", "").startswith("cirq.sim"):
+        if frame.f_code.co_name == "_run" and frame.f_globals.get("__name__", "").startswith(
+            "cirq.sim"
+        ):
             return True
         frame = frame.f_back  # type: ignore[assignment]
     return False
