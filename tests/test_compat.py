@@ -270,6 +270,16 @@ def test_a_zero_frequency_is_kept() -> None:
     assert profile.extensions["v01_qubit_frequency_ghz"]["0"] == 0
 
 
+def test_a_capture_time_without_a_timezone_gives_a_note_and_no_retrieval_time() -> None:
+    profile = _upgrade(_v01(captured_at="2024-05-27T15:27:23"))
+    assert profile.provenance.retrieved_at is None
+    assert (
+        'Not converted: captured_at "2024-05-27T15:27:23", which is not an ISO 8601 time with a'
+        " timezone." in profile.provenance.notes
+    )
+    assert profile.fingerprint == _upgrade(_v01()).fingerprint
+
+
 def test_an_empty_source_timestamp_is_not_replaced_by_the_capture_time() -> None:
     with pytest.raises(ValueError, match="calibrated_at"):
         _upgrade(_prov(source_timestamp=""))
@@ -334,10 +344,6 @@ def _prov(**changes) -> dict:
             "provenance.source_timestamp should be a string, not a number",
         ),
         (_v01(captured_at=123), "captured_at should be a string, not a number"),
-        (
-            _v01(captured_at="2024-05-27T15:27:23"),
-            'captured_at should be an ISO 8601 time with a timezone, not "2024-05-27T15:27:23"',
-        ),
     ],
     ids=[
         "empty",
@@ -360,7 +366,6 @@ def _prov(**changes) -> dict:
         "harvester-version",
         "source-timestamp",
         "captured-at",
-        "captured-at-naive",
     ],
 )
 def test_a_malformed_0_1_file_is_refused_with_the_field_to_fix(data: dict, message: str) -> None:
