@@ -407,20 +407,24 @@ def test_cirq_readout_must_come_before_the_measurement(monkeypatch) -> None:
 
 
 def test_qiskit_readout_is_also_sampled_through_aer_measurement(monkeypatch) -> None:
-    from qiskit_aer.noise import NoiseModel
-
     from noisevault.frameworks import qiskit as nv_qiskit
 
     export = nv_qiskit.to_qiskit
 
     def readout_dropped_at_run(profile, **options):
         sim = export(profile, **options)
-        data = sim.noise_model.to_dict()
-        data["errors"] = [e for e in data["errors"] if e["type"] != "roerror"]
+        # The same noise model without its ReadoutError entries. NoiseModel.from_dict is
+        # deprecated since qiskit-aer 0.15.0.
+        without_readout = export(profile, **{**options, "readout": False}).noise_model
+        kinds = [e["type"] for e in sim.noise_model.to_dict()["errors"]]
+        assert "roerror" in kinds
+        assert [e["type"] for e in without_readout.to_dict()["errors"]] == [
+            k for k in kinds if k != "roerror"
+        ]
         run = sim.run
 
         def run_without_readout(circuits, *args, **kwargs):
-            sim.set_options(noise_model=NoiseModel.from_dict(data))
+            sim.set_options(noise_model=without_readout)
             return run(circuits, *args, **kwargs)
 
         sim.run = run_without_readout
@@ -449,10 +453,16 @@ def _asks_for_an_effect() -> Profile:
 
 
 def _refused(framework: str) -> str:
+    start = "the export refused this profile: effect atom_loss on readout asks for allow='exact',"
+    if framework in ("stim", "cirq"):
+        return (
+            f"{start} but the {framework} export approximates it as an erasure (the qubit becomes"
+            " I/2) (the atom comes back at once; on the device the trap stays empty); set allow"
+            " to 'approximate' to accept the approximation"
+        )
     return (
-        "the export refused this profile: effect atom_loss on readout asks for allow='exact',"
-        f" but {framework} export does not model effects yet; set allow to 'omit' to export"
-        " without the effect"
+        f"{start} but {framework} export does not model effects yet; set allow to 'omit' to"
+        " export without the effect"
     )
 
 
@@ -464,7 +474,7 @@ def test_every_export_that_refuses_the_profile_is_skipped_with_its_reason() -> N
 
 def test_nv_check_names_every_export_that_refuses_the_profile(tmp_path: Path) -> None:
     path = _asks_for_an_effect().save(tmp_path / "effect.json")
-    result = CliRunner().invoke(app, ["check", str(path)], env={"COLUMNS": "200"})
+    result = CliRunner().invoke(app, ["check", str(path)], env={"COLUMNS": "400"})
     lines = re.sub(r"\x1b\[[0-9;]*m", "", result.stdout).splitlines()
     assert [line.split() for line in lines[3:7]] == [[name, "skipped"] for name in FRAMEWORKS]
     assert lines[7:] == [f"{name}: {_refused(name)}" for name in FRAMEWORKS]

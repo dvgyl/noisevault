@@ -34,7 +34,15 @@ from pydantic import (
 )
 
 from . import __version__, check, gates
-from .errors import CountsError, LayoutError, NoiseVaultError, did_you_mean, plural, qubit_loci
+from .errors import (
+    CountsError,
+    LayoutError,
+    NoiseVaultError,
+    did_you_mean,
+    json_path,
+    plural,
+    qubit_loci,
+)
 from .profile import (
     Count,
     CountsSource,
@@ -249,7 +257,10 @@ class Execution(_Model):
     def _no_contradiction(self) -> Execution:
         for rule in _RUN_RULES:
             found = _option(self.options, rule.option) if rule.option else None
-            if found is not None and found[1] != rule.required:
+            # The type counts too, because 0 == False and 1 == True in Python.
+            if found is not None and (
+                type(found[1]) is not type(rule.required) or found[1] != rule.required
+            ):
                 path, value = found
                 required = (
                     _shown(rule.required) if isinstance(rule.required, str) else rule.required
@@ -388,8 +399,12 @@ class MeasuredCounts(_Model):
             if isinstance(circuit, MeasuredCircuit):
                 circuit = circuit.model_dump()
             counts = circuit.get("counts") if isinstance(circuit, Mapping) else None
-            if isinstance(counts, Mapping):
-                reverse = {(k[::-1] if isinstance(k, str) else k): v for k, v in counts.items()}
+            # With a refused count, no key turns, so the error names the key as the file has it.
+            if isinstance(counts, Mapping) and all(map(_is_count, counts.values())):
+                qubits = circuit.get("qubits")
+                width = len(qubits) if isinstance(qubits, list | tuple) else None
+                # A refused key keeps its order, so the error names the key as the file has it.
+                reverse = {(k[::-1] if _is_key(k, width) else k): v for k, v in counts.items()}
                 circuit = {**circuit, "counts": reverse}
             flipped.append(circuit)
         return {**data, "bit_order": "clbit0_left", "circuits": flipped}
@@ -481,12 +496,8 @@ def load_counts(path: str | Path) -> MeasuredCounts:
 
 def _first_issue(exc: ValidationError) -> tuple[str, str | None]:
     error = exc.errors()[0]
-    where = ""
-    for part in error["loc"]:
-        if isinstance(part, int):
-            where += f"[{part}]"
-        else:
-            where += f".{part}" if where else str(part)
+    # A key in the file can hold a line break, so json_path quotes each key that is not a name.
+    where = json_path(error["loc"])
     cause = error.get("ctx", {}).get("error")
     if isinstance(cause, NoiseVaultError):
         text, hint = cause.message, cause.hint
@@ -620,14 +631,27 @@ def simulate(
     )
 
 
+def _is_key(key: Any, width: int | None) -> bool:
+    return isinstance(key, str) and len(key) == width and set(key) <= {"0", "1"}
+
+
+def _is_count(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 0
+
+
 def _real(value: int | float) -> float:
+    # JSON -0 reads as the int 0, so -0.0 becomes 0.0. Equal runs then give one sha256.
     try:
-        return float(value)
+        return float(value) + 0.0
     except OverflowError:
         return math.inf if value > 0 else -math.inf
 
 
 def _shown(value: Any, limit: int = 40) -> str:
-    text = json.dumps(value, ensure_ascii=False, default=repr)
+    # json.loads can read nesting that json.dumps cannot write from deeper in the stack.
+    try:
+        text = json.dumps(value, ensure_ascii=False, default=repr)
+    except RecursionError:
+        return "an array or object nested too deep to show"
     text = text.encode("utf-8", "backslashreplace").decode("utf-8")
     return text if len(text) <= limit else text[: limit - 3] + "..."

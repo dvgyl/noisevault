@@ -136,7 +136,7 @@ What the report can list:
 `readout=False` leaves measurements noiseless. The `Target` then gives `measure` an error of 0,
 so `transpile` does not place circuits by a readout error that the simulator does not apply.
 
-Qiskit Aer 0.17.0 to 0.18.0 can stop Python with a segmentation fault or a bus error during
+Qiskit Aer 0.17.0 to 0.18.2 can stop Python with a segmentation fault or a bus error during
 `sim.run`. A run can also fail with `QuantumError: Kraus is empty.` The fault occurs with the
 `statevector` method, which Aer selects for small shot counts and for wide circuits. With this
 method, Aer converts each gate error to Kraus operators with the LAPACK routine `zheevx`. A
@@ -147,7 +147,10 @@ change of a few parts per million in one T1 value can cause or remove the fault.
 `density_matrix` method does not use this conversion. To avoid the fault, run
 `sim.run(transpile(ghz, sim), shots=1000, method="density_matrix")`. The `density_matrix` method
 needs 16 x 4^n bytes for n qubits, for example 16 MiB for 10 qubits. Aer issue
-[#2455](https://github.com/Qiskit/qiskit-aer/issues/2455) records the `zheevx` failure.
+[#2455](https://github.com/Qiskit/qiskit-aer/issues/2455) records the `zheevx` failure. Aer pull
+request [#2510](https://github.com/Qiskit/qiskit-aer/pull/2510) fixes both defects on the
+`stable/0.18` branch, after the 0.18.2 release. On 2026-11-09, 0.18.2 is the newest release, and
+the reproducer in the issue still fails with it.
 
 On a profile with disabled qubits or gates, transpile with
 `initial_layout=list(profile.suggest_layout(n).values())`. Qiskit's `optimization_level=0`
@@ -194,11 +197,41 @@ What the report can list:
 
 - **Exact.** Gate noise as Kraus channels after each gate. Readout error, as a `confusion_map`
   on mid-circuit measurements and the equivalent channel before terminal ones. The preparation
-  error after each reset. Thermal relaxation during `cirq.WaitGate`.
+  error after each reset. Thermal relaxation during `cirq.WaitGate`. `erasure` effects, except
+  an idle `erasure` on a qubit with T1 or T2.
 - **Approximated.** The state after a terminal measurement includes the readout flips. Sampled
-  results are exact. To inspect states, build the model with `readout=False`.
-- **Omitted.** The preparation error of the initial state, idle time outside `WaitGate`, and the
-  profile's leakage effects.
+  results are exact. To inspect states, build the model with `readout=False`. `leakage` and
+  `atom_loss` effects, as an erasure. An idle `erasure` on a qubit with T1 or T2, because it
+  acts after the relaxation of the wait. The results of a qubit that the circuit measures more
+  than one time, when `run()` samples from one simulation. These results share one readout flip.
+- **Omitted.** The preparation error of the initial state, idle time outside `WaitGate`, and
+  crosstalk and coherent effects.
+
+`run()` on a simulator built with `noise=model` samples every repetition from one simulation
+when it can. `cirq.DensityMatrixSimulator` does so when no gate acts on a qubit after a
+measurement of that qubit. `cirq.Simulator` does so only for a circuit of measurements only,
+and so does `cirq.DensityMatrixSimulator` when the profile has a heralded effect. Cirq then
+uses no `confusion_map` from the model, so the model puts the readout noise of each qubit
+before the first measurement of that qubit. The results are as follows:
+
+- On `cirq.DensityMatrixSimulator`, each result has the exact readout error. If the circuit
+  measures a qubit more than one time, the results of that qubit share one readout flip. On the
+  device, each measurement flips independently. The model gives one warning.
+- On `cirq.DensityMatrixSimulator`, a qubit with a readout effect such as `erasure` can have
+  one measurement only. Each measurement can erase the qubit again, but all results come from
+  one state. For a second measurement, the model raises `UnsupportedEffect`.
+- On `cirq.Simulator`, each readout flip or erasure would occur in every repetition or in
+  none. The model raises `UnsupportedEffect` when a measured qubit has readout error or a
+  readout effect. Use `cirq.DensityMatrixSimulator(noise=model)`.
+- On both simulators, a heralded effect on readout raises `UnsupportedEffect`, because no
+  herald would be recorded.
+
+A simulator without `noise` that runs `circuit.with_noise(model)` has none of these limits. It
+gives each measurement its own flip, erasure and herald.
+
+A heralded effect adds a measurement key for each erasure location. A herald is a mid-circuit
+measurement, so Cirq simulates each repetition separately.
+[Profile format](profile-format.md#effects) gives the rules for effects.
 
 Classically controlled operations raise an error that says how to restructure the circuit. An
 operation on a qubit where the profile disables it raises `DisabledGateError`. Measurements,
@@ -356,12 +389,20 @@ Options:
 
 What the report can list:
 
-- **Exact.** Readout error, only with `readout="exact"` and `sample_with_readout`.
+- **Exact.** Readout error, only with `readout="exact"` and `sample_with_readout`. `erasure`
+  effects on gates and on readout.
 - **Approximated.** Gate noise is the Pauli twirl of each gate's channel. The twirl keeps each
   gate's average fidelity and drops relaxation's bias toward |0>. `detector_error_model()`
   treats the Pauli channel components as independent (Stim's `approximate_disjoint_errors`, on
-  by default here). Symmetric readout. Idle noise per `TICK` when you set `tick_ns`.
-- **Omitted.** The initial preparation error, idle noise without `tick_ns`, and effects.
+  by default here). Symmetric readout. Idle noise per `TICK` when you set `tick_ns`. `leakage`
+  and `atom_loss` effects, as an erasure, and idle effects.
+- **Omitted.** The initial preparation error, idle noise without `tick_ns`, and crosstalk and
+  coherent effects.
+
+A heralded effect adds a `HERALDED_ERASE` instruction, and so a measurement record, for each
+erasure location. The export changes later `rec[-k]` targets to skip the herald records, so
+detectors and observables keep their meaning. [Profile format](profile-format.md#effects) gives
+the rules for effects.
 
 Stim simulates Clifford circuits only. Write non-Clifford circuits for one of the other three
 frameworks.

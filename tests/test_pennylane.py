@@ -1871,3 +1871,14 @@ def test_check_runs_pennylane_on_quantinuum() -> None:
     (pennylane,) = nv.load("quantinuum_h1-1").check(frameworks=["pennylane"]).frameworks
     assert pennylane.passed and not pennylane.not_run
     assert {g for c in pennylane.circuits for g in c.gates} == {"r", "zz"}
+
+
+@pytest.mark.parametrize("ops_has_mid_measure", [True, False], ids=["0.45 name", "0.43 name"])
+def test_the_mid_measure_class_is_the_one_qml_measure_makes(monkeypatch, ops_has_mid_measure):
+    qml = require("pennylane")
+    from noisevault.compat import pennylane_mid_measure
+
+    if not ops_has_mid_measure:
+        monkeypatch.delattr(qml.ops, "MidMeasure", raising=False)
+    made = type(qml.measure(0).measurements[0])
+    assert pennylane_mid_measure() is made

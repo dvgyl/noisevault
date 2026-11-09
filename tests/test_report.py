@@ -173,6 +173,13 @@ def test_included_errors_are_named_in_plain_words() -> None:
         " measurement error (readout and preparation noise, where applied, add their own error"
         " on top)",
     ]
+    gates = toy()["gates"] | {"x": {"pauli": [0.1, 0, 0], "includes": ["leakage"]}}
+    profile, report = _report(gates=gates)
+    report.record_channels(gate_channels(profile.table.gate("x", (0,)), [profile.table.qubit(0)]))
+    assert [line for line in report.summary().splitlines() if "x error" in line] == [
+        "approximated: x error: the stated error already includes leakage"
+        " (applied as Pauli noise, so no population leaves the qubit)",
+    ]
 
 
 def test_a_report_states_unmodeled_error_on_its_second_line_only_when_the_profile_has_it() -> None:

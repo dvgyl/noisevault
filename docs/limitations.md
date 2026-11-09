@@ -23,17 +23,21 @@ neighboring operations, the time since the last calibration) are not in the numb
   noise.
 - **Crosstalk.** A gate on one pair does not disturb its neighbors. No export models always-on ZZ
   coupling, spectator errors or measurement-induced disturbance of other qubits.
-- **Leakage.** Population never leaves the qubit subspace. Where a vendor's error includes
-  leakage (Quantinuum), the leakage counts toward the gate's error but acts as ordinary
-  depolarizing noise.
+- **Leakage and atom loss.** No export keeps population outside the qubit. The Stim and Cirq
+  exports apply `leakage` and `atom_loss` effects as an erasure: the qubit comes back at once in a
+  random state. On the device, a leaked qubit or an empty trap stays that way, and later gates do
+  not act on it. Where a vendor's error includes leakage (Quantinuum), the leakage counts toward
+  the gate's error but acts as ordinary depolarizing noise.
 - **Coherent errors.** Every gate error becomes stochastic noise. On hardware, systematic
   over-rotations add up coherently. In the noise model, they do not add up coherently. The
   profile records Google's fSim coherent errors, but no export applies them.
 - **Effects.** Profiles can record `leakage`, `atom_loss`, `erasure`, crosstalk and coherent
-  over-rotation. Neither the exports nor the reference simulator model them in this release. When
-  an effect sets `allow` to `omit`, the exports and the reference simulator leave it out. Every
-  report lists it as omitted, and `nv compare` names it in a note. For any other `allow` value,
-  each export, `simulate` and `compare` refuse the profile with an error.
+  over-rotation. The Stim and Cirq exports model `leakage`, `atom_loss` and `erasure` as an
+  erasure channel, heralded or not. No export models crosstalk or coherent over-rotation
+  effects. Qiskit, PennyLane and the reference simulator model no effects. An effect that an
+  export leaves out appears as omitted in the report, and `nv compare` names it in a note. When
+  an export models an effect less faithfully than the effect's `allow` value, the export raises
+  an error. [Profile format](profile-format.md#effects) gives the rules.
 - **Initial-state preparation error.** Circuits start in an ideal |0...0>. Preparation error
   applies only after explicit resets, and only when the profile has it. The bundled IBM
   profiles have no preparation error.
@@ -303,6 +307,14 @@ finds it. An example is one qubit with an `x x` circuit of 10^8 shots and a read
 shots. Only the readout circuit separates the factors, and alone it gives a readout interval of
 0.72 to 1.35. Separate parabolas on each axis of the grid put the upper end at 2.56. With the
 climb, the interval is 0.70 to 1.35.
+
+The search can still report a drawn maximum below the true maximum. On a curved ridge, the
+quadratic on a grid can predict the likelihood at its vertex within 0.02 while the maximum is
+elsewhere on the ridge. A climb also stops when both neighbors are within 0.001 of its best point,
+even when a peak is between them. Over 480 random cases with 400 drawn sets each, 40 of the
+354 cases with interval tests have a drawn set whose maximum is more than 0.02 below the best point
+of a fine grid. The largest gap is 0.24. For the p-value, 13 of the 480 cases have such a set, and
+the largest gap is 0.12.
 
 ### Outcomes the profile rules out
 

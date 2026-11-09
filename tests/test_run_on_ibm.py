@@ -28,6 +28,7 @@ from conftest import require
 from typer.testing import CliRunner
 
 import noisevault as nv
+from noisevault import compat
 from noisevault.cli import app
 from noisevault.counts import SAMPLER_V2_OPTIONS, PlannedCircuit, load_counts, plan
 from noisevault.errors import REPOSITORY, NoiseVaultError, install_hint
@@ -125,10 +126,10 @@ def _recording_sampler(
     lose_the_first_wait: bool = False,
     during_the_first_wait: Callable[[], None] | None = None,
 ) -> list[Submission]:
-    runtime = require("qiskit_ibm_runtime")
+    require("qiskit_ibm_runtime")
     submissions: list[Submission] = []
 
-    class Recording(runtime.SamplerV2):
+    class Recording(compat.ibm_sampler()):
         def run(self, pubs: Any, **options: Any) -> Any:
             job = super().run(pubs, **options)
             if lose_the_first_wait and not submissions:
@@ -148,7 +149,7 @@ def _recording_sampler(
             submissions.append(Submission(self, list(pubs), job))
             return job
 
-    monkeypatch.setattr(runtime, "SamplerV2", Recording)
+    monkeypatch.setattr(compat, "ibm_sampler", lambda: Recording)
     return submissions
 
 
@@ -304,6 +305,13 @@ def test_the_submitted_circuits_are_the_planned_ops_then_the_measurements(
         expected += [("measure", (q,), (), (i,)) for i, q in enumerate(circuit.qubits)]
         assert qc.num_qubits == target.num_qubits
         assert (circuit.name, _instructions(qc)) == (circuit.name, expected)
+
+
+def test_the_job_runs_the_server_side_sampler_program() -> None:
+    # qiskit-ibm-runtime 0.52 gave the top-level SamplerV2 name to a client-side sampler, which
+    # runs the "executor" program with other pre- and post-processing.
+    require("qiskit_ibm_runtime")
+    assert compat.ibm_sampler()._program_id() == "sampler"
 
 
 def test_one_job_carries_every_option_the_counts_format_checks(local_run: LocalRun) -> None:
@@ -1853,3 +1861,31 @@ def test_an_output_the_run_could_not_write_is_refused_before_the_account_opens(
     assert capsys.readouterr() == ("", f"error: {message}\nhint: {hint}\n")
     assert sorted(tmp_path.iterdir()) == [tmp_path / existing]
     assert (tmp_path / existing).read_text() == "paid for\n"
+
+
+def test_a_qubit_that_the_backend_cannot_measure_is_refused() -> None:
+    profile = _fez_profile()
+    circuit = plan(profile)[0]
+    target = _fez().target
+    unmeasured = circuit.qubits[-1]
+
+    class NoMeasure:
+        """The fake's target, except that it cannot measure one qubit."""
+
+        def instruction_supported(self, name: str, qargs: Any = None, **kwargs: Any) -> bool:
+            if (name, qargs) == ("measure", (unmeasured,)):
+                return False
+            return bool(target.instruction_supported(name, qargs, **kwargs))
+
+        def __getattr__(self, name: str) -> Any:
+            return getattr(target, name)
+
+        def __getitem__(self, name: str) -> Any:
+            return target[name]
+
+    with pytest.raises(NoiseVaultError) as caught:
+        script.isa_circuit(circuit, profile, NoMeasure())
+    assert caught.value.message == (
+        f"circuit {circuit.name}: the backend does not support measure on qubit {unmeasured}"
+    )
+    script.isa_circuit(circuit, profile, target)

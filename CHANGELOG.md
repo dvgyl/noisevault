@@ -7,6 +7,21 @@ This file lists all notable changes to NoiseVault. Versions follow
 
 ### Added
 
+- **IQM Resonance and Rigetti QCS importers.** `nv.from_iqm(metrics, architecture=...)` reads
+  an IQM quality metric set that you saved with `iqm-client`, and optionally the dynamic quantum
+  architecture of the same calibration set. `nv.from_rigetti(isa)` reads a Rigetti QCS
+  instruction set architecture that you saved with `qcs-sdk-python`. Each importer gives
+  per-qubit T1, T2 and readout errors where the payload has them, per-qubit and per-pair gate
+  infidelities, and disabled qubits and pairs. Each importer writes its reading of the vendor
+  data into the gate `assumption` and `provenance.notes`. The profiles stay local. Rigetti's
+  terms forbid redistribution, and IQM's terms are not public, so IQM profiles are
+  `redistributable: "unknown"`. The importers follow the public SDKs and are tested on synthetic
+  payloads. [docs/data-sources.md](docs/data-sources.md#iqm-resonance-and-rigetti-qcs-field-mapping)
+  gives the mapping from each vendor field to the profile.
+- `tests/test_real_payloads.py` checks each real IQM or Rigetti payload in
+  `tests/fixtures/iqm/real/` and `tests/fixtures/rigetti/real/`, or in the private folder that
+  `NOISEVAULT_REAL_PAYLOADS` names. Each payload must import with gate and readout data and pass
+  `nv check`. An optional `expect.json` pins values such as the fingerprint.
 - The package has a `py.typed` marker (PEP 561). Type checkers such as mypy and pyright now
   read the annotations of NoiseVault, so `nv.load(ref)` has the type `Profile`, not `Any`. A
   `layout` argument has the type `Mapping[Any, int] | Sequence[int]`, so a type checker accepts
@@ -14,12 +29,162 @@ This file lists all notable changes to NoiseVault. Versions follow
 - The README gives the install line for a virtual environment from `uv venv`, which has no pip.
   The README section [Coming from fake backends](README.md#coming-from-fake-backends) shows the
   one-line change from `AerSimulator.from_backend` and what a profile adds.
+- A `latest` CI job installs the newest releases that the dependency bounds allow, also on the
+  weekly run. It runs the tests on Python 3.14 with every extra and on Python 3.15 with the
+  extras that have Python 3.15 wheels. In this job, a deprecation warning that NoiseVault or a
+  test causes is an error. Set `NOISEVAULT_STRICT_WARNINGS=1` to get the same check locally.
+- Property-based tests with [Hypothesis](https://hypothesis.readthedocs.io) check the metric
+  conversions and channels, the profile loader, the counts format, and the agreement of the
+  Qiskit, Cirq, PennyLane and Stim exports with the reference simulator. CI runs 25 examples for
+  each property, with a fixed seed. `HYPOTHESIS_PROFILE=deep pytest tests/test_property_*.py`
+  runs 2000 examples for each property. `hypothesis` is in the `dev` extra.
+- **Counts from Amazon Braket.** `scripts/run_on_braket.py` runs the `nv compare` circuits on
+  IQM Garnet, Rigetti Cepheus, AQT IBEX-Q1, IonQ Forte or another Braket device, and saves a
+  counts file and its calibration. Each circuit runs in a verbatim box as native gates on its
+  physical qubits. The script shows the cost in US dollars and submits only with
+  `--confirm-cost`. It uses one program set task where the device supports one. It saves the
+  task ids, so the same command collects a run whose wait stopped. Braket has no gate-level
+  delay, so the script plans from the calibration without gate durations, and the gate factor
+  includes idle error. `--local PROPERTIES` runs the circuits free on the Braket
+  `LocalEmulator`. The new `braket` extra installs `amazon-braket-sdk`. See
+  [Counts from an Amazon Braket device](docs/counts-format.md#counts-from-an-amazon-braket-device).
+- **Realism table.** `scripts/build_realism_table.py` reads a folder of counts files and fits
+  the `nv compare` factors of each. It writes a JSON file and a Markdown table with one row for
+  each run: the device, vendor, technology and date, the gate factor and the readout factor with
+  their 95% intervals, and the goodness of fit. It uses the `.profile.json` file beside a counts
+  file, or else the catalog profile with the calibration of the counts. `--demo` builds
+  [docs/realism/demo.md](docs/realism/demo.md) from simulated counts. Each demo row says
+  "simulated" and gives the factors that the simulation used. `--demo --check` stops with an
+  error when the committed demo is out of date.
+- **Weekly IBM campaign.** `scripts/ibm_campaign.py` runs the `nv compare` circuits on a best
+  and a median chain of each IBM device with one command. Before each job, it checks IBM's
+  estimate of the QPU time against the time left on the instance. It saves counts and
+  calibrations in `campaign/<device>/<date>/`, and a rerun in the same week collects jobs
+  instead of submitting them again. `.github/workflows/ibm-campaign.yml` runs the script each
+  week once the repository has the secret `IBM_QUANTUM_TOKEN`.
+  [Run the weekly IBM campaign](docs/recipes.md#run-the-weekly-ibm-campaign) tells how.
+- **Drift report.** `scripts/drift_report.py` reads the campaign folders and writes
+  `drift.json` and `drift.md`: the gate and readout factors with their 95% intervals for each
+  date and chain, and the largest calibration changes between consecutive dates.
+- `scripts/run_on_ibm.py`: `run()` takes a chain of qubits (`layout`), a check before it submits
+  (`approve`), `wait=False` to return after it submits, and `keep_profile` to always save the
+  profile file.
+- The Stim and Cirq exports model the `leakage`, `atom_loss` and `erasure` effects as an
+  erasure channel. A heralded effect adds `HERALDED_ERASE` in Stim, with later `rec[]` targets
+  shifted past the herald records, and a `HeraldedErasure` gate with a measurement key in Cirq.
+  An effect without a herald adds `DEPOLARIZE1(3p/4)` or `cirq.depolarize(3p/4)`. The report
+  calls `erasure` exact, and the other two approximated. An idle `erasure` is approximated in
+  Stim, and in Cirq on a qubit with T1 or T2.
+  [docs/profile-format.md](docs/profile-format.md#effects) gives the rules.
+- `Profile.uniform` takes `effects`.
+- [examples/neutral_atom_erasure.py](examples/neutral_atom_erasure.py) runs a surface-code
+  memory on a neutral-atom device with heralded erasures. It compares the logical error of a
+  decoder that ignores the heralds with one that uses them.
+- `profile.pauli_error(gate, qubits)` returns the Pauli-twirled error of a gate on physical
+  qubits, as the Stim export applies it: the gate's channels, and the `leakage`, `atom_loss` and
+  `erasure` effects on the gate. The keys are Pauli labels such as `"XI"`, and the values are
+  probabilities. The values include the `unmodeled_error` factors.
+- The tutorial [Mitiq: ZNE and PEC](docs/tutorials/mitiq.md) and the example
+  `examples/mitiq_zne_pec.py` run zero-noise extrapolation and probabilistic error cancellation
+  on IBM Fez noise. The tutorial builds each PEC representation from the profile's gate errors
+  and compares each mitigated value with the ideal value.
+- `profile.medians()` returns the device-wide medians that `nv diff` compares: T1, T2, readout
+  error, and the 1-qubit and 2-qubit gate errors. The result is a plain dict of the type
+  `nv.DeviceMedians`, ready for `json.dumps`. A value is `None` when no qubit or pair has it.
+  The values include the `unmodeled_error` factors.
+
+### Fixed
+
+- For some drawn sets of counts, `nv compare` found a maximum that was too low. Such a set got too
+  small a deviance, so the p-value could be too high, and an interval test could accept a factor
+  that it must reject. The fit fixes three causes:
+  - At each relaxation floor, the slope of the likelihood along the gate factor can change sign. A
+    climb that started below a dip stopped at the floor. The fit now climbs once between each two
+    neighboring floors, and it keeps the best result.
+  - A set drawn at a tested factor far from the estimate could have its maximum between the search
+    grids. The fit now also searches a coarse grid that spans the whole factor range.
+  - A best grid point at an end of the factor range counted as a maximum, with no climb. The fit
+    now climbs from it.
+
+  Over 480 random cases, the interval tests of 51 cases had a drawn maximum more than 0.02 below a
+  grid point. Now 40 cases do. For the p-value, the number fell from 14 to 13 cases. The largest
+  gap fell from 0.52 to 0.24. Five p-values fell by 0.0025 to 0.0125. No interval changed.
+- `nv diff` lists a coupler that only one of the two profiles has, under "pairs added" or
+  "pairs removed". The JSON output and `ProfileDiff` have `pairs_added` and `pairs_removed`.
+  Before, the diff did not show such a coupler, and the 2-qubit median changed with no stated
+  cause. The drift report of the IBM campaign has the same lists.
+- `nv diff` and `ProfileDiff.summary()` show "from 0" for a value that changes from 0. Before,
+  they showed "-", the same symbol as for no data. The JSON keeps `relative: null`.
+- The noise report says "Pauli noise" for leakage in the stated error of a gate with a `pauli`
+  metric. Before, the report said "depolarizing noise" for every gate.
+- NoiseVault requires typer below 0.29. typer 0.29.0 removed `typer.main.get_click_type`,
+  so the CLI did not start on a new install.
+- `scripts/run_on_ibm.py` submits its job with the server-side `SamplerV2` primitive on
+  qiskit-ibm-runtime 0.52 too. Version 0.52 moved that primitive to
+  `qiskit_ibm_runtime.server_side` and gave the top-level `SamplerV2` name to a client-side
+  sampler. The new function `noisevault.compat.ibm_sampler()` returns the server-side class on
+  every supported release.
+- The Cirq model gives correct readout error when `run()` samples every repetition from one
+  simulation. Before, `cirq.DensityMatrixSimulator(noise=model)` lost the readout error of a
+  qubit that a circuit measured again with no gate between, and `cirq.Simulator(noise=model)`
+  gave a circuit of measurements only the same readout flips in every repetition. The second
+  case now raises `UnsupportedEffect`. [docs/frameworks.md](docs/frameworks.md#cirq) gives the
+  rules.
+- The Qiskit export applies gate noise to a gate with a label, such as `qc.x(0, label="a")`.
+  Before, Aer looked up the noise by the label, so a labelled gate had no noise, and the
+  report still called its noise exact. Save instructions keep their labels.
+- Thermal relaxation keeps a small coherence long after T1. For a gate 38 times longer than T1,
+  the coherence was 0, not 0.5 e^-19.
+- `metrics.check_metric` refuses a Pauli vector with a NaN entry. A profile with a Pauli entry
+  above 1, such as `1e308`, gives a validation error, not an `OverflowError`.
+- A profile with a gate on more qubits than the device has gives a validation error. Before, a
+  very large `qubits` value made the load run without end.
+- A profile with an integer too large for a float in a time field, or with a time outside the
+  calendar in UTC (such as `0001-01-01T00:30:00+01:00`), gives a validation error, not an
+  `OverflowError`. A counts file with such a `run_at` gives a `CountsError`.
+- A profile with `-0.0` has the same fingerprint as the profile with `0.0`. An op parameter of
+  `-0.0` in a counts file gives the same `sha256` as `0`. A file that has `-0.0` gets a new
+  fingerprint or `sha256`. No bundled profile has `-0.0`.
+- A time in a unit alias converts exactly. `"duration_us": 1.001` gives 1001 ns, not
+  1000.9999999999999 ns, so it has the same fingerprint as `"duration_ns": 1001`.
+- An error about a key with a line break stays on one line. This applies to the free-form
+  sections of a profile and to every key of a counts file.
+- `load_counts` gives a `CountsError` for an execution flag nested as deep as the JSON parser
+  takes, not a `RecursionError`.
+- With `bit_order` "qiskit", a `CountsError` names a refused key as the file writes it, not
+  reversed.
+- `load_counts` refuses `0` or `1` for a `SamplerV2` option that must be `false` or `true`, as
+  the counts format requires.
+- `nv check` gives the same numbers on every run. Before, the Cirq column could change in the
+  last bit, because Cirq joins its split density matrices in an order that changes between runs.
+- The Stim export keeps every digit of the arguments it copies, such as a readout flip
+  probability or kept noise. Before, Stim's text form rounded them to 6 significant digits.
+- `from_qiskit_backend` keeps a global 1-qubit instruction (`qargs=None`) of the `Target` as an
+  uncalibrated gate on every qubit, and `provenance.notes` names a global instruction on more
+  qubits. Before, the importer dropped each global instruction with no note.
+- The IBM BackendProperties importers divide an error or a probability with the unit `%` by
+  100, and refuse a different unit with a `SourceDataError`. Before, `0.5 %` became 0.5.
+- `suggest_layout` does not require `delay` on each qubit of the chain. Before, a profile that
+  disabled `delay` on some qubits got a different chain and a false warning.
 
 ### Changed
 
 - The Qiskit Aer note in [docs/frameworks.md](docs/frameworks.md#qiskit) names Aer 0.18.0 as
   affected too. It gives `QuantumError: Kraus is empty.` as a second failure. It also says that
   every gate error of a profile with T1 or T2 values goes through the failing conversion.
+- The same note names Aer 0.18.1 and 0.18.2 as affected. The reproducer of Aer issue #2455
+  still fails on 0.18.2. The fix is on the Aer `stable/0.18` branch, after the 0.18.2 release.
+- The PennyLane export uses `pennylane.ops.MidMeasure`, the PennyLane 0.45 name of the
+  mid-circuit measurement class. On older releases, such as 0.43.3, it uses the old name
+  `MidMeasureMP`.
+- The tests no longer call `NoiseModel.from_dict`, which Qiskit Aer 0.15.0 deprecated.
+- With `allow` set to `omit`, the Stim and Cirq exports now model the effects that they can,
+  instead of omitting every effect. `allow` is the least faithful treatment that a profile
+  accepts. An export that treats an effect less faithfully raises `UnsupportedEffect`.
+- `nv show` lists effects under "effects" instead of "not modeled".
+- A profile is not valid when the `qubits` of an effect on a gate are not one locus of the
+  gate, for example one qubit for an effect on `cz`. A profile is also not valid when an effect
+  lists a qubit two times. Before, the profile loaded, and no export applied such an effect.
 
 ## 0.3.0 (2026-10-04)
 

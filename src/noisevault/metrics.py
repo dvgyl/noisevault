@@ -85,8 +85,10 @@ def check_metric(kind: MetricKind, value: float | Sequence[float], num_qubits: i
             raise ValueError(
                 f"pauli for a {num_qubits}-qubit gate needs {d * d - 1} entries, got {len(entries)}"
             )
-        if any(p < 0 for p in entries):
+        if not all(p >= 0 for p in entries):  # also refuses NaN, which no comparison accepts
             raise ValueError("pauli entries must be >= 0")
+        if any(p > 1 for p in entries):  # also keeps math.fsum from an overflow
+            raise ValueError("pauli entries must be <= 1")
         if math.fsum(entries) > 1 + _TOL:
             raise ValueError(f"pauli entries sum to {math.fsum(entries)!r} > 1")
         return

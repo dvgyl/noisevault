@@ -217,6 +217,30 @@ def test_a_gate_with_no_locus_is_not_in_the_profile() -> None:
     _assert_allows_exactly_what_the_target_allows(target, profile)
 
 
+def test_a_global_one_qubit_gate_is_uncalibrated_on_every_qubit() -> None:
+    target = _target(2, (SXGate(), {(q,): _props(0.001, 32e-9) for q in range(2)}))
+    target.add_instruction(XGate())
+    assert target["x"] == {None: None}
+    profile = nv.from_qiskit_backend(_Backend(target))
+    assert [profile.table.gate("x", (q,)).state for q in range(2)] == ["uncalibrated"] * 2
+    _assert_allows_exactly_what_the_target_allows(target, profile)
+
+
+def test_a_global_two_qubit_gate_is_named_in_the_notes() -> None:
+    target = _target(
+        3,
+        (SXGate(), {(q,): _props(0.001, 32e-9) for q in range(3)}),
+        (CXGate(), {(0, 1): _props(0.01, 300e-9)}),
+    )
+    target.add_instruction(CZGate())
+    profile = nv.from_qiskit_backend(_Backend(target))
+    assert "cz" not in profile.gates
+    assert (
+        "Not converted: cz, a global instruction on any 2 qubits. A profile records a gate on 2"
+        " or more qubits only on the qubits that the source lists." in profile.provenance.notes
+    )
+
+
 def test_an_ideal_custom_gate_keeps_its_arity_and_resolves_as_ideal() -> None:
     target = Target(num_qubits=2)
     target.add_instruction(

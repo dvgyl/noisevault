@@ -887,7 +887,9 @@ class _Cirq(_Runner):
         # measurement, readout channels included, gives the exact outcome probabilities.
         end = next(i for i, m in enumerate(noisy) if any(cirq.is_measurement(op) for op in m))
         quantum = noisy[:end]
-        simulator = cirq.DensityMatrixSimulator(dtype=np.complex128)
+        # Cirq joins split states in set order, which changes from run to run, and the last bit
+        # of the result changes with it. One joint state keeps nv check output the same.
+        simulator = cirq.DensityMatrixSimulator(dtype=np.complex128, split_untangled_states=False)
         rho = simulator.simulate(quantum, qubit_order=measured).final_density_matrix
         return np.real(np.diag(rho))
 
@@ -912,7 +914,11 @@ class _PennyLane(_Runner):
         return self._operation_for(op.name)
 
     def cannot_express(self, op: Op) -> str | None:
-        return None if self._cls(op) is not None else f"PennyLane has no {op.name} gate"
+        if self._cls(op) is None:
+            return f"PennyLane has no {op.name} gate"
+        if op.name == "ms" and any(op.params):
+            return "PennyLane builds ms only at phases (0, 0)"
+        return None
 
     def run(self, circuit: Circuit, shots: int, seed: int | None) -> np.ndarray:
         qml, n = self.qml, circuit.num_qubits

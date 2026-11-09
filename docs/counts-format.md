@@ -285,6 +285,68 @@ error: could not open ibm_kingston through your IBM Quantum account ('network is
 hint: run the same command again. The script did not submit a job
 ```
 
+## Counts from an Amazon Braket device
+
+`scripts/run_on_braket.py` runs the planned circuits on an Amazon Braket device through your AWS
+account. It needs the `braket` extra, which installs `amazon-braket-sdk`. The script reads the
+device properties, imports them with `nv.from_braket` and plans from the result.
+
+- **Native gates only.** Each circuit runs in one verbatim box on its physical qubits, so Braket
+  does not compile or move the gates. Each planned gate must be one native gate of the device
+  with the same matrix, up to a global phase. For example, `r` runs as `prx` on IQM and AQT, and
+  as `gpi2` or `gpi` on IonQ. The script refuses a plan with another gate. The readout circuit has
+  no gate, so it has an empty verbatim box. The box keeps its qubits physical.
+- **No delays.** Braket has no gate-level `delay` op. Thus the script removes the gate durations
+  from the calibration before it plans, and the plan holds no `delay`. The device still idles
+  some qubits while other qubits run gates. The noise model has no idle time, so `nv compare`
+  puts that idle error into the gate factor. Braket gives gate durations only in standardized v3
+  properties, so the change affects AQT and IonQ. A provenance note in the profile records it.
+- **The cost first.** The script estimates the cost from the price per task and the price per
+  shot, and shows it in US dollars. Without `--confirm-cost`, it submits nothing. With
+  `--confirm-cost USD`, it submits only if the estimate is at most USD. The script knows the
+  prices of `iqm_garnet`, `rigetti_cepheus-1-108q`, `aqt_ibex-q1` and `ionq_forte-1` from the
+  [Amazon Braket pricing page](https://aws.amazon.com/braket/pricing/). For another device, give
+  `--task-price` and `--shot-price`.
+- **One task or one task per circuit.** When the device properties list the program set action,
+  all circuits go in one task. Otherwise, each circuit is one task, so the run pays the task price
+  for each circuit.
+- **Saved tasks.** Before the first task, the script creates `<stem>.job.json`, with the plan.
+  It adds each task id to the job file before it creates the next task. The script follows the
+  rules of [the IBM script](#the-script-never-replaces-a-file): it never replaces a file, and it
+  deletes the job file only after it saves the counts. If the wait stops, run the same command
+  again. The script then collects the tasks that the job file records and submits nothing. If
+  Braket accepts some tasks and refuses the next, the counts file holds the circuits of the
+  accepted tasks.
+- **No second charge.** If Braket does not answer a request, for example after a timeout, the
+  task can exist all the same. The script then keeps the job file and stops. Look for the task in
+  the Amazon Braket console before you delete the job file. The script deletes the job file only
+  when Braket refuses the first task with an error. When the request without an answer follows
+  other tasks, the job file records that. The collector then saves the counts of the recorded
+  tasks and prints a warning: look in the console for one more task.
+- **The end of the submission.** After the last task, the script adds an end line to the job
+  file. A collector refuses a job file that has fewer tasks than circuits and no end line,
+  because another run can still add tasks to it. If no run adds tasks, for example after a
+  power cut, give `--partial` to collect the recorded tasks.
+- **The calibration file.** Braket profiles are not in the catalog, so the script always saves
+  the calibration to `<stem>.profile.json`. The printed `nv compare` command names that file.
+  Braket gives no calibration history. Thus the counts bind to the calibration that the script
+  read before it submitted. When the device has a newer calibration from before the run, the
+  script prints a warning.
+- **`run_at`.** Braket does not say when a task starts to run. `run_at` is the earliest time at
+  which a task ended.
+- **`--local PROPERTIES`.** The free Braket `LocalEmulator` runs the circuits from a saved
+  properties file, with no AWS account. Its noise model comes from the same file. The counts have
+  `source` set to `simulated`. A local run cannot be collected later.
+
+The counts file has `bit_order` set to `clbit0_left`. `execution.job_ids` holds the task ids. A
+task ARN contains the id of your AWS account, so share a counts file only where you would share
+that id. `execution.options` records the device ARN, the shots per circuit, `verbatim` and
+`program_set`.
+
+When the script submits the first task, the Braket SDK saves the results to the default Braket
+bucket in your account, `amazon-braket-<region>-<account id>`. The SDK creates that S3 bucket if
+it does not exist.
+
 ## SHA-256 and canonical form
 
 `counts.sha256` is `sha256:` plus the SHA-256 of the canonical JSON (sorted keys, no whitespace)

@@ -136,7 +136,7 @@ nv diff ibm_fez@2025-02-26 ibm_fez@2025-05-31
 ```
 
 `nv diff` compares the device medians, lists the qubits and pairs that changed most, and names
-the gates that were disabled or re-enabled.
+the gates that were disabled or re-enabled and the pairs that were added or removed.
 
 A bare id such as `ibm_fez` loads the newest calibration that you have. After this pull, the
 quickstart's `nv.load("ibm_fez")` loads 2025-05-31 instead of the bundled 2025-02-26. To load
@@ -259,7 +259,9 @@ uv run https://raw.githubusercontent.com/dvgyl/noisevault/main/scripts/run_on_ib
 ```
 
 The script shows IBM's estimate of the QPU time and asks before it submits the job. It also prints
-the `nv compare` command for the counts.
+the `nv compare` command for the counts. For IQM, Rigetti, AQT and IonQ devices on Amazon Braket,
+`scripts/run_on_braket.py` does the same. It shows the cost in US dollars and submits only with
+`--confirm-cost`.
 [Measure a profile against hardware](docs/recipes.md#measure-a-profile-against-hardware) shows how
 to plan and record a run. [Counts format](docs/counts-format.md) describes the counts file.
 [Limitations](docs/limitations.md#what-the-unmodeled-error-factors-absorb) lists what the factors
@@ -271,6 +273,7 @@ cannot express.
 | --- | --- |
 | [Frameworks](docs/frameworks.md) | Each export, its options and what its report can list |
 | [Recipes](docs/recipes.md) | Pin and cite, drift, Mitiq, QEC with Stim, hypothetical devices, PennyLane training, hardware comparison |
+| [Mitiq tutorial](docs/tutorials/mitiq.md) | ZNE and PEC on IBM Fez noise, with PEC representations from the profile |
 | [Data sources](docs/data-sources.md) | Bundled, pulled and imported data, with licenses |
 | [Profile format](docs/profile-format.md) | Every field of format 1.0, with examples |
 | [Counts format](docs/counts-format.md) | The file that records a hardware run for `nv compare` |

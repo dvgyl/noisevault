@@ -63,6 +63,14 @@ def test_medians_compare_device_wide_values() -> None:
     assert not result.warnings and not result.identical
 
 
+def test_a_change_from_zero_says_so_in_the_summary_and_has_no_ratio_in_json() -> None:
+    result = diff(_profile(readout={"error": 0.0}), _later(readout={"error": 0.05}))
+    lines = result.summary().splitlines()
+    assert "  readout error             0.00e+00    5.00e-02    from 0" in lines
+    assert "  all qubits     readout error     0.00e+00 -> 5.00e-02 (from 0)" in lines
+    assert result.to_dict()["medians"][-1]["relative"] is None
+
+
 def test_largest_changes_come_first_by_relative_size() -> None:
     after = _later(
         qubits=[{"index": 0, "t1_us": 50}, {"index": 1, "t1_us": 132}, {"index": 2, "t1_us": 90}],
@@ -378,3 +386,110 @@ def test_both_orders_of_a_symmetric_pair_moving_together_are_one_entry() -> None
     assert diff(off, on).reenabled == ("cz 0-1",)
     drifted = diff(on, _both_orders({"avg_infidelity": 0.03}, {"avg_infidelity": 0.03}))
     assert [(c.where, c.before, c.after) for c in drifted.pairs] == [("0-1", 0.01, 0.03)]
+
+
+def test_medians_are_the_device_values_that_diff_compares() -> None:
+    profile = _profile()
+
+    medians = profile.medians()
+    assert medians == pytest.approx(
+        {"t1_us": 100, "t2_us": 80, "error_1q": 1e-3, "error_2q": 0.015, "readout_error": 0.01}
+    )
+    assert json.loads(json.dumps(medians)) == medians
+    shown = {c.metric: c.before for c in diff(profile, _later()).medians}
+    assert shown == medians
+
+
+def test_medians_leave_out_a_disabled_qubit_and_its_pairs() -> None:
+    qubits = [
+        {"index": 0, "t1_us": 100},
+        {"index": 1, "t1_us": 120},
+        {"index": 2, "disabled": True},
+    ]
+
+    medians = _profile(qubits=qubits).medians()
+    assert medians["t1_us"] == pytest.approx(110)
+    assert medians["error_2q"] == pytest.approx(0.01)
+
+
+def test_medians_include_the_unmodeled_error_factors_as_the_exports_do() -> None:
+    profile = _profile(unmodeled_error={"gates": {"factor": 2.0}, "readout": {"factor": 2.0}})
+
+    stated = profile.uncorrected().medians()
+    scaled = profile.medians()
+    assert stated == _profile().medians()
+    assert scaled["error_1q"] > 1.9 * stated["error_1q"]
+    assert scaled["error_2q"] > 1.9 * stated["error_2q"]
+    assert scaled["readout_error"] > 1.9 * stated["readout_error"]
+    assert scaled["t1_us"] == stated["t1_us"]
+    assert scaled["t2_us"] == stated["t2_us"]
+
+
+def test_the_readout_median_is_the_median_of_each_qubit_mean_of_both_errors() -> None:
+    pairs = [(0.01, 0.05), (0.02, 0.06), (0.10, 0.30)]  # per-qubit means 0.03, 0.04, 0.20
+    qubits = [
+        {"index": i, "readout": {"p1_given_0": a, "p0_given_1": b}}
+        for i, (a, b) in enumerate(pairs)
+    ]
+
+    assert _profile(qubits=qubits).medians()["readout_error"] == pytest.approx(0.04)
+
+
+def test_a_median_is_none_when_no_qubit_or_pair_has_the_value() -> None:
+    bare = Profile.uniform("bare", technology="other", num_qubits=1, one_qubit_error=1e-3)
+
+    assert bare.medians() == {
+        "t1_us": None,
+        "t2_us": None,
+        "error_1q": pytest.approx(1e-3),
+        "error_2q": None,
+        "readout_error": None,
+    }
+
+
+def _line(edges: list[list[int]], **changes: Any) -> Profile:
+    """The toy on the couplers ``edges``, with a cz record on each coupler."""
+    records = [
+        {"gate": "cz", "qubits": edge, "avg_infidelity": 0.01 * (i + 1)}
+        for i, edge in enumerate(edges)
+    ]
+    return _profile(connectivity={"edges": edges}, calibrations=records, **changes)
+
+
+def test_a_coupler_that_the_device_gains_or_loses_is_listed() -> None:
+    both, one = _line([[0, 1], [1, 2]]), _line([[0, 1]])
+    lost = diff(both, one)
+    assert (lost.pairs_removed, lost.pairs_added) == (("1-2",), ())
+    assert (lost.newly_disabled, lost.reenabled, lost.pairs) == ((), (), ())
+    assert "pairs removed: 1-2" in lost.summary().splitlines()
+    assert lost.to_dict()["pairs_removed"] == ["1-2"]
+    gained = diff(one, both)
+    assert (gained.pairs_removed, gained.pairs_added) == ((), ("1-2",))
+    assert "pairs added: 1-2" in gained.summary().splitlines()
+    # The 2-qubit median moves from 0.015 to 0.01 only because the coupler is gone.
+    assert [c.after for c in lost.medians if c.metric == "error_2q"] == [0.01]
+
+
+def test_a_disabled_coupler_or_a_coupler_of_a_disabled_qubit_is_not_a_removed_pair() -> None:
+    both = _line([[0, 1], [1, 2]])
+    off = _line([[0, 1], [1, 2]])
+    off = off.model_copy(
+        update={
+            "calibrations": [
+                *off.calibrations[:1],
+                {"gate": "cz", "qubits": [1, 2], "disabled": True},
+            ]
+        }
+    )
+    off = Profile.model_validate(off.to_dict())
+    result = diff(both, off)
+    assert (result.pairs_removed, result.newly_disabled) == ((), ("cz 1-2",))
+    without_qubit = _line([[0, 1]], qubits=[{"index": 2, "disabled": True}])
+    result = diff(both, without_qubit)
+    assert (result.pairs_removed, result.newly_disabled) == ((), ("qubit 2",))
+
+
+def test_a_directed_gate_that_changed_direction_is_not_an_added_pair() -> None:
+    before, after = _directed([0, 1], disabled=False), _directed([1, 0], disabled=False)
+    result = diff(before, after)
+    assert (result.pairs_added, result.pairs_removed) == ((), ())

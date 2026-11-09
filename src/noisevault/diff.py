@@ -20,7 +20,7 @@ from math import comb
 from typing import TYPE_CHECKING, Any
 
 from .errors import plural
-from .profile import qubit_medians, ref_on_day
+from .profile import DeviceMedians, qubit_medians, ref_on_day
 from .table import GateNoise
 
 if TYPE_CHECKING:
@@ -85,6 +85,8 @@ class ProfileDiff:
     pairs: tuple[Change, ...]
     newly_disabled: tuple[str, ...]
     reenabled: tuple[str, ...]
+    pairs_added: tuple[str, ...]  # pairs with a 2-qubit gate only in the second profile
+    pairs_removed: tuple[str, ...]
     qubits_added: tuple[int, ...]
     qubits_removed: tuple[int, ...]
     warnings: tuple[str, ...]
@@ -103,7 +105,7 @@ class ProfileDiff:
         for c in self.medians:
             lines.append(
                 f"  {METRICS[c.metric][0]:<22}{fmt_metric(c.metric, c.before):>12}"
-                f"{fmt_metric(c.metric, c.after):>12}{fmt_relative(c.relative):>10}"
+                f"{fmt_metric(c.metric, c.after):>12}{fmt_change(c):>10}"
             )
         for title, changes in (("qubits", self.qubits), ("pairs", self.pairs)):
             if changes:
@@ -111,12 +113,14 @@ class ProfileDiff:
                 lines += [
                     f"  {_where(title, c.where):<14} {METRICS[c.metric][0]:<17}"
                     f" {fmt_metric(c.metric, c.before)} -> {fmt_metric(c.metric, c.after)}"
-                    f" ({fmt_relative(c.relative)})"
+                    f" ({fmt_change(c)})"
                     for c in changes
                 ]
         for label, items in (
             ("newly disabled", self.newly_disabled),
             ("re-enabled", self.reenabled),
+            ("pairs added", self.pairs_added),
+            ("pairs removed", self.pairs_removed),
             ("qubits added", tuple(map(str, self.qubits_added))),
             ("qubits removed", tuple(map(str, self.qubits_removed))),
         ):
@@ -141,6 +145,8 @@ class ProfileDiff:
             "pairs": [c.to_dict() for c in self.pairs],
             "newly_disabled": list(self.newly_disabled),
             "reenabled": list(self.reenabled),
+            "pairs_added": list(self.pairs_added),
+            "pairs_removed": list(self.pairs_removed),
             "qubits_added": list(self.qubits_added),
             "qubits_removed": list(self.qubits_removed),
             "warnings": list(self.warnings),
@@ -170,6 +176,7 @@ def diff(a: Profile, b: Profile, *, top: int = 5) -> ProfileDiff:
     medians = tuple(Change(m, ma[m], mb[m]) for m in METRICS)
     pa, pb = _pair_values(a.table, b.table)
     newly_disabled, reenabled = _availability(a, b)
+    pairs_added, pairs_removed = _pair_changes(a.table, b.table)
     common = range(min(a.device.num_qubits, b.device.num_qubits))
     return ProfileDiff(
         before=ref_on_day(a.id, a.device.calibrated_at),
@@ -182,6 +189,8 @@ def diff(a: Profile, b: Profile, *, top: int = 5) -> ProfileDiff:
         pairs=_largest(pa, pb, lambda p: p if p == DEFAULT else f"{p[0]}-{p[1]}", top),
         newly_disabled=newly_disabled,
         reenabled=reenabled,
+        pairs_added=pairs_added,
+        pairs_removed=pairs_removed,
         qubits_added=tuple(q for q in range(b.device.num_qubits) if q not in common),
         qubits_removed=tuple(q for q in range(a.device.num_qubits) if q not in common),
         warnings=tuple(warnings),
@@ -213,12 +222,10 @@ def _pair_values(
     """The typical 2-qubit error on the same loci of ``a`` and ``b``.
 
     The values of a profile leave out each locus with no usable 2-qubit gate, so the diff does
-    not compare that locus. The diff reports a lost or regained gate as
-    availability, not as drift.
+    not compare that locus. The diff reports a disabled or re-enabled gate as availability, and
+    a pair that one profile does not have as an added or removed pair, not as drift.
     """
-    common = range(min(a.num_qubits, b.num_qubits))
-    usable = [q for q in common if not a.qubit(q).disabled and not b.qubit(q).disabled]
-    listed, rest, _ = _pair_loci((a, b), usable)
+    listed, rest, _ = _pair_loci((a, b), _shared_qubits(a, b))
     before: dict[Pair | str, dict[str, float]] = {}
     after: dict[Pair | str, dict[str, float]] = {}
     for pair in listed:
@@ -231,6 +238,36 @@ def _pair_values(
         _put(before, DEFAULT, _entries(a, rest)[0])
         _put(after, DEFAULT, _entries(b, rest)[0])
     return before, after
+
+
+def _shared_qubits(a: NoiseTable, b: NoiseTable) -> list[int]:
+    """The qubits that both profiles have and enable."""
+    common = range(min(a.num_qubits, b.num_qubits))
+    return [q for q in common if not a.qubit(q).disabled and not b.qubit(q).disabled]
+
+
+def _pair_changes(a: NoiseTable, b: NoiseTable) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """The pairs with a 2-qubit gate in ``b`` only, and the pairs with one in ``a`` only.
+
+    A pair has a 2-qubit gate when a native 2-qubit gate resolves on it in one direction, also
+    a disabled gate. Thus a coupler that the connectivity gains or loses is here, and a
+    disabled coupler is in the availability lists. A pair of a qubit that one profile disables
+    or does not have is not here, because the diff lists that qubit.
+    """
+    listed, _, _ = _pair_loci((a, b), _shared_qubits(a, b))
+    had, has = ({pair for pair in listed if _has_gate(t, pair)} for t in (a, b))
+    return (
+        tuple(f"{x}-{y}" for x, y in sorted(has - had)),
+        tuple(f"{x}-{y}" for x, y in sorted(had - has)),
+    )
+
+
+def _has_gate(table: NoiseTable, pair: Pair) -> bool:
+    return any(
+        isinstance(table.gate(gate, locus), GateNoise)
+        for gate in table.natives(2)
+        for locus in (pair, pair[::-1])
+    )
 
 
 def _pair_errors(table: NoiseTable) -> list[float]:
@@ -287,6 +324,18 @@ def _put(
 
 def _error(found: Any) -> float | None:
     return found.avg_infidelity if isinstance(found, GateNoise) else None
+
+
+def device_medians(profile: Profile) -> DeviceMedians:
+    """See :meth:`noisevault.Profile.medians`."""
+    found = _medians(profile, _qubit_values(profile.table))
+    return DeviceMedians(
+        t1_us=found["t1_us"],
+        t2_us=found["t2_us"],
+        error_1q=found["error_1q"],
+        error_2q=found["error_2q"],
+        readout_error=found["readout_error"],
+    )
 
 
 def _medians(profile: Profile, qubits: dict[int, dict[str, float]]) -> dict[str, float | None]:
@@ -442,8 +491,13 @@ def fmt_metric(metric: str, value: float | None) -> str:
     return fmt_us(value) if metric in ("t1_us", "t2_us") else fmt_error(value)
 
 
-def fmt_relative(value: float | None) -> str:
-    return "-" if value is None else f"{value:+.1%}"
+def fmt_change(change: Change) -> str:
+    """The change column of ``nv diff`` and :meth:`ProfileDiff.summary`."""
+    if change.before is None or change.after is None:
+        return "-" if change.before == change.after else "new" if change.before is None else "gone"
+    if change.relative is None:
+        return "from 0" if change.after else "-"
+    return f"{change.relative:+.1%}"
 
 
 def describe_delta(delta: timedelta | None) -> str:

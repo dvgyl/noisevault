@@ -298,6 +298,8 @@ def can_measure(table: NoiseTable, q: int) -> bool:
 def _needed(name: str) -> bool:
     """A 1-qubit gate a transpiler may need: unitary and not the identity, or unknown."""
     info = gates.lookup(name)
-    if info is None or info.params:
+    if info is None:
         return True
-    return info.unitary is not None and not np.allclose(info.unitary(), np.eye(2))
+    if info.unitary is None:
+        return False
+    return bool(info.params) or not np.allclose(info.unitary(), np.eye(2))

@@ -2,13 +2,24 @@ from __future__ import annotations
 
 from collections.abc import Container, Mapping, Sequence
 from types import MappingProxyType
-from typing import Literal
+from typing import TYPE_CHECKING, Literal, cast, get_args
 
-from . import gates
-from .channels import ChannelSpec, GateChannels, gate_channels, thermal_relaxation_kraus
+from . import gates, metrics
+from .channels import (
+    ChannelSpec,
+    GateChannels,
+    gate_channels,
+    pauli_kraus,
+    pauli_twirl,
+    thermal_relaxation_kraus,
+)
+from .effects import ERASING, Erasures, gate_effects, treatment
 from .errors import LayoutError, MissingCalibrationError, qubit_loci
 from .report import Report
 from .table import GateNoise, NoiseTable, Unavailable, refuse_disabled
+
+if TYPE_CHECKING:
+    from .profile import Profile
 
 UnknownGates = Literal["typical", "error"]
 TYPICAL_FIX = "compile to native gates for realistic gate counts, or pass unknown_gates='error'"
@@ -80,6 +91,50 @@ def resolve_op(
             f" {noise.gate} instead. To fix: {TYPICAL_FIX}",
         )
     return _channels(table, noise, report)
+
+
+def pauli_error(
+    profile: Profile, gate: str, qubits: Sequence[int], *, unknown_gates: str = "typical"
+) -> dict[str, float]:
+    """See :meth:`noisevault.Profile.pauli_error`."""
+    if unknown_gates not in get_args(UnknownGates):
+        raise ValueError(f"unknown_gates={unknown_gates!r}: choose 'typical' or 'error'")
+    if gates.lookup(gate) is None and gate not in profile.gates:
+        raise ValueError(f"{gate!r} is not a gate of the registry or of {profile.id}")
+    qubits = tuple(qubits)
+    arity = profile.table.arity(gate)
+    if len(qubits) != arity:
+        raise ValueError(f"{gate} acts on {arity} qubits, but qubits names {len(qubits)}")
+    name = native_name(gate, profile.gates)
+    report = Report.start(profile, "pauli_error", None)
+    built = resolve_op(
+        profile.table, name, qubits, unknown_gates=cast(UnknownGates, unknown_gates), report=report
+    )
+    # The effects that act on this gate are a part of the error, as in the Stim and Cirq
+    # exports. An effect that this error leaves out must have allow "omit".
+    erasing = Erasures(profile, readout=False)
+    others = [e for e in profile.effects if e.type not in ERASING]
+    report.record_effects(
+        [
+            *erasing.gate_effects(name, qubits, built.gate),
+            *gate_effects(others, name, qubits, built.gate),
+        ],
+        lambda e: treatment(e, profile, "pauli_error", idle="omit", readout=False),
+    )
+    erasures = erasing.gate(name, qubits, built.gate)
+    channels = [
+        *built.channels,
+        *(
+            # An erasure with probability p is each of X, Y and Z with probability p / 4.
+            ChannelSpec("pauli", (q,), tuple(pauli_kraus([erasure.prob / 4] * 3)))
+            for q in qubits
+            for erasure in erasures
+        ),
+    ]
+    labels = metrics.pauli_labels(len(qubits))
+    if not channels:
+        return dict.fromkeys(labels, 0.0)
+    return dict(zip(labels, pauli_twirl(channels, qubits), strict=True))
 
 
 def resolve_gate(

@@ -124,6 +124,7 @@ class Calibration:
     calibrated_at: datetime | None = None
     skipped: tuple[str, ...] = ()  # source instruction names deliberately not converted
     supported: Mapping[str, frozenset[tuple[int, ...]]] = field(default_factory=dict)
+    notes: tuple[str, ...] = ()
 
 
 # Qiskit backends -------------------------------------------------------------------------------
@@ -175,21 +176,34 @@ def from_qiskit_backend(backend: Any) -> Profile:
 
 
 def calibration_from_target(target: Any, *, name: str) -> Calibration:
-    """Read a Qiskit Target: per-qargs error and duration, and per-qubit T1/T2."""
+    """Read a Qiskit Target: per-qargs error and duration, and per-qubit T1/T2.
+
+    A global 1-qubit instruction (``qargs=None``) becomes an instruction on every qubit. A
+    global instruction on more qubits is not converted, and ``notes`` names it.
+    """
     from qiskit.circuit import Gate
 
-    instructions, skipped, supported = [], set(), {}
+    instructions, skipped, supported, notes = [], set(), {}, []
     for op_name in sorted(target.operation_names):
         operation = target.operation_from_name(op_name)
         keep = isinstance(operation, Gate) or op_name in ("measure", "reset")
         if op_name in _NOT_GATES or not keep:
             skipped.add(op_name)
             continue
-        if None not in target[op_name]:  # a global instruction runs on any qubits
-            supported[_QISKIT_TO_CANONICAL.get(op_name, op_name)] = frozenset(target[op_name])
-        for qargs, props in target[op_name].items():
-            if qargs is None:  # an ideal global instruction: nothing per qubit to record
-                continue
+        loci = dict(target[op_name])
+        if None in loci:
+            props = loci.pop(None)
+            if operation.num_qubits == 1:
+                loci |= {(q,): props for q in range(target.num_qubits) if (q,) not in loci}
+            else:
+                notes.append(
+                    f"Not converted: {op_name}, a global instruction on any"
+                    f" {operation.num_qubits} qubits. A profile records a gate on 2 or more"
+                    " qubits only on the qubits that the source lists."
+                )
+        else:
+            supported[_QISKIT_TO_CANONICAL.get(op_name, op_name)] = frozenset(loci)
+        for qargs, props in loci.items():
             instructions.append(
                 Instruction(
                     _QISKIT_TO_CANONICAL.get(op_name, op_name),
@@ -212,6 +226,7 @@ def calibration_from_target(target: Any, *, name: str) -> Calibration:
         qubits=qubits,
         skipped=tuple(sorted(skipped - control_flow - {"delay"})),
         supported=supported,
+        notes=tuple(notes),
     )
 
 
@@ -443,16 +458,19 @@ def calibration_from_properties(props: Mapping[str, Any], *, origin: Origin) -> 
         qubits[index] = QubitCalibration(
             t1_us=_in_unit(values.get("T1"), "us", origin, owner),
             t2_us=_in_unit(values.get("T2"), "us", origin, owner),
-            p1_given_0=_value(values.get("prob_meas1_prep0")),
-            p0_given_1=_value(values.get("prob_meas0_prep1")),
-            prep_error=_value(values.get("init_error")),
+            p1_given_0=_fraction(values.get("prob_meas1_prep0"), origin, owner),
+            p0_given_1=_fraction(values.get("prob_meas0_prep1"), origin, owner),
+            prep_error=_fraction(values.get("init_error"), origin, owner),
             operational=_operational(values, origin, owner),
         )
         error, length = values.get("readout_error"), values.get("readout_length")
         if error is not None or length is not None:
             instructions.append(
                 Instruction(
-                    "measure", (index,), _value(error), _in_unit(length, "ns", origin, owner)
+                    "measure",
+                    (index,),
+                    _fraction(error, origin, owner),
+                    _in_unit(length, "ns", origin, owner),
                 )
             )
     skipped = set()
@@ -473,7 +491,7 @@ def calibration_from_properties(props: Mapping[str, Any], *, origin: Origin) -> 
             Instruction(
                 canonical,
                 locus,
-                error=_value(values.get("gate_error")),
+                error=_fraction(values.get("gate_error"), origin, owner),
                 duration_ns=_in_unit(values.get("gate_length"), "ns", origin, owner),
                 operational=_operational(values, origin, owner),
             )
@@ -546,6 +564,17 @@ def _locus(
 
 def _value(param: Mapping[str, Any] | None) -> float | None:
     return None if param is None else param.get("value")
+
+
+def _fraction(param: Mapping[str, Any] | None, origin: Origin, owner: str) -> float | None:
+    """An error or a probability from 0 to 1. ``origin`` refuses a unit that is not ``%``."""
+    if param is None or param.get("value") is None or not param.get("unit"):
+        return _value(param)
+    if param["unit"] == "%":
+        return param["value"] / 100
+    raise origin.refuse(
+        f"{param['name']} of {owner} has the unknown unit {param['unit']!r}, not % or no unit"
+    )
 
 
 def _operational(values: Mapping[str, Mapping[str, Any]], origin: Origin, owner: str) -> bool:
@@ -711,6 +740,7 @@ def _profile_data(cal: _Checked, provenance: Mapping[str, Any]) -> dict[str, Any
     notes = list(provenance.get("notes", ()))
     if cal.skipped:
         notes.append(f"Not converted: {', '.join(cal.skipped)}.")
+    notes += cal.notes
     notes += gate_notes
     for key, label in _COHERENCE.items():
         if any(key in q for q in working):

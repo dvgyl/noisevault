@@ -223,7 +223,7 @@ class NoiseVaultSimulator(AerSimulator):
             self._check(circuit)
         for circuit in batch:
             self._count_events(circuit)
-        prepared = [self._passes.run(circuit) for circuit in batch]
+        prepared = [self._passes.run(_unlabelled(circuit)) for circuit in batch]
         return super().run(prepared[0] if single else prepared, parameter_binds, **run_options)
 
     def _check(self, circuit: QuantumCircuit) -> None:
@@ -323,6 +323,29 @@ class NoiseVaultSimulator(AerSimulator):
             qargs = tuple(circuit.find_bit(q).index for q in instruction.qubits)
             for event, key in self._events.get((instruction.operation.name, qargs), ()):
                 self.report.count(event, key)
+
+
+def _unlabelled(circuit: QuantumCircuit) -> QuantumCircuit:
+    """A copy of ``circuit`` with no label on its operations.
+
+    Aer finds the noise of an operation by its label when the label is set, and the noise model
+    keys each error by the native name. Directives keep their labels, because a save
+    instruction keeps its result under its label.
+    """
+    labelled = [
+        i
+        for i, instruction in enumerate(circuit.data)
+        if instruction.operation.label is not None
+        and not isinstance(instruction.operation, _DIRECTIVES)
+    ]
+    if not labelled:
+        return circuit
+    out = circuit.copy()
+    for i in labelled:
+        op = out.data[i].operation.to_mutable()
+        op.label = None
+        out.data[i] = out.data[i].replace(operation=op)
+    return out
 
 
 def _acted_on(circuit: QuantumCircuit) -> set[Qubit]:

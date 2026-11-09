@@ -494,7 +494,7 @@ def test_show_qubits_names_a_real_gate_not_the_identity(ref: str) -> None:
 def test_show_all_to_all_and_notes() -> None:
     out = runner.invoke(app, ["show", "quantinuum_h1-1"], env={"COLUMNS": "200"}).stdout
     assert "all-to-all" in out and "device-wide" in out
-    assert "T1 and T2 unknown" in out and re.search(r"not modeled\s+leakage on r\s", out)
+    assert "T1 and T2 unknown" in out and re.search(r"effects\s+leakage on r\s", out)
 
 
 def test_show_and_diff_name_the_error_metric(tmp_path: Path) -> None:
@@ -563,7 +563,7 @@ def test_show_lists_what_the_model_leaves_out_before_provenance_and_notes() -> N
         "natives",
         "coherence",
         "readout",
-        "not modeled",
+        "effects",
         "provenance",
         "license",
         "attribution",
@@ -587,7 +587,7 @@ def test_show_writes_schema_tokens_as_words_and_json_keeps_them(tmp_path: Path) 
     assert h1["license"] == "Apache-2.0, redistribution allowed"
     weber = rows("google_weber")
     assert weber["device"] == "Google, Sycamore, superconducting, 53 qubits"
-    assert weber["not modeled"] == "coherent over-rotation on sqrt_iswap (86 records)"
+    assert weber["effects"] == "coherent over-rotation on sqrt_iswap (86 records)"
     data = toy(
         provenance={
             "data_kind": "vendor_model",
@@ -1934,7 +1934,7 @@ def test_diff_says_new_or_gone_and_colors_every_change(vault: Path) -> None:
     assert re.search(r"^4 +T1 \(us\) +10000000\.0 +- +gone$", plain, re.M)
     assert rows[("default", "2q", "avg")] == "+22.4%"
     assert re.search(
-        r"^5 +1q avg infidelity +0\.00e\+00 +4\.00e-05 +\x1b\[31m-\x1b\[0m$", out, re.M
+        r"^5 +1q avg infidelity +0\.00e\+00 +4\.00e-05 +\x1b\[31mfrom 0\x1b\[0m$", out, re.M
     )
     assert max(map(len, lines)) <= 80
 
@@ -1972,6 +1972,16 @@ def test_list_shows_the_time_only_where_a_date_is_shared(vault: Path) -> None:
 def test_diff_lists_added_qubits_as_ranges() -> None:
     out = runner.invoke(app, ["diff", "ibm_manila", "ibm_fez"], env={"COLUMNS": "80"}).stdout
     assert "qubits added: 5 to 155" in out.splitlines()
+
+
+def test_diff_lists_a_coupler_that_the_second_profile_does_not_have(tmp_path: Path) -> None:
+    for name, edges in (("both", [[0, 1], [1, 2]]), ("one", [[0, 1]])):
+        nv.Profile.from_dict(toy(connectivity={"edges": edges})).save(tmp_path / f"{name}.json")
+    args = ["diff", str(tmp_path / "both.json"), str(tmp_path / "one.json")]
+    result = runner.invoke(app, args, env={"COLUMNS": "80"})
+    assert result.exit_code == 0, result.output
+    assert "pairs removed: 1-2" in result.stdout.splitlines()
+    assert json.loads(runner.invoke(app, [*args, "--json"]).stdout)["pairs_removed"] == ["1-2"]
 
 
 @pytest.mark.parametrize(

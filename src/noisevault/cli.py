@@ -37,9 +37,9 @@ from .diff import (
     METRICS,
     describe_delta,
     distinguishing_stamps,
+    fmt_change,
     fmt_error,
     fmt_metric,
-    fmt_relative,
     fmt_us,
 )
 from .errors import (
@@ -615,7 +615,7 @@ def _print_card(
         grid.add_row("disabled", "qubits " + ", ".join(map(str, data["disabled_qubits"])))
     _add_lines(grid, "unmodeled", [line.short for line in data["unmodeled_note"]])
     if not brief:
-        _add_lines(grid, "not modeled", [_plain_effect(line) for line in data["effects"]])
+        _add_lines(grid, "effects", [_plain_effect(line) for line in data["effects"]])
     prov = data["provenance"]
     grid.add_row("provenance", _provenance(prov))
     redistribution = _REDISTRIBUTION[prov["redistributable"]]
@@ -905,6 +905,12 @@ def diff(
                 out.print()
                 _emit(label)
                 _emit(_loci_table(items))
+        for label, pairs in (
+            ("pairs added", result.pairs_added),
+            ("pairs removed", result.pairs_removed),
+        ):
+            if pairs:
+                _emit(f"{label}: {', '.join(pairs)}")
         for label, qubits in (
             ("qubits added", result.qubits_added),
             ("qubits removed", result.qubits_removed),
@@ -949,11 +955,9 @@ def _loci_table(labels: tuple[str, ...]) -> Table:
 
 
 def _change(change: Any) -> str:
-    if change.before is None or change.after is None:
-        # "worse" has no meaning when one side has no value, so these changes get no color
-        return "-" if change.before == change.after else "new" if change.before is None else "gone"
-    text = fmt_relative(change.relative)
-    if change.relative == 0:
+    text = fmt_change(change)
+    # "worse" has no meaning when one side has no value, so these changes get no color
+    if change.before is None or change.after is None or change.before == change.after:
         return text
     return f"[red]{text}[/red]" if change.worse else f"[green]{text}[/green]"
 

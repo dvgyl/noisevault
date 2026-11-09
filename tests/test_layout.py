@@ -304,6 +304,17 @@ def test_a_qubit_missing_only_the_identity_is_complete() -> None:
         assert suggest_layout(profile, 1) == {0: 0}
 
 
+def test_a_qubit_missing_only_delay_and_reset_is_complete() -> None:
+    profile = _ions(
+        gates={**_SX_X, "cz": {"avg_infidelity": 1e-2}, "delay": {}, "reset": {}},
+        calibrations=[{"gate": g, "qubits": [0], "disabled": True} for g in ("delay", "reset")],
+        qubits=[{"index": 0, "readout": {"error": 1e-4}}],
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        assert suggest_layout(profile, 1) == {0: 0}
+
+
 @pytest.mark.parametrize(
     "x_off",
     [

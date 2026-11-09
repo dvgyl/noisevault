@@ -22,7 +22,6 @@ from pennylane.measurements import (
     ClassicalShadowMP,
     CountsMP,
     ExpectationMP,
-    MidMeasureMP,
     ProbabilityMP,
     SampleMP,
     ShadowExpvalMP,
@@ -31,13 +30,15 @@ from pennylane.measurements import (
 from pennylane.operation import Channel, Operation, Operator, StatePrepBase
 from pennylane.ops.op_math import Adjoint, CompositeOp, Conditional, ControlledOp, SymbolicOp
 
-from .. import gates
+from .. import compat, gates
 from ..channels import readout_matrix
 from ..conversion import UnknownGates, native_name, resolve_op
 from ..layout import can_measure, normalize_layout
 from ..profile import Profile
 from ..report import Report
 from ..table import refuse_disabled
+
+MidMeasure = compat.pennylane_mid_measure()
 
 Layout = Mapping[Any, int] | Sequence[int]
 Kraus = tuple[np.ndarray, ...]
@@ -260,7 +261,7 @@ class NoiseVaultPennyLaneModel(qml.NoiseModel):
         for kraus, wires in noise:
             qml.QubitChannel(list(kraus), wires=wires)
 
-    def _mid_measure_noise(self, op: MidMeasureMP, **_: Any) -> None:
+    def _mid_measure_noise(self, op: Operator, **_: Any) -> None:
         qubit = self.physical_qubit(op.wires[0])
         refuse_disabled(self.profile.table.gate("measure", (qubit,)))
         if not op.reset:
@@ -551,7 +552,7 @@ def _splits_at_user_level(op: Operator) -> bool:
 
 
 def _is_mid_measure(op: Operator) -> bool:
-    return isinstance(op, MidMeasureMP)
+    return isinstance(op, MidMeasure)
 
 
 def _reads_out(mp: Any) -> bool:
