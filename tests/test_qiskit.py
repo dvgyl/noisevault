@@ -1755,7 +1755,9 @@ def test_a_gate_label_does_not_remove_its_noise(two_qubit: bool) -> None:
     ideal = _density(AerSimulator(), plain)
     assert not np.allclose(noisy, ideal)
     np.testing.assert_allclose(_density(sim, labelled), noisy, atol=1e-12)
-    np.testing.assert_allclose(_density(sim, transpile(labelled, sim)), noisy, atol=1e-12)
+    # The qubits are alike, so the transpiler is free to move the gate to the other qubit.
+    compiled = transpile(labelled, sim, initial_layout=[0, 1], seed_transpiler=1)
+    np.testing.assert_allclose(_density(sim, compiled), noisy, atol=1e-12)
 
 
 def test_the_label_of_a_save_instruction_is_kept() -> None:
