@@ -103,6 +103,38 @@ jobs:
         env:
           NOISEVAULT_REQUIRE_ALL: "1"
 
+  latest:
+    name: newest releases (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - python-version: "3.14"
+            extras: all,dev
+            require-all: "1"
+          # cirq-google (through typedunits), Stim and PyMatching have no Python 3.15 wheels yet.
+          # Their tests skip here. Add them to the extras when their wheels are on PyPI.
+          - python-version: "3.15"
+            extras: qiskit,ibm,cirq,pennylane,hf
+            require-all: "0"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - uses: astral-sh/setup-uv@v6
+      # The newest releases that the dependency bounds allow, also on the weekly run.
+      - run: uv pip install --upgrade --refresh --only-binary ':all:' -e ".[${{ matrix.extras }}]" amazon-braket-schemas pytest
+      - name: Tested versions
+        run: uv pip list
+      # A framework deprecation that NoiseVault or a test reaches fails the job, so it is fixed
+      # before the framework removes the API.
+      - run: pytest -q --ignore=tests/test_examples.py
+        env:
+          NOISEVAULT_REQUIRE_ALL: ${{ matrix.require-all }}
+          NOISEVAULT_STRICT_WARNINGS: "1"
+
   bundle:
     name: tests pinned to the bundle's qiskit-ibm-runtime
     runs-on: ubuntu-latest
