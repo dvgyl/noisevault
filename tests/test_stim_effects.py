@@ -401,3 +401,17 @@ def test_leakage_listed_on_a_gate_without_an_error_is_not_counted():
         noisy = Profile.from_dict(data).to_stim("X 0")
     assert str(noisy).splitlines() == ["X 0", "HERALDED_ERASE(0.2) 0"]
     assert "counted in the stated error" not in noisy.report.summary()
+
+
+def test_an_effect_of_another_type_on_the_gate_keeps_the_effects_of_the_typical_gate():
+    profile = _cz_native(
+        {"type": "erasure", "gate": "cz", "prob": 0.2, "heralded": True},
+        {"type": "atom_loss", "gate": "cx", "prob": 0.4},
+        cx={},
+    )
+    with pytest.warns(NoiseApproximationWarning, match="noise of cz"):
+        noisy = profile.to_stim("CX 0 1")
+    assert sorted(str(noisy).splitlines()[1:]) == [
+        "DEPOLARIZE1(0.3) 0 1",
+        "HERALDED_ERASE(0.2) 0 1",
+    ]

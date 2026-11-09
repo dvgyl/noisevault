@@ -8,7 +8,7 @@ effect acts, which number it uses, and when the report calls it exact or approxi
 from __future__ import annotations
 
 import math
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from itertools import permutations
 from typing import TYPE_CHECKING, Literal
@@ -117,7 +117,7 @@ class Erasures:
     """The erasures that a profile's effects put on each gate, measurement and idle time."""
 
     def __init__(self, profile: Profile, *, readout: bool) -> None:
-        self._gate: dict[str, list[Effect]] = {}
+        self._gate: list[Effect] = []
         self._readout: list[Effect] = []
         self._idle: list[Effect] = []
         # An effect without its number still replaces a default; _pick then drops it.
@@ -127,7 +127,7 @@ class Erasures:
             if _counted_in_gate(effect, profile) == "all":
                 continue
             if effect.gate is not None:
-                self._gate.setdefault(effect.gate, []).append(effect)
+                self._gate.append(effect)
             elif effect.on == "readout" and readout:
                 self._readout.append(effect)
             elif effect.on == "idle":
@@ -140,7 +140,7 @@ class Erasures:
     @property
     def heralded(self) -> bool:
         """True when some effect can add a herald."""
-        effects = [*self._readout, *self._idle, *(e for v in self._gate.values() for e in v)]
+        effects = [*self._readout, *self._idle, *self._gate]
         return any(e.heralded and (e.prob or e.rate_per_s) for e in effects)
 
     @property
@@ -155,22 +155,14 @@ class Erasures:
     def on_idle(self) -> bool:
         return bool(self._idle)
 
-    def gate(self, name: str, wires: tuple[int, ...], noise: GateNoise) -> tuple[Erasure, ...]:
-        """Erasures on each qubit of ``wires`` after one application of gate ``name``.
+    def gate(self, name: str, wires: Sequence[int], noise: GateNoise) -> tuple[Erasure, ...]:
+        """Erasures on each qubit of ``wires`` after one application of gate ``name``, whose
+        noise comes from the record ``noise``. See :func:`gate_effects` for the rules."""
+        return _erasures(self.gate_effects(name, wires, noise), _prob)
 
-        ``noise`` is the record that gives the gate its noise on ``wires``. A gate without its
-        own noise takes the noise of the typical native gate. Such a gate takes the effects of
-        that native gate too, unless an effect names ``name``. When the record lists leakage in
-        ``includes``, its stated error already counts its leakage effects, so they add nothing.
-        """
-        source = name if name in self._gate else noise.gate
-        effects = self._gate.get(source)
-        if effects and source == noise.gate and _counts_leakage(noise.spec):
-            effects = [e for e in effects if e.type != "leakage"]
-        if not effects:
-            return ()
-        locus = sorted(wires)
-        return _pick(effects, lambda qubits: sorted(qubits) == locus, _prob)
+    def gate_effects(self, name: str, wires: Sequence[int], noise: GateNoise) -> list[Effect]:
+        """The effects behind :meth:`gate`, also those without a probability."""
+        return gate_effects(self._gate, name, wires, noise) if self._gate else []
 
     def readout(self, qubit: int) -> tuple[Erasure, ...]:
         """Erasures on ``qubit`` directly before one measurement of it."""
@@ -186,13 +178,45 @@ class Erasures:
         )
 
 
+def gate_effects(
+    effects: Iterable[Effect], name: str, wires: Sequence[int], noise: GateNoise
+) -> list[Effect]:
+    """The effects of ``effects`` that act on one application of gate ``name`` on ``wires``.
+
+    ``noise`` is the record that gives the gate its noise there. A gate without its own noise
+    takes the noise of the typical native gate. For each effect type, such a gate takes the
+    effects of that native gate too, unless an effect of the type names ``name``. An effect
+    with ``qubits`` acts on that locus only, where it replaces the effects of its type without
+    ``qubits``. A leakage effect on the gate that gives the noise does not act when the record
+    lists leakage in ``includes``, because the stated error already counts it.
+    """
+    by_type: dict[str, list[Effect]] = {}
+    for effect in effects:
+        if effect.gate in (name, noise.gate):
+            by_type.setdefault(effect.type, []).append(effect)
+    locus = sorted(wires)
+    acting: list[Effect] = []
+    for kind, found in by_type.items():
+        source = name if any(e.gate == name for e in found) else noise.gate
+        if kind == "leakage" and source == noise.gate and _counts_leakage(noise.spec):
+            continue
+        named = [e for e in found if e.gate == source]
+        acting += _chosen(named, lambda qubits: sorted(qubits) == locus)
+    return acting
+
+
 def _pick(
     effects: Iterable[Effect],
     applies: Callable[[tuple[int, ...]], bool],
     prob: Callable[[Effect], float],
 ) -> tuple[Erasure, ...]:
-    """The erasures of ``effects`` here: an effect with matching ``qubits`` replaces an effect
-    of the same type without ``qubits``."""
+    """The erasures of ``effects`` at a place where ``applies`` tells if ``qubits`` match."""
+    return _erasures(_chosen(effects, applies), prob)
+
+
+def _chosen(effects: Iterable[Effect], applies: Callable[[tuple[int, ...]], bool]) -> list[Effect]:
+    """An effect with matching ``qubits`` replaces an effect of the same type without
+    ``qubits``."""
     chosen: dict[str, list[Effect]] = {}
     general: dict[str, list[Effect]] = {}
     for effect in effects:
@@ -203,10 +227,13 @@ def _pick(
             general.setdefault(effect.type, []).append(effect)
     for kind, found in general.items():
         chosen.setdefault(kind, found)
+    return [effect for found in chosen.values() for effect in found]
+
+
+def _erasures(effects: Iterable[Effect], prob: Callable[[Effect], float]) -> tuple[Erasure, ...]:
     return tuple(
         Erasure(effect.type, p, bool(effect.heralded))
-        for found in chosen.values()
-        for effect in found
+        for effect in effects
         if (p := prob(effect)) > 0
     )
 

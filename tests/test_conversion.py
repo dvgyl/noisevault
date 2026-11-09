@@ -628,3 +628,19 @@ def test_pauli_error_refuses_a_gate_effect_that_it_leaves_out() -> None:
         _atoms({**effect, "allow": "approximate"}, error=1e-2).pauli_error("cz", [0, 1])
     # An effect on another gate is not a part of the error of cz.
     _atoms({**effect, "gate": "cx", "allow": "exact"}, error=1e-2).pauli_error("cz", [0, 1])
+
+
+def test_pauli_error_refuses_the_wrong_number_of_qubits() -> None:
+    profile = _pauli_profile()
+    with pytest.raises(ValueError, match="h acts on 1 qubits, but qubits names 2"):
+        profile.pauli_error("h", [0, 1])  # h is not a gate of the profile
+    with pytest.raises(ValueError, match="cz acts on 2 qubits, but qubits names 1"):
+        profile.pauli_error("cz", [0])
+
+
+def test_pauli_error_checks_only_the_effects_that_act_on_the_gate() -> None:
+    required = {"type": "crosstalk_zz", "gate": "cz", "strength_hz": 1e3, "allow": "exact"}
+    elsewhere = _atoms({**required, "qubits": [1, 2]}, error=1e-2)
+    assert sum(elsewhere.pauli_error("cz", [0, 1]).values()) > 0
+    with pytest.raises(UnsupportedEffect, match="crosstalk_zz on cz"):
+        elsewhere.pauli_error("cz", [2, 1])

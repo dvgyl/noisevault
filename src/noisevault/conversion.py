@@ -13,7 +13,7 @@ from .channels import (
     pauli_twirl,
     thermal_relaxation_kraus,
 )
-from .effects import Erasures, treatment
+from .effects import ERASING, Erasures, gate_effects, treatment
 from .errors import LayoutError, MissingCalibrationError, qubit_loci
 from .report import Report
 from .table import GateNoise, NoiseTable, Unavailable, refuse_disabled
@@ -102,18 +102,26 @@ def pauli_error(
     if gates.lookup(gate) is None and gate not in profile.gates:
         raise ValueError(f"{gate!r} is not a gate of the registry or of {profile.id}")
     qubits = tuple(qubits)
+    arity = profile.table.arity(gate)
+    if len(qubits) != arity:
+        raise ValueError(f"{gate} acts on {arity} qubits, but qubits names {len(qubits)}")
     name = native_name(gate, profile.gates)
     report = Report.start(profile, "pauli_error", None)
     built = resolve_op(
         profile.table, name, qubits, unknown_gates=cast(UnknownGates, unknown_gates), report=report
     )
-    # The effects on the gate that gives the noise are a part of the error, as in the Stim and
-    # Cirq exports. An effect that this error leaves out must have allow "omit".
-    on_gate = [e for e in profile.effects if e.gate in (name, built.gate.gate)]
+    # The effects that act on this gate are a part of the error, as in the Stim and Cirq
+    # exports. An effect that this error leaves out must have allow "omit".
+    erasing = Erasures(profile, readout=False)
+    others = [e for e in profile.effects if e.type not in ERASING]
     report.record_effects(
-        on_gate, lambda e: treatment(e, profile, "pauli_error", idle="omit", readout=False)
+        [
+            *erasing.gate_effects(name, qubits, built.gate),
+            *gate_effects(others, name, qubits, built.gate),
+        ],
+        lambda e: treatment(e, profile, "pauli_error", idle="omit", readout=False),
     )
-    erasures = Erasures(profile, readout=False).gate(name, qubits, built.gate)
+    erasures = erasing.gate(name, qubits, built.gate)
     channels = [
         *built.channels,
         *(

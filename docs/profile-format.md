@@ -373,9 +373,10 @@ effect of the same `type` and target without `qubits` on those qubits. When seve
 still match one place, all of them act, each with its own probability.
 
 A gate without its own noise takes the noise of the typical native gate (see `unknown_gates` in
-[Frameworks](frameworks.md)). Such a gate also takes the gate effects of that native gate, unless
-an effect names the gate itself. For example, on a device whose 2-qubit native gate is `cz`, a
-`cx` in the circuit takes the noise of `cz` and each effect on `cz`.
+[Frameworks](frameworks.md)). For each effect type, such a gate also takes the gate effects of
+that native gate, unless an effect of that type names the gate itself. For example, on a device
+whose 2-qubit native gate is `cz`, a `cx` in the circuit takes the noise of `cz` and each effect
+on `cz`.
 
 `"heralded": true` means that the device reports each event, for example when imaging finds an
 empty trap. Without `"heralded": true`, the event is silent.
