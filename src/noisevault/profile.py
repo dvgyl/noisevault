@@ -965,11 +965,13 @@ class Profile(_Model):
     def medians(self) -> DeviceMedians:
         """Device-wide medians over the enabled qubits and the usable ordered pairs.
 
-        ``t1_us`` and ``t2_us`` are in microseconds. ``readout_error`` is the mean of P(1|0) and
-        P(0|1) on each qubit. ``error_1q`` and ``error_2q`` are average infidelities of the
-        native gate that the exports use on each qubit or pair. A value is None when no qubit or
-        pair has it. The values include the ``unmodeled_error`` factors, as the exports apply
-        them, and ``profile.uncorrected().medians()`` gives the calibration as stated. ``nv diff``
+        ``t1_us`` and ``t2_us`` are in microseconds, as the profile states them. The exports
+        limit T2 to 2 T1. ``readout_error`` is the mean of P(1|0) and P(0|1) on each qubit.
+        ``error_1q`` and ``error_2q`` are average infidelities of the typical native gate on each
+        qubit or pair: the calibrated native gate with the most records, such as ``sx`` and
+        ``cz`` on IBM Heron. A value is None when no qubit or pair has it. The gate and readout
+        errors include the ``unmodeled_error`` factors, as the exports apply them, and
+        ``profile.uncorrected().medians()`` gives the calibration as stated. ``nv diff``
         compares these medians. The result is a plain dict, ready for ``json.dumps``.
         """
         from .diff import device_medians

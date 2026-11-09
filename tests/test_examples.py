@@ -203,7 +203,7 @@ def fenced(path: Path, language: str, *, runnable_only: bool = True) -> list[Blo
         skipped = runnable_only and NOT_RUN.search(before)
         if match.group(1) == language and not skipped:
             line = text.count("\n", 0, match.start()) + 1
-            blocks.append(Block(path.name, line, match.group(2)))
+            blocks.append(Block(path.relative_to(DOCS).as_posix(), line, match.group(2)))
     return blocks
 
 
