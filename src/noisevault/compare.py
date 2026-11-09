@@ -972,6 +972,10 @@ class _Fit:
             return self.surface.loglik_each(*point, counts[:, which]), x
 
         pieces = ((_LO, _HI),) if axis == "gate" else self.pieces
+        if len(pieces) > 1:
+            # One more climb over all pieces. It can follow a slope across a floor to a point
+            # that no climb inside one piece reaches from the start of that piece.
+            pieces = (*pieces, (pieces[0][0], pieces[-1][1]))
         lo, hi = (np.repeat(ends, n) for ends in zip(*pieces, strict=True))
         start = np.clip(np.tile(others, len(pieces)), lo, hi)
         top, _ = f(start, np.arange(len(start)), start)
