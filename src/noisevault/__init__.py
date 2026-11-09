@@ -29,7 +29,7 @@ from .errors import (
     SourceUnavailable,
     UnsupportedEffect,
 )
-from .profile import Profile, json_schema
+from .profile import DeviceMedians, Profile, json_schema
 from .report import Report
 
 if TYPE_CHECKING:
@@ -105,6 +105,7 @@ def __getattr__(name: str) -> Any:
 __all__ = [
     "AmbiguousRef",
     "CountsError",
+    "DeviceMedians",
     "DisabledGateError",
     "FingerprintMismatch",
     "LayoutError",
