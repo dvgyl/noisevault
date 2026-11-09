@@ -14,6 +14,40 @@ This file lists all notable changes to NoiseVault. Versions follow
 - The README gives the install line for a virtual environment from `uv venv`, which has no pip.
   The README section [Coming from fake backends](README.md#coming-from-fake-backends) shows the
   one-line change from `AerSimulator.from_backend` and what a profile adds.
+- Property-based tests with [Hypothesis](https://hypothesis.readthedocs.io) check the metric
+  conversions and channels, the profile loader, the counts format, and the agreement of the
+  Qiskit, Cirq, PennyLane and Stim exports with the reference simulator. CI runs 25 examples for
+  each property, with a fixed seed. `HYPOTHESIS_PROFILE=deep pytest tests/test_property_*.py`
+  runs 2000 examples for each property. `hypothesis` is in the `dev` extra.
+
+### Fixed
+
+- Thermal relaxation keeps a small coherence long after T1. For a gate 38 times longer than T1,
+  the coherence was 0, not 0.5 e^-19.
+- `metrics.check_metric` refuses a Pauli vector with a NaN entry. A profile with a Pauli entry
+  above 1, such as `1e308`, gives a validation error, not an `OverflowError`.
+- A profile with a gate on more qubits than the device has gives a validation error. Before, a
+  very large `qubits` value made the load run without end.
+- A profile with an integer too large for a float in a time field, or with a time outside the
+  calendar in UTC (such as `0001-01-01T00:30:00+01:00`), gives a validation error, not an
+  `OverflowError`. A counts file with such a `run_at` gives a `CountsError`.
+- A profile with `-0.0` has the same fingerprint as the profile with `0.0`. An op parameter of
+  `-0.0` in a counts file gives the same `sha256` as `0`. A file that has `-0.0` gets a new
+  fingerprint or `sha256`. No bundled profile has `-0.0`.
+- A time in a unit alias converts exactly. `"duration_us": 1.001` gives 1001 ns, not
+  1000.9999999999999 ns, so it has the same fingerprint as `"duration_ns": 1001`.
+- An error about a key with a line break stays on one line. This applies to the free-form
+  sections of a profile and to every key of a counts file.
+- `load_counts` gives a `CountsError` for an execution flag nested as deep as the JSON parser
+  takes, not a `RecursionError`.
+- With `bit_order` "qiskit", a `CountsError` names a refused key as the file writes it, not
+  reversed.
+- `load_counts` refuses `0` or `1` for a `SamplerV2` option that must be `false` or `true`, as
+  the counts format requires.
+- `nv check` gives the same numbers on every run. Before, the Cirq column could change in the
+  last bit, because Cirq joins its split density matrices in an order that changes between runs.
+- The Stim export keeps every digit of the arguments it copies, such as a readout flip
+  probability or kept noise. Before, Stim's text form rounded them to 6 significant digits.
 
 ### Changed
 
