@@ -53,6 +53,8 @@ This file lists all notable changes to NoiseVault. Versions follow
 
 ### Fixed
 
+- NoiseVault requires typer below 0.29. typer 0.29.0 removed `typer.main.get_click_type`,
+  so the CLI did not start on a new install.
 - The Qiskit export applies gate noise to a gate with a label, such as `qc.x(0, label="a")`.
   Before, Aer looked up the noise by the label, so a labelled gate had no noise, and the
   report still called its noise exact. Save instructions keep their labels.
