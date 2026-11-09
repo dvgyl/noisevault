@@ -28,6 +28,7 @@ from noisevault.errors import NoiseVaultError, install_hint
 from noisevault.reference import Op
 
 require("braket.emulation.local_emulator")
+from botocore.exceptions import ClientError  # noqa: E402
 from braket.emulation.local_emulator import LocalEmulator  # noqa: E402
 
 pytestmark = pytest.mark.filterwarnings("ignore::UserWarning")
@@ -57,6 +58,14 @@ def _load_script() -> ModuleType:
 
 
 script = _load_script()
+QUOTA = ClientError(
+    {"Error": {"Code": "ServiceQuotaExceededException", "Message": "too many tasks"}},
+    "CreateQuantumTask",
+)
+REFUSED = (
+    "An error occurred (ServiceQuotaExceededException) when calling the CreateQuantumTask"
+    " operation: too many tasks"
+)
 
 
 @dataclass
@@ -66,10 +75,11 @@ class Hardware:
     emulator: Any
     tasks: dict[str, Any] = field(default_factory=dict)
     refuse_from: int | None = None
+    failure: BaseException = field(default_factory=lambda: QUOTA)
 
     def run(self, specification: Any, shots: int) -> Any:
         if self.refuse_from is not None and len(self.tasks) >= self.refuse_from:
-            raise RuntimeError("ServiceQuotaExceededException")
+            raise self.failure
         task = self.emulator.run(specification, shots=shots)
         self.tasks[task.id] = task
         return task
@@ -340,7 +350,8 @@ def test_the_job_file_holds_the_plan_and_each_task_before_the_wait(
         garnet()
     assert caught.value.message == "stopped before the script saved the counts"
     assert str(caught.value.hint).startswith("run the same command again to collect them.")
-    first, task = seen[0]
+    first, task, end = seen[0]
+    assert end == {"end": 1}
     assert first["device"] == GARNET and first["program_set"] is True and first["shots"] == 400
     assert [c["name"] for c in first["planned"]] == [
         "ghz_chain",
@@ -376,8 +387,31 @@ def test_a_refused_first_task_leaves_no_job_file(garnet: Run) -> None:
     garnet.hardware.refuse_from = 0
     with pytest.raises(NoiseVaultError) as caught:
         garnet()
-    assert caught.value.message == "Braket refused the task (ServiceQuotaExceededException)"
+    assert caught.value.message == f"Braket refused the task ({REFUSED})"
     assert not garnet.pending.exists()
+
+
+@pytest.mark.parametrize("failure", [TimeoutError("read timed out"), KeyboardInterrupt()])
+def test_a_first_task_that_braket_did_not_confirm_keeps_the_job_file(
+    garnet: Run, failure: BaseException
+) -> None:
+    garnet.hardware.refuse_from = 0
+    garnet.hardware.failure = failure
+    with pytest.raises(NoiseVaultError) as caught:
+        garnet()
+    assert caught.value.message.startswith("Braket did not confirm the task (")
+    assert caught.value.message.endswith("). Braket may have accepted it")
+    assert caught.value.hint == (
+        f"look for a new task in the Amazon Braket console. If there is none, delete"
+        f" {garnet.pending} and run the command again. The script submits nothing while the job"
+        " file exists"
+    )
+    assert json.loads(garnet.pending.read_text().splitlines()[-1]) == {"end": 0}
+    garnet.hardware.refuse_from = None
+    with pytest.raises(NoiseVaultError) as again:
+        garnet()
+    assert again.value.message == f"{garnet.pending} records no task"
+    assert not garnet.hardware.tasks
 
 
 def test_tasks_accepted_before_a_refusal_are_collected_by_the_same_command(
@@ -388,15 +422,47 @@ def test_tasks_accepted_before_a_refusal_are_collected_by_the_same_command(
     with pytest.raises(NoiseVaultError) as caught:
         run(shots=100)
     assert caught.value.message.startswith("Braket accepted 2 tasks (")
-    assert caught.value.message.endswith(
-        "), and then the submission stopped (ServiceQuotaExceededException)"
-    )
+    assert caught.value.message.endswith(f"), and then the submission stopped ({REFUSED})")
     run.hardware.refuse_from = None
     measured = run(shots=100)
     assert [c.name for c in measured.circuits] == ["ghz_chain", "mirror"]
     assert len(run.hardware.tasks) == 2
     err = capsys.readouterr().err
     assert "warning: the counts leave out single_qubit, readout" in err
+
+
+def test_a_lost_connection_after_some_tasks_says_the_next_task_may_exist(tmp_path: Path) -> None:
+    run = _run(tmp_path, FORTE)
+    run.hardware.refuse_from = 1
+    run.hardware.failure = ConnectionError("connection reset")
+    with pytest.raises(NoiseVaultError) as caught:
+        run(shots=100)
+    assert caught.value.message.endswith(
+        "(connection reset). Braket may also have accepted the next task"
+    )
+
+
+def test_a_job_file_without_the_end_of_its_submission_waits_for_the_submitting_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run = _run(tmp_path, FORTE)
+    monkeypatch.setattr(script, "collect", lambda *a: (_ for _ in ()).throw(KeyboardInterrupt))
+    with pytest.raises(NoiseVaultError):
+        run(shots=100)
+    monkeypatch.undo()
+    lines = run.pending.read_text().splitlines()
+    assert json.loads(lines[-1]) == {"end": 4}
+    run.pending.write_text("\n".join(lines[:3]) + "\n")
+    with pytest.raises(NoiseVaultError) as caught:
+        run(shots=100)
+    assert caught.value.message == (
+        f"{run.pending} records 2 of 4 tasks and no end of the submission, so another run may"
+        " still submit tasks"
+    )
+    assert run.pending.exists()
+    measured = run(shots=100, partial=True)
+    assert [c.name for c in measured.circuits] == ["ghz_chain", "mirror"]
+    assert len(run.hardware.tasks) == 4
 
 
 def test_an_existing_counts_file_keeps_the_job_file_for_a_new_name(garnet: Run) -> None:

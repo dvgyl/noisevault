@@ -317,6 +317,14 @@ device properties, imports them with `nv.from_braket` and plans from the result.
   again. The script then collects the tasks that the job file records and submits nothing. If
   Braket accepts some tasks and refuses the next, the counts file holds the circuits of the
   accepted tasks.
+- **No second charge.** If Braket does not answer a request, for example after a timeout, the
+  task can exist all the same. The script then keeps the job file and stops. Look for the task in
+  the Amazon Braket console before you delete the job file. The script deletes the job file only
+  when Braket refuses the first task with an error.
+- **The end of the submission.** After the last task, the script adds an end line to the job
+  file. A collector refuses a job file that has fewer tasks than circuits and no end line,
+  because another run can still add tasks to it. If no run adds tasks, for example after a
+  power cut, give `--partial` to collect the recorded tasks.
 - **The calibration file.** Braket profiles are not in the catalog, so the script always saves
   the calibration to `<stem>.profile.json`. The printed `nv compare` command names that file.
   Braket gives no calibration history. Thus the counts bind to the calibration that the script

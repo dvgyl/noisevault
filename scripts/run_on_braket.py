@@ -154,6 +154,7 @@ class Submitted:
     shots: int
     program_set: bool
     tasks: tuple[tuple[str, tuple[str, ...]], ...]
+    ended: bool = False
 
 
 @dataclass(frozen=True)
@@ -432,11 +433,12 @@ def run(
     price: Price | None,
     confirm_cost: Decimal | None,
     collect_only: bool = False,
+    partial: bool = False,
 ) -> MeasuredCounts | None:
     """Plan, show the cost, submit and collect. Returns None when the script submits nothing."""
     tasks: list[Any]
     if collect_only or pending.exists():
-        record, submitted = _resume(pending)
+        record, submitted = _resume(pending, partial)
         try:
             target = open_target()
         except BaseException:
@@ -517,7 +519,8 @@ def run(
         except NoiseVaultError:
             raise
         except BaseException as exc:
-            if not created or target.local is not None:
+            refused = _refused(exc)
+            if target.local is not None or (refused and not created):
                 with contextlib.suppress(OSError):
                     record.drop()
                 if isinstance(exc, KeyboardInterrupt):
@@ -526,13 +529,24 @@ def run(
                     f"Braket refused the task ({_reason(exc)})",
                     hint="the script submitted nothing. Run the same command again",
                 ) from None
+            _end(record, created)
             os.close(record.fd)
+            maybe = "" if refused else ". Braket may also have accepted the next task"
+            if not created:
+                raise NoiseVaultError(
+                    f"Braket did not confirm the task ({_reason(exc)}). Braket may have accepted"
+                    " it",
+                    hint=f"look for a new task in {CONSOLE}. If there is none, delete {pending}"
+                    " and run the command again. The script submits nothing while the job file"
+                    " exists",
+                ) from None
             raise NoiseVaultError(
                 f"Braket accepted {_tasks(created)}, and then the submission stopped"
-                f" ({_reason(exc)})",
+                f" ({_reason(exc)}){maybe}",
                 hint="run the same command again to collect the counts of the accepted tasks."
                 f" {_new_run(pending)}",
             ) from None
+        _end(record, created)
         submitted = Submitted(
             target.arn,
             target.local is not None,
@@ -656,6 +670,7 @@ def _keep_elsewhere(
     data = first + b"".join(
         line({"task": task_id, "circuits": list(names)}) for task_id, names in created
     )
+    data += line({"end": len(created)})
     kept = beside(output, f".{created[-1][0].rsplit('/', 1)[-1]}.job.json")
     problem = f"could not save task {created[-1][0]} to {record.path} ({_reason(exc)})"
     with contextlib.suppress(OSError):
@@ -674,7 +689,29 @@ def _keep_elsewhere(
     )
 
 
-def _resume(pending: Path) -> tuple[Owned, Submitted]:
+def _end(record: Owned, created: Sequence[tuple[str, tuple[str, ...]]]) -> None:
+    """Mark the end of the submission, so a collector knows that no task follows."""
+    try:
+        record.append(line({"end": len(created)}))
+    except OSError as exc:
+        print(
+            f"warning: could not mark the end of the submission in {record.path}"
+            f" ({_reason(exc)}). To collect the tasks, add --partial",
+            file=sys.stderr,
+        )
+
+
+def _refused(exc: BaseException) -> bool:
+    """True when Braket surely created no task: the SDK refused the request before it sent it,
+    or the service answered with an error. A timeout or a lost connection is not a refusal."""
+    try:
+        from botocore.exceptions import ClientError
+    except ImportError:
+        return isinstance(exc, ValueError | TypeError)
+    return isinstance(exc, ClientError | ValueError | TypeError)
+
+
+def _resume(pending: Path, partial: bool = False) -> tuple[Owned, Submitted]:
     try:
         fd = os.open(pending, os.O_RDONLY | BINARY)
     except FileNotFoundError:
@@ -707,7 +744,15 @@ def _resume(pending: Path) -> tuple[Owned, Submitted]:
         if not submitted.tasks:
             raise NoiseVaultError(
                 f"{pending} records no task",
-                hint=f"look for the tasks in {CONSOLE}. {_new_run(pending)}",
+                hint=f"look for a new task in {CONSOLE}. {_new_run(pending)}",
+            )
+        expected = 1 if submitted.program_set else len(submitted.planned)
+        if len(submitted.tasks) < expected and not submitted.ended and not partial:
+            raise NoiseVaultError(
+                f"{pending} records {len(submitted.tasks)} of {expected} tasks and no end of the"
+                " submission, so another run may still submit tasks",
+                hint="wait until that run ends. If no run submits tasks now, run the same command"
+                f" with --partial to collect the tasks that {pending} records",
             )
     except BaseException:
         os.close(fd)
@@ -720,9 +765,17 @@ def _submitted(lines: list[bytes]) -> Submitted:
     profile = Profile.model_validate(first["profile"])
     planned = tuple(PlannedCircuit.model_validate(c) for c in first["planned"])
     names = {c.name for c in planned}
-    tasks = []
+    tasks: list[tuple[str, tuple[str, ...]]] = []
+    ended = False
     for raw in lines[1:]:
         entry = parse_json(raw)
+        if ended:
+            raise ValueError("a line follows the end of the submission")
+        if set(entry) == {"end"}:
+            if entry["end"] != len(tasks):
+                raise ValueError(f"the end line counts {entry['end']!r} tasks, not {len(tasks)}")
+            ended = True
+            continue
         task_id, circuits = entry["task"], tuple(entry["circuits"])
         if not isinstance(task_id, str) or not task_id or not set(circuits) <= names:
             raise ValueError(f"the task line {raw.decode('utf-8', 'replace').strip()} is not valid")
@@ -735,7 +788,7 @@ def _submitted(lines: list[bytes]) -> Submitted:
     )
     submitted = Submitted(
         first["device"], first["local"] is not None, profile, planned, shots,
-        bool(first["program_set"]), tuple(tasks),
+        bool(first["program_set"]), tuple(tasks), ended,
     )  # fmt: skip
     _bind(profile, counts_file(profile, submitted, probe, "check"))
     return submitted
@@ -883,6 +936,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             price=price,
             confirm_cost=args.confirm_cost,
             collect_only=collect_only,
+            partial=args.partial,
         )
     except NoiseVaultError as exc:
         return _fail(exc.message, exc.hint)
@@ -938,6 +992,11 @@ def _parser() -> argparse.ArgumentParser:
         metavar="JOB_FILE",
         type=Path,
         help="collect the tasks that JOB_FILE records instead of submitting new tasks",
+    )
+    parser.add_argument(
+        "--partial",
+        action="store_true",
+        help="collect the tasks of a job file whose submission stopped before its end",
     )
     parser.add_argument("--task-price", metavar="USD", type=_dollars, help="the price per task")
     parser.add_argument("--shot-price", metavar="USD", type=_dollars, help="the price per shot")
