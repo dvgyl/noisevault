@@ -431,6 +431,29 @@ def test_a_drawn_maximum_does_not_stop_on_the_flat_likelihood_below_the_relaxati
     assert_each_held_maximum_reaches_the_grid(found)
 
 
+@pytest.mark.xfail(strict=True, reason="a gate climb stops at a dip at a relaxation floor")
+def test_a_drawn_maximum_climbs_past_a_dip_at_a_second_relaxation_floor(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    found = drawn_maxima(monkeypatch, held=True)
+    profile = Profile.uniform(
+        "floors",
+        technology="superconducting",
+        num_qubits=2,
+        one_qubit_error=0.0010854862521506102,
+        two_qubit_error=0.01786004603558759,
+        readout_error=0.029542449455023528,
+        t1_us=77.11015151161024,
+        t2_us=154.22030302322048,
+        one_qubit_ns=40.0,
+        two_qubit_ns=300.0,
+    )
+    truth = scaled(profile, 9.355373806925966, 1.323293984127582)
+    counts = simulate(truth, plan(profile), shots=4000, seed=877647690, run_at=LATER)
+    compare(profile, counts)
+    assert_each_held_maximum_reaches_the_grid(found)
+
+
 def test_a_gate_response_equal_at_both_ends_of_the_range_still_moves() -> None:
     profile, counts = two_peaks(0, last=EQUAL_ENDS, truth=5.0)
     assert dict(counts.circuits[0].counts) == {"0": 529106, "1": 470894}
