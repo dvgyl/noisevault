@@ -202,15 +202,35 @@ What the report can list:
 - **Approximated.** The state after a terminal measurement includes the readout flips. Sampled
   results are exact. To inspect states, build the model with `readout=False`. `leakage` and
   `atom_loss` effects, as an erasure. An idle `erasure` on a qubit with T1 or T2, because it
-  acts after the relaxation of the wait.
+  acts after the relaxation of the wait. The results of a qubit that the circuit measures more
+  than one time, when `run()` samples from one simulation. These results share one readout flip.
 - **Omitted.** The preparation error of the initial state, idle time outside `WaitGate`, and
   crosstalk and coherent effects.
 
+`run()` on a simulator built with `noise=model` samples every repetition from one simulation
+when it can. `cirq.DensityMatrixSimulator` does so when no gate acts on a qubit after a
+measurement of that qubit. `cirq.Simulator` does so only for a circuit of measurements only,
+and so does `cirq.DensityMatrixSimulator` when the profile has a heralded effect. Cirq then
+uses no `confusion_map` from the model, so the model puts the readout noise of each qubit
+before the first measurement of that qubit. The results are as follows:
+
+- On `cirq.DensityMatrixSimulator`, each result has the exact readout error. If the circuit
+  measures a qubit more than one time, the results of that qubit share one readout flip. On the
+  device, each measurement flips independently. The model gives one warning.
+- On `cirq.DensityMatrixSimulator`, a qubit with a readout effect such as `erasure` can have
+  one measurement only. Each measurement can erase the qubit again, but all results come from
+  one state. For a second measurement, the model raises `UnsupportedEffect`.
+- On `cirq.Simulator`, each readout flip or erasure would occur in every repetition or in
+  none. The model raises `UnsupportedEffect` when a measured qubit has readout error or a
+  readout effect. Use `cirq.DensityMatrixSimulator(noise=model)`.
+- On both simulators, a heralded effect on readout raises `UnsupportedEffect`, because no
+  herald would be recorded.
+
+A simulator without `noise` that runs `circuit.with_noise(model)` has none of these limits. It
+gives each measurement its own flip, erasure and herald.
+
 A heralded effect adds a measurement key for each erasure location. A herald is a mid-circuit
-measurement, so Cirq simulates each repetition separately. A simulator built with `noise=model`
-samples every repetition of a circuit of measurements only from one simulation. Each erasure
-would then occur in every repetition or in none, and no herald would be recorded. The model
-raises `UnsupportedEffect` in that case. Simulate `circuit.with_noise(model)` instead.
+measurement, so Cirq simulates each repetition separately.
 [Profile format](profile-format.md#effects) gives the rules for effects.
 
 Classically controlled operations raise an error that says how to restructure the circuit. An

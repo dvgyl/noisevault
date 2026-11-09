@@ -398,6 +398,189 @@ def test_mid_circuit_readout_error_leaves_the_true_state() -> None:
     assert b[a == 1].mean() > 0.8 and b[a == 0].mean() > 0.8
 
 
+# A simulator's run() samples every repetition from one simulation when no gate acts on a
+# qubit after a measurement of that qubit. ----------------------------------------------------
+
+READOUT = ((0.1, 0.3), (0.02, 0.2))  # (P(1|0), P(0|1)) of qubit 0 and of qubit 1
+SHARED_FLIP = "share one readout flip"
+
+
+def _readout_only(*errors: tuple[float, float], **uniform) -> Profile:
+    """Gates with no noise. Qubit i has the readout errors (P(1|0), P(0|1)) = ``errors[i]``."""
+    kwargs = {"technology": "neutral_atom", "one_qubit_error": 0, "two_qubit_error": 0} | uniform
+    data = Profile.uniform("readout", num_qubits=max(len(errors), 2), **kwargs).to_dict()
+    if errors:
+        data["qubits"] = [
+            {"index": i, "readout": {"p1_given_0": p10, "p0_given_1": p01}}
+            for i, (p10, p01) in enumerate(errors)
+        ]
+    return Profile.from_dict(data)
+
+
+def _assert_rate(bits, expected: float) -> None:
+    """The rate of 1 in ``bits`` agrees with ``expected`` within 5 standard errors."""
+    sigma = np.sqrt(expected * (1 - expected) / len(bits))
+    assert abs(np.mean(bits) - expected) <= 5 * sigma, (np.mean(bits), expected)
+
+
+def _shared_flips(model) -> int:
+    return [a.how for a in model.report.approximated].count(SHARED_FLIP)
+
+
+_A, _B = cirq.LineQubit.range(2)
+
+
+@pytest.mark.parametrize(
+    ("circuit", "expected"),
+    [
+        (
+            cirq.Circuit(cirq.X(_B), cirq.measure(_A, _B, key="m"), cirq.measure(_A, key="x")),
+            {"m": (0.1, 0.8), "x": (0.1,)},
+        ),
+        (
+            cirq.Circuit(cirq.measure(_A, key="m1"), cirq.measure(_A, key="m2")),
+            {"m1": (0.1,), "m2": (0.1,)},
+        ),
+        (
+            cirq.Circuit(cirq.X(_A), cirq.measure(_A, key="m1"), cirq.measure(_B, _A, key="m2")),
+            {"m1": (0.7,), "m2": (0.02, 0.7)},
+        ),
+    ],
+    ids=["two qubits, then one of them", "one qubit two times", "one qubit, then two"],
+)
+def test_run_gives_each_result_of_a_qubit_measured_again_its_readout_error(
+    circuit, expected
+) -> None:
+    """Cirq samples these circuits from one simulation, and ignores a ``confusion_map`` there."""
+    model = to_cirq(_readout_only(*READOUT))
+    shots = 20_000
+    with pytest.warns(NoiseApproximationWarning, match=SHARED_FLIP):
+        result = cirq.DensityMatrixSimulator(noise=model, seed=1).run(circuit, repetitions=shots)
+    for key, rates in expected.items():
+        for position, rate in enumerate(rates):
+            _assert_rate(result.measurements[key][:, position], rate)
+
+
+def test_a_shared_readout_flip_is_reported_and_warned_one_time() -> None:
+    model = to_cirq(_readout_only(*READOUT))
+    simulator = cirq.DensityMatrixSimulator(noise=model, seed=1)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        each_once = cirq.Circuit(cirq.measure(_A, key="m1"), cirq.measure(_B, key="m2"))
+        simulator.run(each_once, repetitions=10)
+    assert _shared_flips(model) == 0
+    with pytest.warns(NoiseApproximationWarning, match="with_noise") as caught:
+        result = simulator.run(
+            cirq.Circuit(cirq.measure(_A, key="m1"), cirq.measure(_A, key="m2")), repetitions=2000
+        )
+        simulator.run(
+            cirq.Circuit(cirq.measure(_B, key="m1"), cirq.measure(_B, key="m2")), repetitions=10
+        )
+    assert len([w for w in caught if SHARED_FLIP in str(w.message)]) == 1
+    assert _shared_flips(model) == 1
+    # One flip for the two results. On the device, P(m1 = m2) = 0.9**2 + 0.1**2 = 0.82.
+    assert np.array_equal(result.measurements["m1"], result.measurements["m2"])
+
+
+def test_with_noise_does_not_use_the_rule_for_one_simulation() -> None:
+    """Only run() samples from one simulation. Other callers get a flip for each measurement."""
+    model = to_cirq(_readout_only(*READOUT))
+    circuit = cirq.Circuit(cirq.measure(_A, key="m1"), cirq.measure(_A, key="m2"))
+
+    def noisy() -> cirq.Circuit:
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            composed = circuit.with_noise(model)
+        first, flip, second = composed.all_operations()
+        assert first.gate.confusion_map and isinstance(flip.gate, cirq.KrausChannel)
+        assert not second.gate.confusion_map
+        return composed
+
+    composed = noisy()
+    with pytest.warns(NoiseApproximationWarning, match=SHARED_FLIP):
+        cirq.DensityMatrixSimulator(noise=model, seed=1).run(circuit, repetitions=10)
+    noisy()  # the run of the same circuit did not change the result of with_noise
+    shots = 3000
+    result = cirq.Simulator(seed=4).run(composed, repetitions=shots)
+    m1, m2 = result.measurements["m1"][:, 0], result.measurements["m2"][:, 0]
+    _assert_rate(m1, 0.1)
+    _assert_rate(m2, 0.1)
+    _assert_rate(m1 & m2, 0.01)
+
+
+def test_a_trajectory_run_of_measurements_only_refuses_readout_error() -> None:
+    """``cirq.Simulator`` would sample each readout flip one time for all repetitions."""
+    model = to_cirq(_readout_only(readout_error=0.2))
+    circuit = cirq.Circuit(cirq.measure(_A, key="m"))
+    shots = 400
+    exact = cirq.DensityMatrixSimulator(noise=model, seed=3).run(circuit, repetitions=shots)
+    _assert_rate(exact.measurements["m"][:, 0], 0.2)
+    for _ in range(2):  # the model must not reuse the noisy circuit of the run before
+        with pytest.raises(UnsupportedEffect, match="one simulation") as refused:
+            cirq.Simulator(noise=model, seed=3).run(circuit, repetitions=shots)
+        assert "cirq.DensityMatrixSimulator" in refused.value.hint
+        assert "circuit.with_noise(model)" in refused.value.hint
+    composed = cirq.Simulator(seed=3).run(circuit.with_noise(model), repetitions=shots)
+    _assert_rate(composed.measurements["m"][:, 0], 0.2)
+
+
+@pytest.mark.parametrize(
+    ("profile", "readout"),
+    [
+        ({}, True),
+        ({"readout_error": 0.0}, True),
+        ({"readout_error": 0.2}, False),
+        ({"effects": [{"type": "erasure", "gate": "cz", "prob": 0.5, "heralded": True}]}, True),
+    ],
+    ids=["unknown readout", "readout error 0", "readout=False", "a heralded effect on a gate"],
+)
+def test_a_trajectory_run_of_measurements_only_runs_when_it_gets_no_random_channel(
+    profile, readout
+) -> None:
+    model = to_cirq(_readout_only(**profile), readout=readout)
+    circuit = cirq.Circuit(cirq.measure(_A, _B, key="m"), cirq.measure(_A, key="again"))
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        result = cirq.Simulator(noise=model, seed=1).run(circuit, repetitions=50)
+    assert result.measurements["m"].shape == (50, 2) and not result.measurements["m"].any()
+    assert not result.measurements["again"].any()
+    assert _shared_flips(model) == 0
+
+
+def test_a_run_of_measurements_only_refuses_a_readout_effect_that_it_cannot_sample() -> None:
+    """An erasure changes the state, so a second measurement needs a second erasure."""
+    effect = {"type": "erasure", "on": "readout", "prob": 0.5}
+    model = to_cirq(_readout_only(effects=[effect]))
+    once = cirq.Circuit(cirq.measure(_A, key="m"))
+    twice = cirq.Circuit(cirq.measure(_A, key="m1"), cirq.measure(_A, key="m2"))
+    exact = cirq.DensityMatrixSimulator(noise=model, seed=2).run(once, repetitions=2000)
+    _assert_rate(exact.measurements["m"][:, 0], 0.25)  # an erasure gives 1 half the time
+    with pytest.raises(UnsupportedEffect, match="more than one time") as refused:
+        cirq.DensityMatrixSimulator(noise=model, seed=2).run(twice, repetitions=10)
+    assert "circuit.with_noise(model)" in refused.value.hint
+    with pytest.raises(UnsupportedEffect, match="one simulation") as refused:
+        cirq.Simulator(noise=model, seed=2).run(once, repetitions=10)
+    assert "cirq.DensityMatrixSimulator" in refused.value.hint
+    result = cirq.Simulator(seed=2).run(twice.with_noise(model), repetitions=2000)
+    _assert_rate(result.measurements["m1"][:, 0], 0.25)
+    _assert_rate(result.measurements["m2"][:, 0], 0.375)  # 0.25 * 0.75 + 0.75 * 0.25
+
+
+@pytest.mark.parametrize("simulator", [cirq.DensityMatrixSimulator, cirq.Simulator])
+def test_a_run_of_gates_then_terminal_measurements_agrees_with_with_noise(simulator) -> None:
+    model = to_cirq(_readout_only(*READOUT))
+    circuit = cirq.Circuit(cirq.H(_A), cirq.X(_B), cirq.measure(_A, _B, key="m"))
+    shots = 4000
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        direct = simulator(noise=model, seed=7).run(circuit, repetitions=shots)
+        composed = simulator(seed=8).run(circuit.with_noise(model), repetitions=shots)
+    for result in (direct, composed):
+        _assert_rate(result.measurements["m"][:, 0], 0.4)  # 0.5 * 0.1 + 0.5 * (1 - 0.3)
+        _assert_rate(result.measurements["m"][:, 1], 0.8)
+    assert _shared_flips(model) == 0
+
+
 def test_trajectory_runs_convert_the_circuit_once() -> None:
     model = to_cirq(migrated(MANILA_V01))
     q = cirq.LineQubit.range(2)

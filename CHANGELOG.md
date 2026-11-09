@@ -120,6 +120,12 @@ This file lists all notable changes to NoiseVault. Versions follow
   `qiskit_ibm_runtime.server_side` and gave the top-level `SamplerV2` name to a client-side
   sampler. The new function `noisevault.compat.ibm_sampler()` returns the server-side class on
   every supported release.
+- The Cirq model gives correct readout error when `run()` samples every repetition from one
+  simulation. Before, `cirq.DensityMatrixSimulator(noise=model)` lost the readout error of a
+  qubit that a circuit measured again with no gate between, and `cirq.Simulator(noise=model)`
+  gave a circuit of measurements only the same readout flips in every repetition. The second
+  case now raises `UnsupportedEffect`. [docs/frameworks.md](docs/frameworks.md#cirq) gives the
+  rules.
 - The Qiskit export applies gate noise to a gate with a label, such as `qc.x(0, label="a")`.
   Before, Aer looked up the noise by the label, so a labelled gate had no noise, and the
   report still called its noise exact. Save instructions keep their labels.

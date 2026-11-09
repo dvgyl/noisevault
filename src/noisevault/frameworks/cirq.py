@@ -5,7 +5,7 @@ import re
 import sys
 from collections import defaultdict
 from collections.abc import Container, Iterable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from itertools import product
 from typing import Any, get_args
 
@@ -323,6 +323,15 @@ class NoiseVaultNoiseModel(cirq.NoiseModel):
     state that ``simulate()`` returns includes the flips. To inspect states, use
     ``readout=False`` or remove the final measurements.
 
+    A simulator's ``run()`` samples every repetition from one simulation when it can. The
+    density-matrix simulator does so when no gate acts on a qubit after a measurement of that
+    qubit. If such a circuit measures a qubit more than one time, the results of that qubit
+    share one readout flip. Each result alone has the exact readout error, and the report
+    records the approximation. ``cirq.Simulator`` samples a circuit of measurements only from
+    one simulation. There, the model raises ``UnsupportedEffect`` if a measured qubit has
+    readout error, because each flip would occur in every repetition or in none.
+    ``circuit.with_noise(model)`` on a simulator without ``noise`` has neither limit.
+
     Report events count each noisy circuit that the model builds, not shots or runs. Cirq asks
     for a noisy circuit once per run or once per part of a run. A repeat of the last circuit
     uses the noisy circuit again.
@@ -349,8 +358,9 @@ class NoiseVaultNoiseModel(cirq.NoiseModel):
         self._erasures = Erasures(profile, readout=readout)
         self._moment: int | None = None  # index of the moment that _noisy works on
         self._keys: set[str] = set()  # measurement keys in use in this noisy circuit
-        # The last moments, their noisy moments, and whether heralds there need a warning.
-        self._last: tuple[tuple[cirq.Moment, ...], list[cirq.OP_TREE], bool] | None = None
+        # The last moments, the type of the simulator that samples them from one simulation
+        # (NoneType if there is none), and their noisy moments.
+        self._last: tuple[tuple[cirq.Moment, ...], type, list[cirq.OP_TREE]] | None = None
 
     def __repr__(self) -> str:
         return f"NoiseVaultNoiseModel({self.profile.id}, nv:{self.profile.fingerprint[:12]})"
@@ -364,14 +374,20 @@ class NoiseVaultNoiseModel(cirq.NoiseModel):
         self, moments: Iterable[cirq.Moment], system_qubits: Sequence[cirq.Qid]
     ) -> Sequence[cirq.OP_TREE]:
         moments = tuple(moments)
+        # A simulator's run() simulates moments of measurements only one time. It samples every
+        # repetition from the final state, with the measurements of the original circuit.
+        simulator = None
+        if all(isinstance(op.gate, cirq.MeasurementGate) for moment in moments for op in moment):
+            simulator = _run_simulator()
         # Cirq's per-shot paths (trajectories, mid-circuit measurements) ask for the same
         # moments on every repetition. The model returns its last result again, so these paths
         # stay fast and report events do not count shots.
-        if self._last is not None and self._last[0] == moments:
-            if self._last[2]:
-                self._refuse_one_simulation()
-            return self._last[1]
+        if self._last is not None and self._last[:2] == (moments, type(simulator)):
+            return self._last[2]
         self._qubits.physical(system_qubits)
+        once = None
+        if simulator is not None:
+            once = _OneSimulation(isinstance(simulator, cirq.DensityMatrixSimulator))
         later: set[cirq.Qid] = set()
         terminal: set[tuple[int, cirq.Operation]] = set()
         for i in reversed(range(len(moments))):
@@ -381,35 +397,25 @@ class NoiseVaultNoiseModel(cirq.NoiseModel):
             later.update(moments[i].qubits)
         noisy: list[cirq.OP_TREE] = []
         self._keys = {key for moment in moments for key in cirq.measurement_key_names(moment)}
-        circuit_keys = len(self._keys)
-        for i, moment in enumerate(moments):
-            self._moment = i
-            noisy.append([self._noisy(op, terminal=(i, op) in terminal) for op in moment])
-        self._moment = None
-        ops = [op for moment in moments for op in moment]
-        # A simulator's run() samples every repetition of such a circuit from one simulation.
-        sampled = all(isinstance(op.gate, cirq.MeasurementGate) for op in ops)
-        heralds = len(self._keys) > circuit_keys and sampled
-        self._last = (moments, noisy, heralds)
-        if heralds:
-            self._refuse_one_simulation()
+        try:
+            for i, moment in enumerate(moments):
+                self._moment = i
+                noisy.append(
+                    [self._noisy(op, terminal=(i, op) in terminal, once=once) for op in moment]
+                )
+        finally:
+            self._moment = None
+        self._last = (moments, type(simulator), noisy)
         return noisy
-
-    def _refuse_one_simulation(self) -> None:
-        if _inside_simulator_run():
-            raise UnsupportedEffect(
-                "a circuit of measurements only with a heralded effect: a Cirq simulator built"
-                " with noise=model samples every repetition from one simulation. Each erasure"
-                " would then occur in every repetition or in none, with no herald record",
-                hint="simulate circuit.with_noise(model) instead",
-            )
 
     def noisy_operation(self, operation: cirq.Operation) -> cirq.OP_TREE:
         """The operation followed by its noise. A measurement gets a ``confusion_map``."""
         self._keys |= cirq.measurement_key_names(operation)  # a herald must not reuse them
         return self._noisy(operation, terminal=False)
 
-    def _noisy(self, operation: cirq.Operation, *, terminal: bool) -> cirq.OP_TREE:
+    def _noisy(
+        self, operation: cirq.Operation, *, terminal: bool, once: _OneSimulation | None = None
+    ) -> cirq.OP_TREE:
         gate = operation.gate
         if not operation.qubits:
             return operation
@@ -429,7 +435,7 @@ class NoiseVaultNoiseModel(cirq.NoiseModel):
         if cirq.is_measurement(gate):
             self._refuse_disabled("measure", physical)
             if isinstance(gate, cirq.MeasurementGate):
-                return self._measure(operation, gate, physical, terminal=terminal)
+                return self._measure(operation, gate, physical, terminal=terminal, once=once)
             return self._other_measurement(operation)
         if isinstance(gate, cirq.ResetChannel):
             self._refuse_disabled("reset", physical)
@@ -527,6 +533,7 @@ class NoiseVaultNoiseModel(cirq.NoiseModel):
         physical: tuple[int, ...],
         *,
         terminal: bool,
+        once: _OneSimulation | None,
     ) -> cirq.OP_TREE:
         if not self._readout:
             return operation
@@ -535,9 +542,89 @@ class NoiseVaultNoiseModel(cirq.NoiseModel):
                 f"{operation!r} already has a confusion_map. Remove the confusion_map, or pass"
                 " readout=False to keep your own readout model"
             )
+        if once is not None:
+            return self._measure_once(operation, physical, once)
         pairs = zip(operation.qubits, physical, strict=True)
         erased = [op for q, i in pairs for op in self._erase(q, i, self._erasures.readout(i))]
         return [*erased, self._read(operation, gate, physical, terminal=terminal)]
+
+    def _measure_once(
+        self, operation: cirq.Operation, physical: tuple[int, ...], once: _OneSimulation
+    ) -> cirq.OP_TREE:
+        """The readout noise of a measurement that Cirq samples from the state of one simulation.
+
+        Cirq samples the measurement of the original circuit, so a ``confusion_map`` has no
+        effect. All results come from one state. Thus each qubit gets its readout noise one
+        time, as channels before its first measurement.
+        """
+        noise: list[cirq.Operation] = []
+        for qid, index in zip(operation.qubits, physical, strict=True):
+            erasures = self._erasures.readout(index)
+            matrix = readout_matrix(self._table.qubit(index))
+            if matrix is None:
+                self.report.mark_unknown(f"readout of qubit {index}")
+            flips = matrix is not None and not np.array_equal(matrix, np.eye(2))
+            again = qid in once.measured
+            self._refuse_one_simulation(index, erasures, flips=flips, again=again, once=once)
+            if not again:
+                once.measured.add(qid)
+                noise += self._erase(qid, index, erasures)
+                if matrix is not None:
+                    noise.append(self._flip(qid, matrix))
+            elif flips:
+                how = "share one readout flip"
+                detail = (
+                    "each result alone has the exact readout error. On the device, each"
+                    " measurement flips independently. For independent flips, simulate"
+                    " circuit.with_noise(model)"
+                )
+                self.report.approximate(
+                    "results of a qubit that the circuit measures more than one time, when run()"
+                    " samples from one simulation",
+                    how,
+                    detail,
+                )
+                self.report.warn_once(
+                    "shared_readout_flip",
+                    "The circuit measures a qubit more than one time, and Cirq samples every"
+                    f" repetition from one simulation. The results of the qubit {how}: {detail}.",
+                )
+        return [*noise, operation]
+
+    def _refuse_one_simulation(
+        self,
+        index: int,
+        erasures: Sequence[Erasure],
+        *,
+        flips: bool,
+        again: bool,
+        once: _OneSimulation,
+    ) -> None:
+        """Refuse readout noise on qubit ``index`` that one simulation cannot give."""
+        if any(erasure.heralded for erasure in erasures):
+            raise UnsupportedEffect(
+                "a circuit of measurements only with a heralded effect: a Cirq simulator built"
+                " with noise=model samples every repetition from one simulation. Each erasure"
+                " would then occur in every repetition or in none, with no herald record",
+                hint="simulate circuit.with_noise(model) instead",
+            )
+        if (flips or erasures) and not once.density_matrix:
+            raise UnsupportedEffect(
+                "a circuit of measurements only with readout error or a readout effect on qubit"
+                f" {index}: a Cirq simulator that keeps no density matrix samples every"
+                " repetition from one simulation. Each readout flip or erasure would then occur"
+                " in every repetition or in none",
+                hint="use cirq.DensityMatrixSimulator(noise=model), or simulate"
+                " circuit.with_noise(model)",
+            )
+        if erasures and again:
+            raise UnsupportedEffect(
+                f"a readout effect on qubit {index}, which the circuit measures more than one"
+                " time: a Cirq simulator built with noise=model samples every repetition of"
+                " these measurements from one simulation. Each measurement can erase the qubit"
+                " again, but all results would come from one state",
+                hint="simulate circuit.with_noise(model) instead",
+            )
 
     def _read(
         self,
@@ -557,15 +644,7 @@ class NoiseVaultNoiseModel(cirq.NoiseModel):
         if not matrices:
             return operation
         if terminal:
-            self.report.approximate(
-                "state after a terminal measurement",
-                "includes the readout flips",
-                "sampled results are exact. Inspect states with readout=False",
-            )
-            flips = [
-                cirq.KrausChannel(_assignment_kraus(m)).on(operation.qubits[position])
-                for position, m in matrices.items()
-            ]
+            flips = [self._flip(operation.qubits[position], m) for position, m in matrices.items()]
             return [*flips, operation]
         noisy = cirq.MeasurementGate(
             gate.num_qubits(),
@@ -575,6 +654,15 @@ class NoiseVaultNoiseModel(cirq.NoiseModel):
             confusion_map={(position,): m.T for position, m in matrices.items()},  # rows: truth
         )
         return noisy.on(*operation.qubits).with_tags(*operation.tags)
+
+    def _flip(self, qid: cirq.Qid, matrix: np.ndarray) -> cirq.Operation:
+        """A channel that gives a later Z measurement of ``qid`` the assignment error."""
+        self.report.approximate(
+            "state after a terminal measurement",
+            "includes the readout flips",
+            "sampled results are exact. Inspect states with readout=False",
+        )
+        return cirq.KrausChannel(_assignment_kraus(matrix)).on(qid)
 
     def _reset(self, operation: cirq.Operation, physical: tuple[int, ...]) -> cirq.OP_TREE:
         error = self._table.qubit(physical[0]).prep_error
@@ -599,17 +687,27 @@ class NoiseVaultNoiseModel(cirq.NoiseModel):
         return out
 
 
-def _inside_simulator_run() -> bool:
-    """True inside a Cirq simulator's run(), which simulates a circuit of measurements only
-    one time for all repetitions. simulate() and Circuit.with_noise decide each herald anew."""
+@dataclass
+class _OneSimulation:
+    """A simulator's run() that samples every repetition of measurements from one simulation."""
+
+    density_matrix: bool  # if False, the simulator samples each channel one time
+    measured: set[cirq.Qid] = field(default_factory=set)  # qubits that have their readout noise
+
+
+def _run_simulator() -> Any:
+    """The Cirq simulator whose run() calls the noise model, or None when no run() does.
+
+    run() simulates a circuit of measurements only one time for all repetitions. simulate() and
+    Circuit.with_noise give each result its own simulation."""
     frame = sys._getframe(1)
     while frame is not None:
         if frame.f_code.co_name == "_run" and frame.f_globals.get("__name__", "").startswith(
             "cirq.sim"
         ):
-            return True
+            return frame.f_locals.get("self")
         frame = frame.f_back  # type: ignore[assignment]
-    return False
+    return None
 
 
 def _assignment_kraus(matrix: np.ndarray) -> list[np.ndarray]:
