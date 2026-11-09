@@ -174,6 +174,8 @@ This file lists all notable changes to NoiseVault. Versions follow
   disabled `delay` on some qubits got a different chain and a false warning.
 - `to_pennylane` refuses a `readout` value that is not `True` or `False`. Before,
   `readout="none"` turned readout error on.
+- The Stim export applies the noise of a calibrated `ii` to `II`. Before, `II` was always
+  noiseless, and the report did not state that the export left out the calibrated noise.
 
 ### Changed
 

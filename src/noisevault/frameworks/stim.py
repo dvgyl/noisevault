@@ -626,6 +626,10 @@ class _Exporter:
         for q in qubits:
             self._refuse(name, f"{stim_name} {q}", (self.physical[q],))
 
+    def _calibrated(self, name: str, wires: tuple[int, ...]) -> bool:
+        found = self.table.gate(name, wires)
+        return isinstance(found, GateNoise) and found.state == "calibrated"
+
     def _refuse(self, name: str, instruction: str, wires: tuple[int, ...]) -> None:
         try:
             refuse_disabled(self.table.gate(name, wires))
@@ -701,7 +705,7 @@ class _Exporter:
         wires = tuple(self.physical[q] for q in qubits)
         name = gate_name(stim_name, self.defined)
         instruction = f"{stim_name} {' '.join(map(str, qubits))}"
-        if stim_name in _NOISELESS:
+        if stim_name in _NOISELESS and not self._calibrated(name, wires):
             self._refuse(name, instruction, wires)
             return _Resolved(())
         before = {event: Counter(counts) for event, counts in self.report.events.items()}

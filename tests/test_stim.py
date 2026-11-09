@@ -339,12 +339,44 @@ def test_a_two_qubit_identity_the_profile_disables_is_refused():
         profile = _all_to_all(3, "ii", {"qubits": 2, **spec})
         return to_stim(profile, "II 0 1", layout=[2, 0], readout="none")
 
-    for spec in ({}, {"virtual": True}, {"avg_infidelity": 0.02}):
+    for spec in ({}, {"virtual": True}):
         assert str(export(spec)) == "II 0 1"
     pattern = r"^II 0 1 \(physical qubits 2-0\): ii on qubits 2-0 is disabled in this profile"
     with pytest.raises(DisabledGateError, match=pattern) as caught:
         export({"disabled": True})
     assert caught.value.hint is None
+
+
+@pytest.mark.parametrize(
+    ("spec", "records", "layout", "process_error"),
+    [
+        # Process infidelity of a 2-qubit depolarizing channel is 5/4 of its average infidelity.
+        ({"avg_infidelity": 0.02}, [], [2, 0], 0.025),
+        (
+            {"avg_infidelity": 0.2},
+            [{"gate": "ii", "qubits": [0, 1], "avg_infidelity": 0.12}],
+            None,
+            0.15,
+        ),
+    ],
+    ids=["default", "record"],
+)
+def test_a_calibrated_two_qubit_identity_gets_its_noise(spec, records, layout, process_error):
+    profile = _all_to_all(3, "ii", {"qubits": 2, **spec})
+    profile = Profile.model_validate({**profile.model_dump(), "calibrations": records})
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        out = to_stim(profile, "II 0 1", layout=layout, readout="none", unknown_gates="error")
+    assert [inst.name for inst in out] == ["II", "PAULI_CHANNEL_2"]
+    assert [target.value for target in out[1].targets_copy()] == [0, 1]
+    assert out[1].gate_args_copy() == pytest.approx([process_error / 15] * 15, abs=1e-12)
+
+
+def test_an_uncalibrated_pair_of_a_two_qubit_identity_gets_no_noise():
+    profile = _all_to_all(3, "ii", {"qubits": 2})
+    record = {"gate": "ii", "qubits": [0, 1], "avg_infidelity": 0.12}
+    profile = Profile.model_validate({**profile.model_dump(), "calibrations": [record]})
+    assert str(to_stim(profile, "II 1 2", readout="none", unknown_gates="error")) == "II 1 2"
 
 
 _USABLE_PAIRS = (

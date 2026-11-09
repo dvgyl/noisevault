@@ -379,6 +379,9 @@ In `MPP` and `SPP`, the export first reduces each Pauli product. Pauli factors o
 multiply. A qubit whose Pauli factors cancel is neither read out nor busy. A product that reduces
 to the identity gets no readout flip.
 
+`II`, the 2-qubit identity, gets the noise of `ii` on a pair where the profile calibrates `ii`.
+On other pairs, `II` is noiseless.
+
 Options:
 
 - `readout="symmetrize"` (default) flips each result with the mean of P(1|0) and P(0|1).
