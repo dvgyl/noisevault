@@ -320,7 +320,7 @@ largest gap is 0.24. For the p-value, 13 of the 480 cases have such a set, and t
 ### Outcomes the profile rules out
 
 An outcome can have probability 0 at every factor, as when the profile states a readout error of
-exactly 0 for a measured qubit. No pair of factors explains a shot on such an outcome, so those
+exactly 0, or no readout error, for a measured qubit. No pair of factors explains a shot on such an outcome, so those
 shots leave the likelihood, and the fit uses the other shots. The shots still count in the TVDs,
 and they set p to 0, so the fit reads `ruled out`. When the profile rules out every shot, the
 counts identify neither factor.

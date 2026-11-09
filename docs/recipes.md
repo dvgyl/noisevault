@@ -432,8 +432,8 @@ hold each factor with its interval. A fit beyond shot noise has p below 0.01. Su
 that no pair of factors explains every circuit, as when one qubit reads out worse than its
 calibration states. `nv compare` still prints the best pair and exits with status 0.
 
-A profile can state a readout error of exactly 0 for a measured qubit. A wrong reading on that qubit
-then has probability 0 at every factor. `nv compare` counts the shots that read such a qubit wrong,
+A profile can state a readout error of exactly 0 for a measured qubit, or state no readout error.
+A wrong reading on that qubit then has probability 0 at every factor. `nv compare` counts the shots that read such a qubit wrong,
 reports p = 0 and names the qubit.
 [Limitations](limitations.md#what-the-unmodeled-error-factors-absorb) lists what the factors absorb
 and what they cannot express.

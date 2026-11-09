@@ -1402,10 +1402,9 @@ def _ruled_out(
         width = len(c.qubits)
         unread = surface.before_readout[:, part].reshape(-1, *(2,) * width)
         for i, pair in enumerate(pairs):
-            if pair is None:
-                continue
+            p01, p10 = pair or (0.0, 0.0)
             marginal = unread.sum(axis=tuple(a for a in range(1, width + 1) if a != i + 1))
-            for bit, stated in ((1, pair[0]), (0, pair[1])):
+            for bit, stated in ((1, p01), (0, p10)):
                 if stated or marginal[:, bit].max() > IMPOSSIBLE:
                     continue
                 cells = [k for k in np.flatnonzero(shots) if outcome_bits(k, width)[i] == str(bit)]

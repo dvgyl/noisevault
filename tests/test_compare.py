@@ -1081,6 +1081,13 @@ def test_counts_the_profile_rules_out_entirely_identify_neither_factor() -> None
     assert result.p_value == 0 and result.impossible_shots == 4000
 
 
+def test_a_ruled_out_fit_names_the_qubit_of_a_profile_with_no_readout() -> None:
+    profile = one_qubit("noro", {"x": {"avg_infidelity": 0.001}})
+    counts = written(profile, [("readout", (), {"0": 3990, "1": 10}), ("xx", XX, {"0": 4000})])
+    result = compare(profile, counts)
+    assert result.ruled_out == ("qubit 0 has P(1|0) = 0, and 10 readout shots read it as 1",)
+
+
 def test_shots_that_leave_the_fit_carry_no_information() -> None:
     profile = Profile.model_validate(
         {

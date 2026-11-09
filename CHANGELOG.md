@@ -118,6 +118,8 @@ This file lists all notable changes to NoiseVault. Versions follow
 - `noisevault.reference.probabilities` refuses a delay with a negative, NaN or infinite duration
   with a `ValueError`. Before, a negative delay added no noise, and NaN or infinity gave NaN
   probabilities.
+- A `ruled out` fit of `nv compare` names the qubit and the outcome also when the profile states
+  no readout error for that qubit. Before, it named them only for a stated readout error of 0.
 - `nv diff` and `ProfileDiff.summary()` show "from 0" for a value that changes from 0. Before,
   they showed "-", the same symbol as for no data. The JSON keeps `relative: null`.
 - The noise report says "Pauli noise" for leakage in the stated error of a gate with a `pauli`
