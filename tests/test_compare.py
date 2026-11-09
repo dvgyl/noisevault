@@ -431,10 +431,10 @@ def test_a_drawn_maximum_does_not_stop_on_the_flat_likelihood_below_the_relaxati
     assert_each_held_maximum_reaches_the_grid(found)
 
 
-def test_a_drawn_maximum_climbs_past_a_dip_at_a_second_relaxation_floor(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    found = drawn_maxima(monkeypatch, held=True)
+BELOW_THE_FLOORS = math.log(0.1)
+
+
+def two_floors(monkeypatch: pytest.MonkeyPatch) -> tuple[Any, np.ndarray, np.ndarray]:
     profile = Profile.uniform(
         "floors",
         technology="superconducting",
@@ -449,8 +449,40 @@ def test_a_drawn_maximum_climbs_past_a_dip_at_a_second_relaxation_floor(
     )
     truth = scaled(profile, 9.355373806925966, 1.323293984127582)
     counts = simulate(truth, plan(profile), shots=4000, seed=877647690, run_at=LATER)
+    floors = np.log(fit._floor_factors(profile, counts.circuits))
+    assert len(floors) == 2 and BELOW_THE_FLOORS < floors.min(), floors
+    found = drawn_maxima(monkeypatch)
     compare(profile, counts)
-    assert_each_held_maximum_reaches_the_grid(found)
+    ((fitted, _, _),) = found
+    held = drawn_maxima(monkeypatch, held=True)
+    fitted.accepts("gate", BELOW_THE_FLOORS)
+    ((_, draws, top),) = held
+    return fitted, draws, top
+
+
+def test_a_drawn_maximum_climbs_past_a_dip_at_a_second_relaxation_floor(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fitted, draws, top = two_floors(monkeypatch)
+    assert_each_held_maximum_reaches_the_grid([(fitted, draws, top)])
+
+
+def test_a_search_for_the_best_gate_factor_is_not_below_one_climb_over_the_whole_range(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fitted, draws, _ = two_floors(monkeypatch)
+    readout, gates = np.random.default_rng(2).uniform(fit._LO, fit._HI, (2, draws.shape[1]))
+    span = fit._spacing(fitted.windows()[0].gate)
+    lowest = fitted.pieces[0][0]
+
+    def f(x: np.ndarray, which: np.ndarray, _: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        return fitted.surface.loglik_each(x, readout[which], draws[:, which]), x
+
+    start = np.clip(gates, lowest, fit._HI)
+    top, _ = f(start, np.arange(len(start)), start)
+    _, whole, _ = fit._climb(f, start, top, start, span, lowest, fit._HI)
+    best, _ = fitted._free_max("readout", readout, draws, gates, span)
+    assert (best >= whole - 1e-9).all(), float((whole - best).max())
 
 
 OUTSIDE_THE_WINDOWS = (

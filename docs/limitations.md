@@ -282,22 +282,23 @@ steps to a better neighbor, or it computes the vertex of a parabola through its 
 makes its step smaller. A climb stops when both neighbors are within 0.001 of its best point. It
 also stops when the parabola predicts the likelihood at the vertex within 0.001 and no neighbor is
 more than 3.84 lower. Fits with one factor held climb along the other factor in the same way. At
-each relaxation floor, the slope of the likelihood along the gate factor can change sign, so a climb
-cannot pass from one side of a floor to the other. Thus each search for the best gate factor climbs
-once between each two neighboring floors, and once above the highest floor. It keeps the best
-result. When the gate factor is so low that every gate is at its floor, no probability changes with
-the factor. No climb goes into that flat part. Thus each maximum that the fit reports is the
-likelihood of the model at the reported factors. No reported maximum is above the true maximum. A
-grid can step over a kept peak that is narrower than its step, for example when one grid spans the
-whole factor range. Thus the fit also computes the likelihood of each set at each kept peak. The fit
-compares each kept peak with the points one step of the coarsest grid away. When one of these points
-is more than 3.84 lower for the observed counts, the peak is narrower than the grids. The fit climbs
-from such a peak in each set. The fit keeps the highest result over all grids, kept peaks and
-climbs. Thus no reported maximum is below the likelihood at a kept peak, and a set whose maximum is
-at a second peak gets that maximum. A set drawn at a tested factor far from the estimate can have
-its maximum between the grids. Thus the fit also computes the likelihood of each set on a coarse
-grid of 33 points on each fitted factor that spans the whole factor range. When a point of that grid
-is higher than the best result, the fit climbs from that point. In an example with two peaks, a
+each relaxation floor, the slope of the likelihood along the gate factor can change sign. A climb
+from one side of a floor can thus stop at the floor while the likelihood is higher on the other
+side. Thus each search for the best gate factor climbs once between each two neighboring floors,
+once above the highest floor, and once over all floors. It keeps the best result. When the gate
+factor is so low that every gate is at its floor, no probability changes with the factor. No climb
+goes into that flat part. Thus each maximum that the fit reports is the likelihood of the model at
+the reported factors. No reported maximum is above the true maximum. A grid can step over a kept
+peak that is narrower than its step, for example when one grid spans the whole factor range. Thus
+the fit also computes the likelihood of each set at each kept peak. The fit compares each kept peak
+with the points one step of the coarsest grid away. When one of these points is more than 3.84 lower
+for the observed counts, the peak is narrower than the grids. The fit climbs from such a peak in
+each set. The fit keeps the highest result over all grids, kept peaks and climbs. Thus no reported
+maximum is below the likelihood at a kept peak, and a set whose maximum is at a second peak gets
+that maximum. A set drawn at a tested factor far from the estimate can have its maximum between the
+grids. Thus the search with no factor held also computes the likelihood of each set on a coarse grid
+of 33 points on each fitted factor. This grid spans the whole factor range. When a point of that
+grid is higher than the best result, the fit climbs from that point. In an example with two peaks, a
 search near the estimate alone gave p = 0.012. The search near both peaks gives p = 0.0075, below
 the poor-fit limit of 0.01. In an example where one grid spans the range, the grids alone gave
 p = 0.586. The climb from the narrow peak gives p = 0.564.
@@ -308,13 +309,13 @@ shots. Only the readout circuit separates the factors, and alone it gives a read
 0.72 to 1.35. Separate parabolas on each axis of the grid put the upper end at 2.56. With the
 climb, the interval is 0.70 to 1.35.
 
-The search can still report a drawn maximum below the true maximum. On a curved ridge, the
-quadratic on a grid can predict the likelihood at its vertex within 0.02 while the maximum is
-elsewhere on the ridge. A climb also stops when both neighbors are within 0.001 of its best point,
-even when a peak is between them. Over 480 random cases with 400 drawn sets each, 40 of the
-354 cases with interval tests have a drawn set whose maximum is more than 0.02 below the best point
-of a fine grid. The largest gap is 0.24. For the p-value, 13 of the 480 cases have such a set, and
-the largest gap is 0.12.
+The search can still report a drawn maximum below the true maximum. On a curved ridge, the quadratic
+on a grid can predict the likelihood at its vertex within 0.02 while the maximum is elsewhere on the
+ridge. A climb also stops when both neighbors are within 0.001 of its best point, even when a peak
+is between them. A check used 480 random cases with 400 drawn sets each. In 40 of the 354 cases with
+interval tests, a drawn set has its maximum more than 0.02 below the best point of a fine grid. The
+largest gap is 0.24. For the p-value, 13 of the 480 cases have such a set, and the largest gap is
+0.12.
 
 ### Outcomes the profile rules out
 
