@@ -308,6 +308,14 @@ shots. Only the readout circuit separates the factors, and alone it gives a read
 0.72 to 1.35. Separate parabolas on each axis of the grid put the upper end at 2.56. With the
 climb, the interval is 0.70 to 1.35.
 
+The search can still report a drawn maximum below the true maximum. On a curved ridge, the
+quadratic on a grid can predict the likelihood at its vertex within 0.02 while the maximum is
+elsewhere on the ridge. A climb also stops when both neighbors are within 0.001 of its best point,
+even when a peak is between them. Over 480 random cases with 400 drawn sets each, 40 of the
+354 cases with interval tests have a drawn set whose maximum is more than 0.02 below the best point
+of a fine grid. The largest gap is 0.24. For the p-value, 13 of the 480 cases have such a set, and
+the largest gap is 0.12.
+
 ### Outcomes the profile rules out
 
 An outcome can have probability 0 at every factor, as when the profile states a readout error of
