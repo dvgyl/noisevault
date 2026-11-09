@@ -165,6 +165,13 @@ This file lists all notable changes to NoiseVault. Versions follow
   cannot hold, such as a NaN. Before, the upgrade dropped all gate metadata with no note. The
   upgrade refuses gate metadata that is not an object, as it does for qubit metadata.
   Fingerprints do not change, because extensions and notes are not physics.
+- The upgrade of a 0.1 file puts `captured_at`, the time when NoiseVault fetched the data, in
+  `provenance.retrieved_at`. `device.calibrated_at` is the 0.1 `source_timestamp`, or absent.
+  Before, a file with no `source_timestamp` got the capture time as its calibration time, so
+  `nv cite`, the ref and `nv diff` showed a wrong date. Such a file is now undated and gets a
+  new fingerprint and ref. `provenance.extra` no longer has `v01_captured_at`. The upgrade
+  refuses a `captured_at` that is not an ISO 8601 time with a timezone. The 0.1 test fixtures
+  keep their fingerprints, ids and dates.
 - `load_counts` gives a `CountsError` for an execution flag nested as deep as the JSON parser
   takes, not a `RecursionError`.
 - `scripts/run_on_ibm.py` stops with an error that names the two devices when it collects a job

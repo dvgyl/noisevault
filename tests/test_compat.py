@@ -59,6 +59,7 @@ def test_migrated_manila_fields() -> None:
     manila = PROFILES[MANILA_V01.name]
     assert manila.id == "ibm_manila"
     assert manila.device.calibrated_at.isoformat() == "2024-05-27T18:27:23+00:00"
+    assert manila.provenance.retrieved_at.isoformat() == "2024-05-27T18:27:23+00:00"
     assert manila.gates["rz"].virtual
     assert manila.table.gate("reset", (0,)).state == "uncalibrated"
     assert manila.idle.t2_kind == "echo"
@@ -186,6 +187,21 @@ def test_gate_metadata_that_format_1_0_cannot_hold_is_named_in_the_notes() -> No
         f'Not converted: 0.1 gate metadata "bad" of cx:0-1 (bad: the string {surrogate}).',
         f"Not converted: 0.1 gate metadata \"\\ud800\" of cx:0-1 (the key '\\ud800' {surrogate}).",
     ]
+
+
+def test_the_capture_time_is_the_retrieval_time_not_the_calibration_time() -> None:
+    profile = _upgrade(_small_v01())
+    assert profile.device.calibrated_at.isoformat() == "2024-01-01T00:00:00+00:00"
+    assert profile.provenance.retrieved_at.isoformat() == "2024-01-02T00:00:00+00:00"
+
+
+def test_a_file_with_no_source_timestamp_is_undated() -> None:
+    data = _small_v01()
+    del data["provenance"]["source_timestamp"]
+    profile = _upgrade(data)
+    assert profile.device.calibrated_at is None
+    assert profile.provenance.retrieved_at.isoformat() == "2024-01-02T00:00:00+00:00"
+    assert repr(profile).startswith("<Profile ibm_small@undated ")
 
 
 def test_rz_stays_calibrated_when_it_has_an_error() -> None:
@@ -318,6 +334,10 @@ def _prov(**changes) -> dict:
             "provenance.source_timestamp should be a string, not a number",
         ),
         (_v01(captured_at=123), "captured_at should be a string, not a number"),
+        (
+            _v01(captured_at="2024-05-27T15:27:23"),
+            'captured_at should be an ISO 8601 time with a timezone, not "2024-05-27T15:27:23"',
+        ),
     ],
     ids=[
         "empty",
@@ -340,6 +360,7 @@ def _prov(**changes) -> dict:
         "harvester-version",
         "source-timestamp",
         "captured-at",
+        "captured-at-naive",
     ],
 )
 def test_a_malformed_0_1_file_is_refused_with_the_field_to_fix(data: dict, message: str) -> None:

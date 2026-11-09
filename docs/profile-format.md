@@ -624,6 +624,9 @@ NoiseVault 0.1 files (`"schema_version": "0.1"`) still load. NoiseVault upgrades
 and emits a `MigrationWarning`. Save the profile to keep the 1.0 form. The upgrade follows these
 rules:
 
+- `device.calibrated_at` is the 0.1 `source_timestamp`. A file with no `source_timestamp` is
+  undated. `provenance.retrieved_at` is the 0.1 `captured_at`, the time when NoiseVault fetched
+  the data.
 - A gate whose error is at or above d/(d+1) is disabled. The limit is 2/3 for 1 qubit and 4/5
   for 2 qubits. IBM writes such a value, often 1, to mark a broken gate.
 - A T1 or T2 of 0 or less counts as missing, and `provenance.notes` names it.

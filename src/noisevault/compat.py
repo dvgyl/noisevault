@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import math
+from datetime import datetime
 from typing import Any, NoReturn
 
 from pydantic import TypeAdapter, ValidationError
@@ -114,7 +115,7 @@ def upgrade_v01(old: dict[str, Any]) -> dict[str, Any]:
     if provider == "qiskit_fake" and licensing["redistributable"] != "yes":
         source_kind = "other"
         notes.append(_UNVERIFIED_FAKE)
-    extra = {"migrated_from": "0.1", "v01_captured_at": old["captured_at"]}
+    extra = {"migrated_from": "0.1"}
     if prov.get("harvester_version"):
         extra["v01_harvester_version"] = prov["harvester_version"]
     extensions = dict(old.get("extensions") or {})
@@ -130,9 +131,6 @@ def upgrade_v01(old: dict[str, Any]) -> dict[str, Any]:
         extensions["v01_qubit_metadata"] = metadata
     if gate_metadata:
         extensions["v01_gate_metadata"] = gate_metadata
-    calibrated_at = prov.get("source_timestamp")
-    if calibrated_at is None:
-        calibrated_at = old["captured_at"]
 
     return {
         "noisevault": "1.0",
@@ -141,7 +139,7 @@ def upgrade_v01(old: dict[str, Any]) -> dict[str, Any]:
             "vendor": "ibm" if provider in _IBM_PROVIDERS else provider,
             "technology": "superconducting",
             "num_qubits": old["num_qubits"],
-            "calibrated_at": calibrated_at,
+            "calibrated_at": prov.get("source_timestamp"),
         },
         "connectivity": {"edges": [list(e) for e in old["coupling_map"]], "directed": True},
         "gates": definitions,
@@ -154,6 +152,7 @@ def upgrade_v01(old: dict[str, Any]) -> dict[str, Any]:
             "source": prov.get("source"),
             "source_url": prov.get("source_url"),
             "source_hash": prov.get("raw_hash"),
+            "retrieved_at": old["captured_at"],
             "tool": f"noisevault {prov.get('harvester_version', '0.1')}",
             "notes": notes,
             "extra": extra,
@@ -179,6 +178,11 @@ def _parse(old: dict[str, Any]) -> dict[str, Any]:
             _fail(f"{key} is missing")
         if kind is not None and not isinstance(old[key], kind):
             _fail(f"{key} should be {_JSON_TYPES[kind]}, not {_json_type(old[key])}")
+    if not _aware_time(old["captured_at"]):
+        _fail(
+            "captured_at should be an ISO 8601 time with a timezone,"
+            f" not {_shown(old['captured_at'])}"
+        )
     gate_entries = []
     for i, gate in enumerate(old["gates"]):
         if not (
@@ -228,6 +232,13 @@ def _parse(old: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(old.get("extensions"), dict | None):
         _fail("extensions should be an object")
     return {**old, "gates": gate_entries, "qubits": qubit_entries}
+
+
+def _aware_time(text: str) -> bool:
+    try:
+        return datetime.fromisoformat(text).tzinfo is not None
+    except ValueError:
+        return False
 
 
 _V01_LAX_BOOL = TypeAdapter(bool)
