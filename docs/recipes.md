@@ -367,6 +367,15 @@ is not native and a pair of qubits that is not connected, as the device does.
 [Counts from an Amazon Braket device](counts-format.md#counts-from-an-amazon-braket-device) gives
 the details, such as how the script treats delays.
 
+`scripts/build_realism_table.py` puts many runs in one table. Give it a folder of counts
+files. It fits the factors of each file and writes a JSON file and a Markdown page, with one row
+for each device and date. [The demo table](realism/demo.md) shows the result for simulated
+counts, and every one of its rows says so:
+
+```bash
+python scripts/build_realism_table.py runs/ -o docs/realism/table
+```
+
 On another device, take steps 1 to 3 by hand. Step 4 is the same for every device.
 
 1. Plan the circuits. `plan(profile)` from `noisevault.counts` returns the `nv check` circuits on

@@ -24,6 +24,14 @@ This file lists all notable changes to NoiseVault. Versions follow
   includes idle error. `--local PROPERTIES` runs the circuits free on the Braket
   `LocalEmulator`. The new `braket` extra installs `amazon-braket-sdk`. See
   [Counts from an Amazon Braket device](docs/counts-format.md#counts-from-an-amazon-braket-device).
+- **Realism table.** `scripts/build_realism_table.py` reads a folder of counts files and fits
+  the `nv compare` factors of each. It writes a JSON file and a Markdown table with one row for
+  each run: the device, vendor, technology and date, the gate factor and the readout factor with
+  their 95% intervals, and the goodness of fit. It uses the `.profile.json` file beside a counts
+  file, or else the catalog profile with the calibration of the counts. `--demo` builds
+  [docs/realism/demo.md](docs/realism/demo.md) from simulated counts. Each demo row says
+  "simulated" and gives the factors that the simulation used. `--demo --check` stops with an
+  error when the committed demo is out of date.
 
 ### Changed
 

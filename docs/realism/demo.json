@@ -1,0 +1,182 @@
+{
+ "realism_table": "1",
+ "note": "Factors multiply the profile's error rates, so x2 means about twice the errors. On these qubits, the factors absorb crosstalk, leakage, coherent error and idle error beyond T1 and T2. The profile from -o applies the factors to every qubit.",
+ "rows": [
+  {
+   "device": "google_weber",
+   "vendor": "google",
+   "technology": "superconducting",
+   "date": "2021-11-04",
+   "run_at": "2021-11-04T08:00:00Z",
+   "source": "simulated",
+   "simulated_with": {
+    "gates": 1.1,
+    "readout": 1.5
+   },
+   "calibration": {
+    "id": "google_weber",
+    "fingerprint": "3fe01c42646625b4d85f812438ce023c0013202f87b6cfd9e9d1fd8c888054be",
+    "calibrated_at": "2021-11-03T07:06:28.204000Z"
+   },
+   "qubits": [
+    3,
+    2,
+    6,
+    13
+   ],
+   "shots": 16000,
+   "gates": {
+    "factor": 1.14043,
+    "low": 1.04414,
+    "high": 1.24227,
+    "bound": null
+   },
+   "readout": {
+    "factor": 1.48539,
+    "low": 1.3899,
+    "high": 1.58445,
+    "bound": null
+   },
+   "p_value": 0.209476,
+   "dispersion": 1.0,
+   "deviance": 36.383,
+   "dof": 38,
+   "counts": {
+    "file": "04-google_weber-20211104.counts.json",
+    "sha256": "sha256:37640b6e6a6f0f20c488698025a13e79b5ec6964fdd3290d976acb50468cf565"
+   }
+  },
+  {
+   "device": "ibm_kingston",
+   "vendor": "ibm",
+   "technology": "superconducting",
+   "date": "2026-04-16",
+   "run_at": "2026-04-16T09:30:00Z",
+   "source": "simulated",
+   "simulated_with": {
+    "gates": 1.6,
+    "readout": 1.2
+   },
+   "calibration": {
+    "id": "ibm_kingston",
+    "fingerprint": "609c845ed93458cb1f3999275b0925f6c2731a5fadb581c6d2adc6f2c81f13b4",
+    "calibrated_at": "2026-04-15T07:15:15Z"
+   },
+   "qubits": [
+    148,
+    149,
+    150,
+    151
+   ],
+   "shots": 16000,
+   "gates": {
+    "factor": 1.9451,
+    "low": 1.58622,
+    "high": 2.34908,
+    "bound": null
+   },
+   "readout": {
+    "factor": 1.21684,
+    "low": 1.05326,
+    "high": 1.39341,
+    "bound": null
+   },
+   "p_value": 0.508728,
+   "dispersion": 1.0,
+   "deviance": 29.5081,
+   "dof": 38,
+   "counts": {
+    "file": "01-ibm_kingston-20260416.counts.json",
+    "sha256": "sha256:b1e2d80aedb9014e604e22d9cc06974b88dc54f0d38a8a87954695b980c05efa"
+   }
+  },
+  {
+   "device": "ibm_kingston",
+   "vendor": "ibm",
+   "technology": "superconducting",
+   "date": "2026-04-23",
+   "run_at": "2026-04-23T09:30:00Z",
+   "source": "simulated",
+   "simulated_with": {
+    "gates": 2.2,
+    "readout": 1.3
+   },
+   "calibration": {
+    "id": "ibm_kingston",
+    "fingerprint": "609c845ed93458cb1f3999275b0925f6c2731a5fadb581c6d2adc6f2c81f13b4",
+    "calibrated_at": "2026-04-15T07:15:15Z"
+   },
+   "qubits": [
+    148,
+    149,
+    150,
+    151
+   ],
+   "shots": 16000,
+   "gates": {
+    "factor": 2.26856,
+    "low": 1.86246,
+    "high": 2.73018,
+    "bound": null
+   },
+   "readout": {
+    "factor": 1.38501,
+    "low": 1.20654,
+    "high": 1.57659,
+    "bound": null
+   },
+   "p_value": 0.199501,
+   "dispersion": 1.0,
+   "deviance": 37.2312,
+   "dof": 38,
+   "counts": {
+    "file": "02-ibm_kingston-20260423.counts.json",
+    "sha256": "sha256:8a85b293d4d25041cc8dfcf77b99346416c08301ccf018abeeaf474b69e85420"
+   }
+  },
+  {
+   "device": "quantinuum_h1-1",
+   "vendor": "quantinuum",
+   "technology": "trapped_ion",
+   "date": "2025-05-03",
+   "run_at": "2025-05-03T14:00:00Z",
+   "source": "simulated",
+   "simulated_with": {
+    "gates": 1.3,
+    "readout": 1.0
+   },
+   "calibration": {
+    "id": "quantinuum_h1-1",
+    "fingerprint": "65b13386e214ea8515bc9bd9ac2eeeb5ab26464ea7fc0a8b85d3cb7ac3b7b04c",
+    "calibrated_at": "2025-05-02T00:00:00Z"
+   },
+   "qubits": [
+    0,
+    1,
+    2,
+    3
+   ],
+   "shots": 16000,
+   "gates": {
+    "factor": 1.26339,
+    "low": 0.85413,
+    "high": 1.7397,
+    "bound": null
+   },
+   "readout": {
+    "factor": 1.10836,
+    "low": 0.873518,
+    "high": 1.3883,
+    "bound": null
+   },
+   "p_value": 0.0698254,
+   "dispersion": 1.05395,
+   "deviance": 40.0502,
+   "dof": 38,
+   "counts": {
+    "file": "03-quantinuum_h1-1-20250503.counts.json",
+    "sha256": "sha256:7f9c9857e7f7a7479d021f6357514ac3c43c7f74c5029c4efffbdc3373abc718"
+   }
+  }
+ ]
+}
