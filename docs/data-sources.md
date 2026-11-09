@@ -376,8 +376,9 @@ two-qubit gate says that Rigetti does not state the fidelity metric, and that No
 
 #### Values that need real payloads
 
-The mapping above is from SDK source code and documentation. These points need a saved real
-payload to confirm:
+The mapping above is from SDK source code and documentation. `tests/test_real_payloads.py`
+checks each real payload in `tests/fixtures/iqm/real/` and `tests/fixtures/rigetti/real/`. The
+README in each folder says how to add one. These points need a saved real payload to confirm:
 
 - The exact IQM readout and T2 names on Garnet and Emerald: `measure` or `measure_fidelity`, and
   `t2_time` or `t2_echo_time`.

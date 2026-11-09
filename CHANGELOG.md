@@ -7,6 +7,21 @@ This file lists all notable changes to NoiseVault. Versions follow
 
 ### Added
 
+- **IQM Resonance and Rigetti QCS importers.** `nv.from_iqm(metrics, architecture=...)` reads
+  an IQM quality metric set that you saved with `iqm-client`, and optionally the dynamic quantum
+  architecture of the same calibration set. `nv.from_rigetti(isa)` reads a Rigetti QCS
+  instruction set architecture that you saved with `qcs-sdk-python`. Each importer gives
+  per-qubit T1, T2 and readout errors where the payload has them, per-qubit and per-pair gate
+  infidelities, and disabled qubits and pairs. Each importer writes its reading of the vendor
+  data into the gate `assumption` and `provenance.notes`. The profiles stay local. Rigetti's
+  terms forbid redistribution, and IQM's terms are not public, so IQM profiles are
+  `redistributable: "unknown"`. The importers follow the public SDKs and are tested on synthetic
+  payloads. [docs/data-sources.md](docs/data-sources.md#iqm-resonance-and-rigetti-qcs-field-mapping)
+  gives the mapping from each vendor field to the profile.
+- `tests/test_real_payloads.py` checks each real IQM or Rigetti payload in
+  `tests/fixtures/iqm/real/` and `tests/fixtures/rigetti/real/`, or in the private folder that
+  `NOISEVAULT_REAL_PAYLOADS` names. Each payload must import with gate and readout data and pass
+  `nv check`. An optional `expect.json` pins values such as the fingerprint.
 - The package has a `py.typed` marker (PEP 561). Type checkers such as mypy and pyright now
   read the annotations of NoiseVault, so `nv.load(ref)` has the type `Profile`, not `Any`. A
   `layout` argument has the type `Mapping[Any, int] | Sequence[int]`, so a type checker accepts
