@@ -150,6 +150,8 @@ This file lists all notable changes to NoiseVault. Versions follow
   qubits. Before, the importer dropped each global instruction with no note.
 - The IBM BackendProperties importers divide an error or a probability with the unit `%` by
   100, and refuse a different unit with a `SourceDataError`. Before, `0.5 %` became 0.5.
+- `suggest_layout` does not require `delay` on each qubit of the chain. Before, a profile that
+  disabled `delay` on some qubits got a different chain and a false warning.
 
 ### Changed
 
