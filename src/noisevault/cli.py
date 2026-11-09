@@ -30,7 +30,6 @@ from rich.console import Console, RenderableType
 from rich.table import Table
 from rich.text import Text
 from typer.core import TyperCommand, TyperGroup
-from typer.main import get_click_type
 
 from . import __version__, catalog
 from .diff import (
@@ -78,7 +77,25 @@ _USAGE_ERROR = typer.BadParameter.__mro__[1]
 _CLICK_ERRORS = sys.modules[_USAGE_ERROR.__module__]
 # A bare `nv` raises this error after it prints the help. Older click has no such class.
 _NO_ARGS = getattr(_CLICK_ERRORS, "NoArgsIsHelpError", ())
-_STRING = get_click_type(annotation=str, parameter_info=typer.Argument())
+
+
+def _no_type_label(ctx: Any = None) -> None:
+    return None
+
+
+def _without_type_labels(params: list[Any]) -> list[Any]:
+    """typer 0.29 prints a type label, such as <str> or <bool>, beside each parameter in help.
+
+    Older typer prints none beside a flag or an argument from ``_argument``. This keeps the help
+    the same: it removes the label of a flag and of an argument with a metavar.
+    """
+    if _PLAIN is None:
+        for param in params:
+            if getattr(param, "is_flag", False) or (
+                param.param_type_name == "argument" and param.metavar is not None
+            ):
+                param.display_type_rich = _no_type_label
+    return params
 
 
 class _Command(TyperCommand):
@@ -87,23 +104,34 @@ class _Command(TyperCommand):
     def collect_usage_pieces(self, ctx: Any) -> list[str]:
         return [piece.strip("{}") for piece in super().collect_usage_pieces(ctx)]
 
+    def get_params(self, ctx: Any) -> list[Any]:
+        return _without_type_labels(super().get_params(ctx))
+
 
 class _App(typer.Typer):
     def command(self, *args: Any, cls: Any = None, **kwargs: Any) -> Any:
         return super().command(*args, cls=cls or _Command, **kwargs)
 
 
-class _PlainString(type(_STRING)):
-    """A str argument whose help names it by its metavar alone, with no <str> beside it."""
+try:
+    from typer.main import get_click_type
+except ImportError:  # typer 0.29 removed Click parameter types and the click_type argument.
+    _PLAIN = None
+else:
+    _STRING = get_click_type(annotation=str, parameter_info=typer.Argument())
 
-    def get_metavar(self, param: Any, ctx: Any = None) -> str:
-        return ""
+    class _PlainString(type(_STRING)):  # type: ignore[misc]
+        """A str argument whose help names it by its metavar alone, with no <str> beside it."""
 
+        def get_metavar(self, param: Any, ctx: Any = None) -> str:
+            return ""
 
-_PLAIN = _PlainString()
+    _PLAIN = _PlainString()
 
 
 def _argument(metavar: str, text: str) -> Any:
+    if _PLAIN is None:
+        return typer.Argument(metavar=metavar, help=text)
     return typer.Argument(metavar=metavar, click_type=_PLAIN, help=text)
 
 
@@ -120,6 +148,9 @@ class _Commands(TyperGroup):
             raise typer.Exit() from None
         except _USAGE_ERROR as exc:
             _usage_error(exc)
+
+    def get_params(self, ctx: Any) -> list[Any]:
+        return _without_type_labels(super().get_params(ctx))
 
     def format_help(self, ctx: Any, formatter: Any) -> None:
         # typer 0.27.0 joins epilog= lines into one line, so this method writes the epilog.
