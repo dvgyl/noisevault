@@ -95,8 +95,10 @@ This file lists all notable changes to NoiseVault. Versions follow
 
 ### Fixed
 
-- NoiseVault requires typer below 0.29. typer 0.29.0 removed `typer.main.get_click_type`,
-  so the CLI did not start on a new install.
+- The CLI works with typer 0.29. typer 0.29.0 removed `typer.main.get_click_type`, so the CLI
+  did not start on a new install. With typer 0.29, the help has the same text as before: it
+  shows no `<str>` beside an argument and no `<bool>` beside a flag. NoiseVault requires typer
+  below 0.30, because each typer minor release can change the API that the CLI uses.
 - `scripts/run_on_ibm.py` submits its job with the server-side `SamplerV2` primitive on
   qiskit-ibm-runtime 0.52 too. Version 0.52 moved that primitive to
   `qiskit_ibm_runtime.server_side` and gave the top-level `SamplerV2` name to a client-side

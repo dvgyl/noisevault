@@ -38,7 +38,8 @@ classifiers = [
 dependencies = [
   "numpy>=1.26",
   "pydantic>=2.8,<3",
-  "typer>=0.27,<0.29",
+  # Each typer minor release can change the API that cli.py uses. 0.27 to 0.29 are tested.
+  "typer>=0.27,<0.30",
   "rich>=13.8",
 ]
 
