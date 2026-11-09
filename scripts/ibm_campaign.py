@@ -54,7 +54,7 @@ import run_on_ibm as runner  # noqa: E402
 import noisevault as nv  # noqa: E402
 from noisevault import check, layout  # noqa: E402
 from noisevault.counts import PlannedCircuit, plan  # noqa: E402
-from noisevault.errors import LayoutError, NoiseVaultError, install_hint  # noqa: E402
+from noisevault.errors import NoiseVaultError, install_hint  # noqa: E402
 from noisevault.profile import Profile, file_bytes  # noqa: E402
 
 CHAINS = ("best", "median")
@@ -175,7 +175,7 @@ class Campaign:
         _section(f"{device}: plan the week of {folder.name}")
         try:
             pulled = self.account.pull(device, None)
-            chains = _chains_for_week(folder, pulled)
+            chains = _chains_for_week(folder, pulled, self._refusal(device, pulled))
         except NoiseVaultError as exc:
             for kind in todo:
                 self.statuses.append(Status(device, folder.name, kind, "error", _message(exc)))
@@ -206,6 +206,40 @@ class Campaign:
                 continue
             submitted.append(_job(folder, kind))
         return submitted
+
+    def _refusal(self, device: str, pulled: Profile) -> Callable[[tuple[int, ...]], str | None]:
+        """Why the backend cannot run a chain, from the checks that ``run_on_ibm.py`` makes
+        before it submits, or None. Nothing is submitted."""
+        backends: dict[bool, Any] = {}
+        failed: list[BaseException] = []
+
+        def open_backend(fractional: bool) -> Any:
+            if fractional not in backends:
+                try:
+                    backend = self.account.open_backend(device, fractional)
+                    # IBM loads these over the network. A failure here is the account's too.
+                    backend.target  # noqa: B018
+                    backend.configuration()
+                    backends[fractional] = backend
+                except Exception as exc:
+                    failed.append(exc)
+                    raise
+            return backends[fractional]
+
+        def refusal(path: tuple[int, ...]) -> str | None:
+            try:
+                runner.prepare(lambda at: pulled, open_backend, self.shots, path)
+            except NoiseVaultError as exc:
+                if failed:  # the account failed, not the chain, so stop the search
+                    raise NoiseVaultError(
+                        f"could not open {device} through your IBM Quantum account"
+                        f" ({runner._reason(failed[0])})",
+                        hint="run the campaign again. The campaign did not submit a job",
+                    ) from None
+                return exc.message
+            return None
+
+        return refusal
 
     def _approve(self, folder: Path, kind: str, batch: runner.Batch) -> None:
         """Submit only a chain with no counts and no job, within the budget. Save the estimate,
@@ -333,37 +367,54 @@ def week_folder(device_folder: Path, today: date) -> Path:
     return device_folder / today.isoformat()
 
 
-def pick_chains(profile: Profile) -> dict[str, Chain]:
+def pick_chains(
+    profile: Profile, refusal: Callable[[tuple[int, ...]], str | None] = lambda path: None
+) -> dict[str, Chain]:
     """The best chain, as ``plan`` picks it, and the median chain of the same length.
 
-    The candidates are the connected chains of that length on which ``plan`` gives the same
-    circuits as on the best chain: the same names, widths and gates, with other delays. The
-    median chain is the candidate at the median of the summed error that ``suggest_layout``
-    minimizes.
+    The candidates are the connected chains of that length, other than the best chain, on which
+    ``plan`` gives the same circuits as on the best chain: the same names, widths and gates,
+    with other delays. The median chain is the candidate at the median of the summed error that
+    ``suggest_layout`` minimizes. ``refusal`` gives the reason why the backend cannot run a
+    chain, or None. When the backend refuses the median candidate, the next candidate outward
+    from the median is the median chain.
     """
     best, candidates = eligible_chains(profile)
-    error, path = candidates[(len(candidates) - 1) // 2]
-    return {"best": best, "median": Chain(path, error)}
+    middle = (len(candidates) - 1) // 2
+    reason = None
+    for i in sorted(range(len(candidates)), key=lambda i: (abs(i - middle), i)):
+        error, path = candidates[i]
+        reason = refusal(path)
+        if reason is None:
+            return {"best": best, "median": Chain(path, error)}
+    raise NoiseVaultError(
+        f"the backend refuses all {len(candidates)} candidates for the median chain of"
+        f" {profile.id} (the last because {reason})"
+    )
 
 
 def eligible_chains(profile: Profile) -> tuple[Chain, list[tuple[float, tuple[int, ...]]]]:
-    """The best chain, and every candidate chain with its summed error, lowest error first."""
+    """The best chain, and every other chain with the circuits of the best chain, with its summed
+    error, lowest error first."""
     best = plan(profile)
     shape = _shape(best)
     qubits = max((c.qubits for c in best), key=len)
     candidates = []
     for error, found in _ranked_chains(profile, len(qubits)):
+        if set(found) == set(qubits):
+            continue
         for path in (found, found[::-1]):
             try:
                 planned = plan(profile, path)
-            except LayoutError:
+            except NoiseVaultError:  # plan refuses the chain, so it is not a candidate
                 continue
             if _shape(planned) == shape:
                 candidates.append((error, path))
                 break
     if not candidates:
         raise NoiseVaultError(
-            f"{profile.id} has no chain of {len(qubits)} qubits with the circuits of the best chain"
+            f"{profile.id} has no chain of {len(qubits)} qubits other than the best chain with"
+            " the circuits of the best chain"
         )
     return Chain(qubits, _error(profile, qubits)), candidates
 
@@ -385,11 +436,16 @@ def _ranked_chains(profile: Profile, n: int) -> list[tuple[float, tuple[int, ...
         raise NoiseVaultError(
             f"{profile.id} connects every pair of qubits, so the median chain is not defined"
         )
-    usable = [
-        q
-        for q in range(table.num_qubits)
-        if not table.qubit(q).disabled and layout.can_measure(table, q)
-    ]
+    # A qubit without a usable 1-qubit gate or without a readout error adds no error to the sum,
+    # so a chain through it would rank too low. IBM disables every 1-qubit gate on some qubits
+    # but keeps their readout and their 2-qubit gates calibrated.
+    usable = []
+    for q in range(table.num_qubits):
+        if table.qubit(q).disabled or not layout.can_measure(table, q):
+            continue
+        cost = layout._qubit_cost(table, q, ())
+        if cost.no_gate == 0 and cost.no_readout == 0:
+            usable.append(q)
     neighbors = {
         q: [
             b
@@ -425,13 +481,15 @@ def _error(profile: Profile, path: Sequence[int]) -> float:
     return total
 
 
-def _chains_for_week(folder: Path, pulled: Profile) -> dict[str, Chain]:
+def _chains_for_week(
+    folder: Path, pulled: Profile, refusal: Callable[[tuple[int, ...]], str | None]
+) -> dict[str, Chain]:
     """The chains of the week. The first run of the week picks them, and reruns keep them."""
     saved = folder / CHAINS_FILE
     if saved.exists():
         data = json.loads(saved.read_text(encoding="utf-8"))
         return {k: Chain(tuple(data[k]["qubits"]), data[k]["error"]) for k in CHAINS}
-    chains = pick_chains(pulled)
+    chains = pick_chains(pulled, refusal)
     folder.mkdir(parents=True, exist_ok=True)
     record = {
         "calibration": pulled.calibration_fingerprint,

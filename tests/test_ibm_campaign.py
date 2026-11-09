@@ -17,9 +17,11 @@ from fake_ibm import FakeIBM, load_script, noisy_fake
 import noisevault as nv
 from noisevault.compare import compare
 from noisevault.counts import load_counts, plan
+from noisevault.errors import NoiseVaultError
 
 campaign = load_script("ibm_campaign")
 
+LIVE = Path(__file__).parent / "fixtures" / "ibm" / "live"
 MONDAY = date(2026, 11, 2)
 THURSDAY = date(2026, 11, 5)
 NEXT_MONDAY = date(2026, 11, 9)
@@ -133,8 +135,8 @@ def test_the_median_chain_is_the_median_of_the_chains_that_plan_the_same_circuit
     for _, path in candidates[:: max(1, len(candidates) // 10)]:
         assert campaign._shape(plan(profile, path)) == shape
     ranked = campaign._ranked_chains(profile, len(best.qubits))
-    assert candidates[0][0] <= best.error + 1e-12
-    assert len(candidates) <= len(ranked)
+    assert all(set(path) != set(best.qubits) for _, path in candidates)
+    assert len(candidates) < len(ranked)
 
 
 def test_a_rerun_in_the_same_week_submits_nothing(two_runs: TwoRuns) -> None:
@@ -325,3 +327,82 @@ def test_a_lock_that_a_stopped_process_left_is_taken_over(tmp_path: Path) -> Non
         statuses = _run(root, ibm, MONDAY, wait=False)
         assert [s.state for s in statuses] == ["submitted", "submitted"]
         assert not lock.exists()
+
+
+# On each live calibration, IBM disables every 1-qubit gate of one qubit but keeps its readout
+# and its 2-qubit gates calibrated. The first real campaign failed on such a chain.
+@pytest.mark.parametrize(
+    ("name", "dead"),
+    [("ibm_kingston-2026-11-09.json.gz", 113), ("ibm_fez-2026-11-09.json.gz", 149)],
+)
+def test_on_live_calibrations_both_chains_are_runnable_and_distinct(name: str, dead: int) -> None:
+    profile = nv.load(LIVE / name)
+    assert getattr(profile.table.gate("sx", (dead,)), "state", None) == "disabled"
+    pairs = [pair for pair in profile.table.listed_pairs() if dead in pair]
+    assert any(
+        getattr(profile.table.gate("cz", pair), "state", None) == "calibrated" for pair in pairs
+    )
+    chains = campaign.pick_chains(profile)
+    best, median = chains["best"].qubits, chains["median"].qubits
+    assert best == max((c.qubits for c in plan(profile)), key=len)
+    assert set(best) != set(median)
+    assert campaign._shape(plan(profile, median)) == campaign._shape(plan(profile))
+    _, candidates = campaign.eligible_chains(profile)
+    assert all(dead not in path for _, path in candidates)
+    assert all(dead not in path for _, path in campaign._ranked_chains(profile, len(best)))
+
+
+def test_the_median_chain_is_the_nearest_candidate_that_the_backend_accepts() -> None:
+    profile = nv.load(LIVE / "ibm_fez-2026-11-09.json.gz")
+    _, candidates = campaign.eligible_chains(profile)
+    middle = (len(candidates) - 1) // 2
+    one = campaign.pick_chains(
+        profile, lambda path: "off" if path == candidates[middle][1] else None
+    )
+    assert one["median"].qubits == candidates[middle - 1][1]
+    refused = {candidates[middle][1], candidates[middle - 1][1]}
+    chains = campaign.pick_chains(profile, lambda path: "off the grid" if path in refused else None)
+    assert chains["median"].qubits == candidates[middle + 1][1]
+    with pytest.raises(
+        NoiseVaultError, match=r"refuses all \d+ candidates .*\(the last because off the grid\)"
+    ):
+        campaign.pick_chains(profile, lambda path: "off the grid")
+
+
+class _NoTarget:
+    """A backend that opens, but whose target IBM cannot load."""
+
+    @property
+    def target(self) -> Any:
+        raise ConnectionError("network is unreachable")
+
+
+@pytest.mark.parametrize("fails", ["open", "target"])
+def test_a_backend_that_cannot_open_stops_the_chain_choice_at_once(
+    tmp_path: Path, fails: str
+) -> None:
+    with _fake_ibm(tmp_path / "nv_home") as ibm:
+        opened: list[str] = []
+
+        def unreachable(device: str, fractional: bool) -> Any:
+            opened.append(device)
+            if fails == "target":
+                return _NoTarget()
+            raise ConnectionError("network is unreachable")
+
+        account = ibm.account(campaign)
+        run = campaign.Campaign(
+            root=tmp_path / "campaign",
+            account=campaign.Account(
+                account.pull, unreachable, account.open_job, account.remaining_s
+            ),
+            budget=campaign.Budget(None, 0.0),
+        )
+        with contextlib.redirect_stdout(io.StringIO()):
+            statuses = run.run(["ibm_fez"], MONDAY)
+        assert [s.state for s in statuses] == ["error", "error"]
+        assert statuses[0].detail.startswith(
+            "could not open ibm_fez through your IBM Quantum account (network is unreachable)"
+        )
+        assert opened == ["ibm_fez"]
+        assert not (tmp_path / "campaign" / "ibm_fez" / "2026-11-02" / "chains.json").exists()
