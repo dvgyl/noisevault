@@ -60,7 +60,7 @@ def treatment(
     ``readout`` is False when the export adds no readout error, and so no readout effects.
     """
     if effect.type not in ERASING:
-        return Treatment("omit", detail=f"the {framework} export does not model {effect.type}")
+        return Treatment("omit")
     if effect.gate in _NOT_GATES:
         return Treatment(
             "omit", detail=f"use on: readout or on: idle, not gate: {effect.gate}, for this effect"
@@ -128,8 +128,16 @@ class Erasures:
         return any(e.heralded and (e.prob or e.rate_per_s) for e in effects)
 
     @property
+    def on_gates(self) -> bool:
+        return bool(self._gate)
+
+    @property
     def on_readout(self) -> bool:
         return bool(self._readout)
+
+    @property
+    def on_idle(self) -> bool:
+        return bool(self._idle)
 
     def gate(
         self, name: str, wires: tuple[int, ...], includes: Iterable[str] | None = ()

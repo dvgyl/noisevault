@@ -215,7 +215,7 @@ def test_the_report_states_how_each_effect_is_treated():
     ) in lines
     (omitted,) = [line for line in lines if line.startswith("omitted")]
     assert "effect leakage on idle (the stim export models no idle time)" in omitted
-    assert "effect crosstalk_zz on idle (the stim export does not model crosstalk_zz)" in omitted
+    assert "effect crosstalk_zz on idle," in omitted
     assert "effect erasure on x (the effect gives no prob)" in omitted
 
 

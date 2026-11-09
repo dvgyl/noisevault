@@ -185,7 +185,7 @@ class Report:
     def _refuse_effect(self, effect: Effect, what: str, done: Treatment) -> NoReturn:
         export = f"the {self.framework} export"
         if done.level == "omit":
-            reason = done.detail or f"{export} does not model it"
+            reason = done.detail or f"{export} does not model {effect.type}"
             raise UnsupportedEffect(
                 f"{what} asks for allow={effect.allow!r}, but {reason}",
                 hint="set allow to 'omit' to export without the effect",

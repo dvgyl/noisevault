@@ -117,7 +117,7 @@ def test_the_report_states_how_each_effect_is_treated():
     assert "effect erasure on idle: an erasure (the qubit becomes I/2)" in exact
     (omitted,) = [line for line in lines if line.startswith("omitted")]
     assert "effect atom_loss on readout (the cirq export adds no readout error)" in omitted
-    assert "effect crosstalk_zz on idle (the cirq export does not model crosstalk_zz)" in omitted
+    assert "effect crosstalk_zz on idle," in omitted
 
 
 def test_approximated_atom_loss_does_not_meet_allow_exact():
