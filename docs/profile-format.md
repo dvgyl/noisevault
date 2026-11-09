@@ -368,7 +368,8 @@ The target of an effect sets where the effect acts and which number it uses:
 
 Without `qubits`, the effect acts on every qubit. On a gate, `qubits` names one locus, in any
 order. On `readout` or `idle`, `qubits` lists the qubits. An effect with `qubits` replaces an
-effect of the same `type` and target without `qubits` on those qubits.
+effect of the same `type` and target without `qubits` on those qubits. When several effects
+still match one place, all of them act, each with its own probability.
 
 `"heralded": true` means that the device reports each event, for example when imaging finds an
 empty trap. Without `"heralded": true`, the event is silent.
@@ -389,7 +390,8 @@ The Stim export changes every `rec[-k]` target after an added herald, so that de
 observables and classically controlled gates read the same measurements as before. Herald
 records stay in the samples of `compile_sampler()`. The Cirq key of a herald is
 `herald_<type>_m<moment>_q<qubit>`, for example `herald_erasure_m3_q5`, where the qubit is the
-device qubit.
+device qubit. When two heralds in one moment get the same key, the second key ends in `_1`, the
+third in `_2`, and so on.
 
 The channel is exact for `erasure`. For the other two types, the report states the
 approximation:
@@ -422,9 +424,11 @@ for idle relaxation. The report also omits an effect in these cases:
   `readout=False` in Cirq).
 - The effect is on `idle`, and the Stim export has no `tick_ns`.
 
-A `leakage` effect on a gate whose `includes` lists `leakage` is already part of the stated
-gate error, as depolarizing noise. The exports do not add this effect again. The report lists it
-as approximated. The bundled Quantinuum profiles are an example.
+In the Stim and Cirq exports, a `leakage` effect on a gate adds nothing on a locus whose gate
+record lists `leakage` in `includes`. The record is the calibration record of that locus, or
+else the definition. The stated error of the gate already contains the leakage, as depolarizing
+noise. The report lists the effect as approximated, also when the effect has no `prob`. The
+bundled Quantinuum profiles are an example.
 
 ## Unmodeled error
 
