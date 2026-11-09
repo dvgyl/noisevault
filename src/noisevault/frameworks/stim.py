@@ -486,9 +486,11 @@ class _Exporter:
         """Passes of ``body`` to write on their own before the passes that are all equal."""
         peel = 0 if self.tick_ns is None else 1
         if self._records is not None and (reach := _reach(body)):
-            # A pass whose rec[] targets all land in earlier passes equals every later pass.
+            # Pass n's rec[] targets reach back over ceil(reach / records) passes. They read
+            # the same output records as every later pass's targets once all of those passes
+            # are loop passes equal to each other. With tick_ns, only passes after the first are.
             records = body.num_measurements
-            peel = max(peel, -(-reach // records) if records else count)
+            peel = peel + -(-reach // records) if records else count
         return min(peel, count - 1)
 
     def _skip_passes(self, passes: int, records: int, written: int) -> None:
@@ -535,10 +537,13 @@ class _Exporter:
         return set()
 
     def _gate(self, inst: stim.CircuitInstruction, busy: set[int], lines: list[str]) -> set[int]:
-        inst = self._shifted(inst)
         chunks = _disjoint_chunks(inst.target_groups())
         for chunk in chunks:
-            lines.append(str(inst) if len(chunks) == 1 else _text(inst, chunk))
+            # Heralds of an earlier chunk move the records that this chunk's rec[] targets read.
+            if self._records is not None:
+                lines.append(_text(inst, [self._shifted_group(group) for group in chunk]))
+            else:
+                lines.append(str(inst) if len(chunks) == 1 else _text(inst, chunk))
             noise: dict[str, list[int]] = {}
             erased: list[tuple[int, tuple[Erasure, ...]]] = []
             for group in chunk:
@@ -657,11 +662,14 @@ class _Exporter:
         targets = inst.targets_copy()
         if self._records is None or not any(t.is_measurement_record_target for t in targets):
             return inst
-        shifted = [
+        shifted = self._shifted_group(targets)
+        return stim.CircuitInstruction(inst.name, shifted, inst.gate_args_copy(), tag=inst.tag)
+
+    def _shifted_group(self, targets: Sequence[stim.GateTarget]) -> list[stim.GateTarget]:
+        return [
             stim.target_rec(self._lookback(t.value)) if t.is_measurement_record_target else t
             for t in targets
         ]
-        return stim.CircuitInstruction(inst.name, shifted, inst.gate_args_copy(), tag=inst.tag)
 
     def _lookback(self, value: int) -> int:
         records = self._records

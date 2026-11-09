@@ -272,3 +272,63 @@ def test_leakage_already_in_a_gate_error_is_not_added_again():
         "approximated: effect leakage on cx: counted in the stated error of cx as depolarizing"
         " noise (the gate's includes lists leakage, so the export does not add the effect again)"
     ) in noisy.report.summary().splitlines()
+
+
+def test_feedback_in_a_later_chunk_skips_the_heralds_of_an_earlier_chunk():
+    effect = {"type": "erasure", "gate": "cx", "prob": 0.1, "heralded": True}
+    noisy = _atoms(effect).to_stim("M 0\nCX 0 1 rec[-1] 0")
+    assert str(noisy).splitlines() == [
+        "M 0",
+        "CX 0 1",
+        "HERALDED_ERASE(0.1) 0 1",
+        "CX rec[-3] 0",
+    ]
+
+
+def test_nested_loops_whose_first_pass_adds_fewer_heralds_match_the_flat_export():
+    program = stim.Circuit("""
+        MPAD 0 0 0
+        X 0
+        REPEAT 4 {
+            REPEAT 3 {
+                DETECTOR rec[-3]
+                HERALDED_ERASE(0.01) 1
+                TICK
+            }
+        }
+    """)
+    effect = {"type": "erasure", "on": "idle", "rate_per_s": 1e3, "heralded": True}
+
+    def export(circuit: stim.Circuit) -> stim.Circuit:
+        return _atoms(effect).to_stim(circuit, tick_ns=100, existing_noise="keep")
+
+    assert export(program).flattened() == export(program.flattened()).flattened()
+
+
+def test_leakage_counted_on_one_direction_still_acts_on_the_other():
+    data = _atoms({"type": "leakage", "gate": "cx", "qubits": [0, 1], "prob": 0.2}).to_dict()
+    data["calibrations"] = [{"gate": "cx", "qubits": [0, 1], "includes": ["leakage"]}]
+    noisy = Profile.from_dict(data).to_stim("CX 0 1\nCX 1 0")
+    # Stim prints the two CX lines as one instruction.
+    assert str(noisy).splitlines() == ["CX 0 1 1 0", "DEPOLARIZE1(0.15) 1 0"]
+
+
+def test_a_locus_effect_without_prob_still_replaces_the_default():
+    profile = _atoms(
+        {"type": "erasure", "gate": "cx", "prob": 0.2},
+        {"type": "erasure", "gate": "cx", "qubits": [0, 1]},
+    )
+    noisy = profile.to_stim("CX 0 1\nCX 1 2")
+    assert str(noisy).splitlines() == ["CX 0 1 1 2", "DEPOLARIZE1(0.15) 1 2"]
+
+
+def test_an_effect_on_measure_or_reset_adds_nothing_and_names_the_target_to_use():
+    data = _atoms().to_dict()
+    data["gates"].update({"measure": {}, "reset": {}})
+    data["effects"] = [
+        {"type": "erasure", "gate": "measure", "prob": 0.5},
+        {"type": "erasure", "gate": "reset", "prob": 0.5},
+    ]
+    noisy = Profile.from_dict(data).to_stim("R 0\nM 0")
+    assert str(noisy) == "R 0\nM 0"
+    assert "not gate: reset" in noisy.report.summary()
