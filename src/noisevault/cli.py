@@ -37,9 +37,9 @@ from .diff import (
     METRICS,
     describe_delta,
     distinguishing_stamps,
+    fmt_change,
     fmt_error,
     fmt_metric,
-    fmt_relative,
     fmt_us,
 )
 from .errors import (
@@ -955,11 +955,9 @@ def _loci_table(labels: tuple[str, ...]) -> Table:
 
 
 def _change(change: Any) -> str:
-    if change.before is None or change.after is None:
-        # "worse" has no meaning when one side has no value, so these changes get no color
-        return "-" if change.before == change.after else "new" if change.before is None else "gone"
-    text = fmt_relative(change.relative)
-    if change.relative == 0:
+    text = fmt_change(change)
+    # "worse" has no meaning when one side has no value, so these changes get no color
+    if change.before is None or change.after is None or change.before == change.after:
         return text
     return f"[red]{text}[/red]" if change.worse else f"[green]{text}[/green]"
 

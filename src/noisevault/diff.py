@@ -105,7 +105,7 @@ class ProfileDiff:
         for c in self.medians:
             lines.append(
                 f"  {METRICS[c.metric][0]:<22}{fmt_metric(c.metric, c.before):>12}"
-                f"{fmt_metric(c.metric, c.after):>12}{fmt_relative(c.relative):>10}"
+                f"{fmt_metric(c.metric, c.after):>12}{fmt_change(c):>10}"
             )
         for title, changes in (("qubits", self.qubits), ("pairs", self.pairs)):
             if changes:
@@ -113,7 +113,7 @@ class ProfileDiff:
                 lines += [
                     f"  {_where(title, c.where):<14} {METRICS[c.metric][0]:<17}"
                     f" {fmt_metric(c.metric, c.before)} -> {fmt_metric(c.metric, c.after)}"
-                    f" ({fmt_relative(c.relative)})"
+                    f" ({fmt_change(c)})"
                     for c in changes
                 ]
         for label, items in (
@@ -491,8 +491,13 @@ def fmt_metric(metric: str, value: float | None) -> str:
     return fmt_us(value) if metric in ("t1_us", "t2_us") else fmt_error(value)
 
 
-def fmt_relative(value: float | None) -> str:
-    return "-" if value is None else f"{value:+.1%}"
+def fmt_change(change: Change) -> str:
+    """The change column of ``nv diff`` and :meth:`ProfileDiff.summary`."""
+    if change.before is None or change.after is None:
+        return "-" if change.before == change.after else "new" if change.before is None else "gone"
+    if change.relative is None:
+        return "from 0" if change.after else "-"
+    return f"{change.relative:+.1%}"
 
 
 def describe_delta(delta: timedelta | None) -> str:

@@ -113,6 +113,8 @@ This file lists all notable changes to NoiseVault. Versions follow
   "pairs removed". The JSON output and `ProfileDiff` have `pairs_added` and `pairs_removed`.
   Before, the diff did not show such a coupler, and the 2-qubit median changed with no stated
   cause. The drift report of the IBM campaign has the same lists.
+- `nv diff` and `ProfileDiff.summary()` show "from 0" for a value that changes from 0. Before,
+  they showed "-", the same symbol as for no data. The JSON keeps `relative: null`.
 - NoiseVault requires typer below 0.29. typer 0.29.0 removed `typer.main.get_click_type`,
   so the CLI did not start on a new install.
 - `scripts/run_on_ibm.py` submits its job with the server-side `SamplerV2` primitive on

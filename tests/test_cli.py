@@ -1934,7 +1934,7 @@ def test_diff_says_new_or_gone_and_colors_every_change(vault: Path) -> None:
     assert re.search(r"^4 +T1 \(us\) +10000000\.0 +- +gone$", plain, re.M)
     assert rows[("default", "2q", "avg")] == "+22.4%"
     assert re.search(
-        r"^5 +1q avg infidelity +0\.00e\+00 +4\.00e-05 +\x1b\[31m-\x1b\[0m$", out, re.M
+        r"^5 +1q avg infidelity +0\.00e\+00 +4\.00e-05 +\x1b\[31mfrom 0\x1b\[0m$", out, re.M
     )
     assert max(map(len, lines)) <= 80
 

@@ -63,6 +63,14 @@ def test_medians_compare_device_wide_values() -> None:
     assert not result.warnings and not result.identical
 
 
+def test_a_change_from_zero_says_so_in_the_summary_and_has_no_ratio_in_json() -> None:
+    result = diff(_profile(readout={"error": 0.0}), _later(readout={"error": 0.05}))
+    lines = result.summary().splitlines()
+    assert "  readout error             0.00e+00    5.00e-02    from 0" in lines
+    assert "  all qubits     readout error     0.00e+00 -> 5.00e-02 (from 0)" in lines
+    assert result.to_dict()["medians"][-1]["relative"] is None
+
+
 def test_largest_changes_come_first_by_relative_size() -> None:
     after = _later(
         qubits=[{"index": 0, "t1_us": 50}, {"index": 1, "t1_us": 132}, {"index": 2, "t1_us": 90}],
