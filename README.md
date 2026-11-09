@@ -271,6 +271,7 @@ cannot express.
 | --- | --- |
 | [Frameworks](docs/frameworks.md) | Each export, its options and what its report can list |
 | [Recipes](docs/recipes.md) | Pin and cite, drift, Mitiq, QEC with Stim, hypothetical devices, PennyLane training, hardware comparison |
+| [Mitiq tutorial](docs/tutorials/mitiq.md) | ZNE and PEC on IBM Fez noise, with PEC representations from the profile |
 | [Data sources](docs/data-sources.md) | Bundled, pulled and imported data, with licenses |
 | [Profile format](docs/profile-format.md) | Every field of format 1.0, with examples |
 | [Counts format](docs/counts-format.md) | The file that records a hardware run for `nv compare` |
