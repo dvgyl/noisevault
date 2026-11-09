@@ -116,6 +116,11 @@ class NoiseVaultPennyLaneModel(qml.NoiseModel):
     ) -> None:
         if unknown_gates not in ("typical", "error"):
             raise ValueError(f"unknown_gates={unknown_gates!r}: choose 'typical' or 'error'")
+        if not isinstance(readout, bool):
+            raise ValueError(
+                f"readout={readout!r}: pass True to add readout error or False to leave"
+                " measurements noiseless"
+            )
         self.profile = profile
         self.report = Report.start(
             profile,

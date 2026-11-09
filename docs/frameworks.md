@@ -299,6 +299,9 @@ has no gate noise, and `default.mixed` cannot run it. Before PennyLane 0.45, a Q
 `qml.sum`, `qml.Hamiltonian` and `qml.s_prod` off its tape, so the circuit runs without them
 and the model never gets them.
 
+`readout=False` leaves measurements noiseless. `readout` accepts only `True` or `False`. Any
+other value, such as the Stim option `"none"`, raises `ValueError`.
+
 When readout noise is on, `qml.add_noise` keeps only part of a shot vector's results
 (`shots=[100, 200]`). The model therefore raises an error for shot vectors instead of returning
 wrong numbers. Run each shot count separately. You can also pass `readout=False`.

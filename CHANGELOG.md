@@ -172,6 +172,8 @@ This file lists all notable changes to NoiseVault. Versions follow
   100, and refuse a different unit with a `SourceDataError`. Before, `0.5 %` became 0.5.
 - `suggest_layout` does not require `delay` on each qubit of the chain. Before, a profile that
   disabled `delay` on some qubits got a different chain and a false warning.
+- `to_pennylane` refuses a `readout` value that is not `True` or `False`. Before,
+  `readout="none"` turned readout error on.
 
 ### Changed
 

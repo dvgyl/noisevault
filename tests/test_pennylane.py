@@ -376,6 +376,29 @@ def test_asymmetric_readout_follows_the_profile_convention(qml) -> None:
     assert got == pytest.approx(np.kron([0.98, 0.02], [0.93, 0.07]), abs=1e-12)
 
 
+@pytest.mark.parametrize("readout", ["none", "off", 0, 1, None])
+def test_readout_must_be_a_bool(qml, readout) -> None:
+    from noisevault.frameworks.pennylane import to_pennylane
+
+    with pytest.raises(ValueError) as caught:
+        to_pennylane(_asymmetric_toy(), readout=readout)
+    assert str(caught.value) == (
+        f"readout={readout!r}: pass True to add readout error or False to leave"
+        " measurements noiseless"
+    )
+
+
+def test_readout_false_leaves_measurements_noiseless(qml) -> None:
+    from noisevault.frameworks.pennylane import to_pennylane
+
+    @qml.qnode(qml.device("default.mixed", wires=2))
+    def prepared_00():
+        return qml.probs(wires=[0, 1])
+
+    got = np.asarray(qml.add_noise(prepared_00, to_pennylane(_asymmetric_toy(), readout=False))())
+    assert got == pytest.approx([1.0, 0.0, 0.0, 0.0], abs=1e-12)
+
+
 def test_tuple_wire_labels_get_their_readout(qml) -> None:
     from noisevault.frameworks.pennylane import to_pennylane
 
