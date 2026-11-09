@@ -96,19 +96,21 @@ This file lists all notable changes to NoiseVault. Versions follow
 ### Fixed
 
 - For some drawn sets of counts, `nv compare` found a maximum that was too low. Such a set got too
-  small a deviance, so the p-value could be too high, and an interval test could accept a factor
+  small a deviance. Thus the p-value could be too high, and an interval test could accept a factor
   that it must reject. The fit fixes three causes:
   - At each relaxation floor, the slope of the likelihood along the gate factor can change sign. A
     climb that started below a dip stopped at the floor. The fit now climbs once between each two
-    neighboring floors, and it keeps the best result.
+    neighboring floors and once over all floors, and it keeps the best result.
   - A set drawn at a tested factor far from the estimate could have its maximum between the search
-    grids. The fit now also searches a coarse grid that spans the whole factor range.
-  - A best grid point at an end of the factor range counted as a maximum, with no climb. The fit
-    now climbs from it.
+    grids. The search with no factor held now also uses a coarse grid that spans the whole factor
+    range. The interval tests use this search too.
+  - A best grid point at an end of the factor range counted as a maximum, with no climb. The fit now
+    climbs from it.
 
   Over 480 random cases, the interval tests of 51 cases had a drawn maximum more than 0.02 below a
-  grid point. Now 40 cases do. For the p-value, the number fell from 14 to 13 cases. The largest
-  gap fell from 0.52 to 0.24. Five p-values fell by 0.0025 to 0.0125. No interval changed.
+  grid point. Now 40 cases do. For the p-value, the number fell from 14 to 13 cases. The largest gap
+  in the interval tests fell from 0.52 to 0.24. Five p-values fell by 0.0025 to 0.0125. No interval
+  changed.
 - `nv diff` lists a coupler that only one of the two profiles has, under "pairs added" or
   "pairs removed". The JSON output and `ProfileDiff` have `pairs_added` and `pairs_removed`.
   Before, the diff did not show such a coupler, and the 2-qubit median changed with no stated
