@@ -46,6 +46,7 @@ from .errors import (
     LociText,
     MigrationWarning,
     NoiseVaultError,
+    json_path,
     parse_json,
     plural,
     qubit_loci,
@@ -66,7 +67,17 @@ FORMAT_VERSION = "1.0"
 
 
 def _to_utc(value: datetime) -> datetime:
-    return value.astimezone(UTC)
+    try:
+        return value.astimezone(UTC)
+    except OverflowError:  # pydantic reports only ValueError as a validation error
+        raise ValueError(
+            f"{value.isoformat()} is outside the years 1 to 9999 when written in UTC"
+        ) from None
+
+
+def _unsigned_zero(value: float) -> float:
+    """-0.0 equals 0.0, but its repr differs, so it would give equal profiles two fingerprints."""
+    return value + 0.0  # -0.0 + 0.0 is 0.0, and every other value stays the same
 
 
 def iso_z(value: datetime) -> str:
@@ -118,12 +129,12 @@ UtcDatetime = Annotated[
 ]
 Text = Annotated[str, AfterValidator(_encodable)]
 # Strict scalars: a hand-written true, "1" or 3.0 is a typo to report, not a value to coerce.
-Real = Annotated[float, Strict()]  # still accepts an int
+Real = Annotated[float, Strict(), AfterValidator(_unsigned_zero)]  # still accepts an int
 Flag = Annotated[bool, Strict()]
 Count = Annotated[int, Strict(), Field(ge=1)]
 QubitIndex = Annotated[int, Strict(), Field(ge=0)]
-Probability = Annotated[float, Strict(), Field(ge=0, le=1)]
-NonNegative = Annotated[float, Strict(), Field(ge=0)]
+Probability = Annotated[float, Strict(), Field(ge=0, le=1), AfterValidator(_unsigned_zero)]
+NonNegative = Annotated[float, Strict(), Field(ge=0), AfterValidator(_unsigned_zero)]
 Positive = Annotated[float, Strict(), Field(gt=0)]
 Sha256 = Annotated[str, Field(pattern=r"^sha256:[0-9a-f]{64}$")]
 Fingerprint = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
@@ -193,7 +204,7 @@ class FrozenDict(dict):
 _MAX_NESTING = 64
 
 
-def _freeze(value: Any, where: str = "", depth: int = 1) -> Any:
+def _freeze(value: Any, path: tuple[str | int, ...] = (), depth: int = 1) -> Any:
     """Read-only copy of JSON data: mappings become FrozenDict, lists and tuples become tuples.
 
     The copy refuses each value that a save would change or cannot write. One such value is a
@@ -205,16 +216,18 @@ def _freeze(value: Any, where: str = "", depth: int = 1) -> Any:
     """
     if isinstance(value, Mapping | list | tuple) and depth > _MAX_NESTING:
         raise ValueError(f"nested more than {_MAX_NESTING} levels deep")
+    # json_path quotes a key that is not a name, so a key with a line break keeps one line.
+    where = json_path(path)
     if isinstance(value, Mapping):
         frozen = {}
         for key, item in value.items():
             if not isinstance(key, str):
                 raise ValueError(f"{where}: the key {key!r} is not a string")
             _encodable(key, f"{where}: the key {key!r}" if where else f"the key {key!r}")
-            frozen[key] = _freeze(item, f"{where}.{key}" if where else key, depth + 1)
+            frozen[key] = _freeze(item, (*path, key), depth + 1)
         return FrozenDict(frozen)
     if isinstance(value, list | tuple):
-        return tuple(_freeze(item, f"{where}[{i}]", depth + 1) for i, item in enumerate(value))
+        return tuple(_freeze(item, (*path, i), depth + 1) for i, item in enumerate(value))
     if isinstance(value, str):
         return _encodable(value, f"{where}: the string")
     if isinstance(value, float) and not math.isfinite(value):
@@ -1141,6 +1154,10 @@ def _profile_issues(profile: Profile) -> list[str]:
             continue
         if info is not None and spec.qubits is not None and spec.qubits != info.arity:
             issues.append(f"gates.{name}: qubits={spec.qubits} but {name} acts on {info.arity}")
+            continue
+        if spec.qubits is not None and spec.qubits > n:
+            # Also keeps the metric check from 2**qubits on an absurd arity.
+            issues.append(f"gates.{name}: qubits={spec.qubits}, but the device has {n}")
             continue
         arity[name] = spec.qubits or info.arity  # type: ignore[union-attr]
         issues += [f"gates.{name}: {msg}" for msg in _spec_issues(spec, arity[name])]
