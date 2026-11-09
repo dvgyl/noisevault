@@ -145,6 +145,9 @@ This file lists all notable changes to NoiseVault. Versions follow
   last bit, because Cirq joins its split density matrices in an order that changes between runs.
 - The Stim export keeps every digit of the arguments it copies, such as a readout flip
   probability or kept noise. Before, Stim's text form rounded them to 6 significant digits.
+- `from_qiskit_backend` keeps a global 1-qubit instruction (`qargs=None`) of the `Target` as an
+  uncalibrated gate on every qubit, and `provenance.notes` names a global instruction on more
+  qubits. Before, the importer dropped each global instruction with no note.
 
 ### Changed
 

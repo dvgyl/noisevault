@@ -398,8 +398,11 @@ Each importer turns its source's conventions into explicit fields, so no export 
   becomes `disabled: true`. `rz` is virtual. Device-wide defaults are medians over working qubits
   and gates. The medians leave out a qubit marked not operational and every gate on that qubit.
   `from_qiskit_backend` disables a gate on every qubit or pair that the backend's `Target` does
-  not list for that gate. In a CSV or a pull, a qubit or pair with no published error for a gate
-  takes that gate's median. `provenance.notes` names the qubit or pair. Two-qubit errors carry
+  not list for that gate. A global 1-qubit instruction of the `Target` (`qargs=None`) becomes a
+  gate on every qubit, uncalibrated when the `Target` gives it no error. The importer does not
+  convert a global instruction on more qubits, and `provenance.notes` names it. In a CSV or a
+  pull, a qubit or pair with no published error for a gate takes that gate's median.
+  `provenance.notes` names the qubit or pair. Two-qubit errors carry
   `"includes": ["1q_dressing"]`. The importer checks each value before it applies these rules. An
   error or a probability must be a finite number from 0 to 1. A duration must be a finite number
   0 or more. In BackendProperties data, an `operational` flag must be 0 or 1. The importer
