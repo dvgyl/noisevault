@@ -2,6 +2,7 @@
 __pycache__/
 *.py[cod]
 .pytest_cache/
+.hypothesis/
 .ruff_cache/
 .coverage
 htmlcov/
@@ -11,3 +12,6 @@ dist/
 .env
 .DS_Store
 _site/
+
+# Weekly IBM campaign data: account data under IBM's terms (docs/recipes.md)
+/campaign/

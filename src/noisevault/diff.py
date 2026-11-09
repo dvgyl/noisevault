@@ -20,7 +20,7 @@ from math import comb
 from typing import TYPE_CHECKING, Any
 
 from .errors import plural
-from .profile import qubit_medians, ref_on_day
+from .profile import DeviceMedians, qubit_medians, ref_on_day
 from .table import GateNoise
 
 if TYPE_CHECKING:
@@ -287,6 +287,18 @@ def _put(
 
 def _error(found: Any) -> float | None:
     return found.avg_infidelity if isinstance(found, GateNoise) else None
+
+
+def device_medians(profile: Profile) -> DeviceMedians:
+    """See :meth:`noisevault.Profile.medians`."""
+    found = _medians(profile, _qubit_values(profile.table))
+    return DeviceMedians(
+        t1_us=found["t1_us"],
+        t2_us=found["t2_us"],
+        error_1q=found["error_1q"],
+        error_2q=found["error_2q"],
+        readout_error=found["readout_error"],
+    )
 
 
 def _medians(profile: Profile, qubits: dict[int, dict[str, float]]) -> dict[str, float | None]:

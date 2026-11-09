@@ -97,7 +97,7 @@ below.
 | `idle` | no | Default T1, T2 and extra dephasing of every qubit. |
 | `qubits` | no | Per-qubit records that override `readout`, `prep` and `idle`. |
 | `calibrations` | no | Per-gate records that override a definition on specific qubits. |
-| `effects` | no | Physics the format records but no export models yet. |
+| `effects` | no | Physics outside the gate-and-readout model, such as leakage and atom loss. |
 | `unmodeled_error` | no | Factors on the profile's error rates, for error the calibration leaves out. |
 | `benchmarks` | no | Free-form benchmark values, such as layer fidelity. |
 | `provenance` | no | Source, license, attribution and retrieval details. |
@@ -356,11 +356,93 @@ carry `qubits`, `prob`, `rate_per_s`, `strength_hz`, `angle_rad` and `heralded`.
 {"type": "atom_loss", "on": "readout", "prob": 0.005}
 ```
 
-`allow` states the strictest treatment that you accept. The value is `omit` (the default),
-`approximate` or `exact`. No export models effects in this release. Every export lists them
-under "omitted" in its report, and an effect with `allow` set to `approximate` or `exact` makes
-the export raise `UnsupportedEffect`. The format carries effects now so profiles do not need to
-change when exports start modeling them.
+### Where an effect acts
+
+The target of an effect sets where the effect acts and which number it uses:
+
+| Target | Where the effect acts | Number |
+| --- | --- | --- |
+| `"gate": name` | After each application of the gate, after the gate's own noise. | `prob`, for each qubit of the gate and each application. |
+| `"on": "readout"` | Directly before each measurement of a qubit. | `prob`, for each measured qubit. |
+| `"on": "idle"` | After each idle time that an export models, after the relaxation of that time. | `rate_per_s`. An idle time t gives the probability 1 - exp(-`rate_per_s` t). |
+
+Without `qubits`, the effect acts on every qubit. On a gate, `qubits` names one locus, in any
+order, so it has as many qubits as the gate acts on. On `readout` or `idle`, `qubits` lists the
+qubits. An effect with `qubits` replaces an
+effect of the same `type` and target without `qubits` on those qubits. When several effects
+still match one place, all of them act, each with its own probability.
+
+A gate without its own noise takes the noise of the typical native gate (see `unknown_gates` in
+[Frameworks](frameworks.md)). For each effect type, such a gate also takes the gate effects of
+that native gate, unless an effect of that type names the gate itself. For example, on a device
+whose 2-qubit native gate is `cz`, a `cx` in the circuit takes the noise of `cz` and each effect
+on `cz`.
+
+`"heralded": true` means that the device reports each event, for example when imaging finds an
+empty trap. Without `"heralded": true`, the event is silent.
+
+### How the Stim and Cirq exports model leakage, atom loss and erasure
+
+The Stim and Cirq exports model `leakage`, `atom_loss` and `erasure` with one channel, an
+erasure. An erasure replaces the state of the qubit with the maximally mixed state I/2. This
+is the same as a random Pauli I, X, Y or Z, each with probability 1/4. For each effect, the
+exports add this channel with probability p, where p comes from `prob` or `rate_per_s`.
+
+| Export | Heralded | Not heralded |
+| --- | --- | --- |
+| Stim | `HERALDED_ERASE(p)` on each qubit. Each target adds one measurement record. The record is 1 when the erasure occurs. | `DEPOLARIZE1(3p/4)` |
+| Cirq | A `noisevault.frameworks.cirq.HeraldedErasure` gate with a measurement key. The record is 1 when the erasure occurs. | `cirq.depolarize(3p/4)` |
+
+The Stim export changes every `rec[-k]` target after an added herald, so that detectors,
+observables and classically controlled gates read the same measurements as before. Herald
+records stay in the samples of `compile_sampler()`. The Cirq key of a herald is
+`herald_<type>_m<moment>_q<qubit>`, for example `herald_erasure_m3_q5`, where the qubit is the
+device qubit. When the circuit or another herald already uses the key, the herald's key ends in
+`_1`, or else `_2`, and so on.
+
+The channel is exact for `erasure`. For the other two types, the report states the
+approximation:
+
+- **`atom_loss`.** A lost atom comes back at once in a random state. On the device, the trap
+  stays empty, later gates on the site do nothing, and readout of the site gives a fixed result.
+- **`leakage`.** Leaked population comes back at once in a random state. On the device, it stays
+  outside the qubit until a reset or until it decays, gates do not act on it, and it can disturb
+  neighboring qubits.
+
+### What the report says
+
+`allow` states the least faithful treatment that you accept. The order is `omit`, `approximate`,
+`exact`, and the default is `omit`. Every export models an effect as well as it can, also with
+`allow` set to `omit`. When the export's treatment is less faithful than `allow`, the export
+raises `UnsupportedEffect`.
+
+| Effect | Stim | Cirq | Qiskit, PennyLane, reference simulator |
+| --- | --- | --- | --- |
+| `erasure` on a gate or on `readout` | exact | exact | omitted |
+| `erasure` on `idle` | approximated, see below | during `cirq.WaitGate`: exact on a qubit without T1 and T2, else approximated, see below | omitted |
+| `atom_loss`, `leakage` | approximated | approximated | omitted |
+| `crosstalk_measurement`, `crosstalk_zz`, `coherent_overrotation` | omitted | omitted | omitted |
+
+An idle effect acts after the relaxation of each idle time. On the device, the two act at the
+same time, and their order changes the result. Thus an idle effect is exact only on a qubit
+without T1 and T2.
+
+The Stim export applies idle effects only to qubits idle in a `TICK` layer with `tick_ns`, as
+for idle relaxation. The report also omits an effect in these cases:
+
+- The effect has no `prob` (on a gate or on `readout`) or no `rate_per_s` (on `idle`).
+- The effect names the gate `measure`, `reset` or `delay`. Use `"on": "readout"` or
+  `"on": "idle"` instead.
+- The effect is on `readout`, and the export adds no readout error (`readout="none"` in Stim,
+  `readout=False` in Cirq).
+- The effect is on `idle`, and the Stim export has no `tick_ns`.
+
+In the Stim and Cirq exports, a `leakage` effect on a gate adds nothing on a locus whose gate
+record lists `leakage` in `includes`. The record is the calibration record of that locus, or
+else the definition. The stated error of the gate already contains the leakage, as depolarizing
+noise. The report lists the effect as approximated, also when the effect has no `prob`. The
+bundled Quantinuum profiles are an example. A record without a stated error contains no
+leakage, so the effect acts there.
 
 ## Unmodeled error
 

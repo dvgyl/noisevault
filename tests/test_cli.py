@@ -494,7 +494,7 @@ def test_show_qubits_names_a_real_gate_not_the_identity(ref: str) -> None:
 def test_show_all_to_all_and_notes() -> None:
     out = runner.invoke(app, ["show", "quantinuum_h1-1"], env={"COLUMNS": "200"}).stdout
     assert "all-to-all" in out and "device-wide" in out
-    assert "T1 and T2 unknown" in out and re.search(r"not modeled\s+leakage on r\s", out)
+    assert "T1 and T2 unknown" in out and re.search(r"effects\s+leakage on r\s", out)
 
 
 def test_show_and_diff_name_the_error_metric(tmp_path: Path) -> None:
@@ -563,7 +563,7 @@ def test_show_lists_what_the_model_leaves_out_before_provenance_and_notes() -> N
         "natives",
         "coherence",
         "readout",
-        "not modeled",
+        "effects",
         "provenance",
         "license",
         "attribution",
@@ -587,7 +587,7 @@ def test_show_writes_schema_tokens_as_words_and_json_keeps_them(tmp_path: Path) 
     assert h1["license"] == "Apache-2.0, redistribution allowed"
     weber = rows("google_weber")
     assert weber["device"] == "Google, Sycamore, superconducting, 53 qubits"
-    assert weber["not modeled"] == "coherent over-rotation on sqrt_iswap (86 records)"
+    assert weber["effects"] == "coherent over-rotation on sqrt_iswap (86 records)"
     data = toy(
         provenance={
             "data_kind": "vendor_model",

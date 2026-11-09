@@ -17,6 +17,7 @@ from noisevault.errors import (
     LayoutError,
     MissingCalibrationError,
     NoiseApproximationWarning,
+    UnsupportedEffect,
 )
 from noisevault.profile import Profile
 from noisevault.report import Report
@@ -488,3 +489,158 @@ def test_fixed_angle_two_qubit_gates_are_named_by_the_registry_gate_they_equal(
     assert name == want
     native = gates.GATES[name].unitary(*params)
     assert abs(np.vdot(native, unitary)) == pytest.approx(4, abs=1e-6)  # equal up to phase
+
+
+def _pauli_profile(**gates) -> Profile:
+    return Profile.model_validate(toy(gates={**toy()["gates"], **gates}))
+
+
+def test_pauli_error_returns_a_stated_pauli_channel_with_the_first_label_on_the_first_qubit() -> (
+    None
+):
+    stated = [0.0] * 15
+    stated[3] = 2e-3  # "XI": an X error on the first qubit of the record
+    profile = _pauli_profile(
+        cz={"qubits": 2, "pauli": stated, "duration_ns": 70, "symmetric": False}
+    )
+
+    labels = [a + b for a in "IXYZ" for b in "IXYZ"][1:]
+    expected = {**dict.fromkeys(labels, 0.0), "XI": 2e-3}
+    forward = profile.pauli_error("cz", (0, 1))
+    assert list(forward) == labels
+    assert forward == pytest.approx(expected, abs=1e-15)
+
+
+def test_pauli_error_of_a_symmetric_gate_follows_the_order_of_the_qubits_asked_for() -> None:
+    stated = [0.0] * 15
+    stated[3] = 2e-3
+    profile = Profile.model_validate(
+        toy(calibrations=[{"gate": "cz", "qubits": [0, 1], "pauli": stated}])
+    )
+
+    assert profile.pauli_error("cz", (0, 1))["XI"] == pytest.approx(2e-3)
+    assert profile.pauli_error("cz", (1, 0))["IX"] == pytest.approx(2e-3)
+    assert profile.pauli_error("cz", (1, 0))["XI"] == pytest.approx(0.0, abs=1e-15)
+
+
+def test_pauli_error_of_a_depolarizing_gate_has_the_stated_average_infidelity() -> None:
+    profile = _pauli_profile(sx={"avg_infidelity": 1e-3})  # no duration, so no relaxation
+
+    error = profile.pauli_error("sx", [0])
+    assert error == pytest.approx(dict.fromkeys("XYZ", 1e-3 * 3 / 2 / 3))  # r (d+1)/d spread
+    cz = profile.pauli_error("cz", [0, 1])
+    assert sum(cz.values()) == pytest.approx(1e-2 * 5 / 4)
+
+
+def test_pauli_error_includes_relaxation_and_the_unmodeled_error_factor() -> None:
+    base = _pauli_profile()
+    relaxed = base.model_copy(
+        update={"qubits": [{"index": q, "t1_us": 100, "t2_us": 80} for q in range(3)]}
+    )
+    scaled = relaxed.model_copy(update={"unmodeled_error": {"gates": {"factor": 2.0}}})
+
+    stated = sum(base.pauli_error("sx", [0]).values())
+    assert sum(relaxed.pauli_error("sx", [0]).values()) == pytest.approx(stated, rel=1e-9)
+    assert relaxed.pauli_error("sx", [0])["Z"] > relaxed.pauli_error("sx", [0])["X"]
+    assert sum(scaled.pauli_error("sx", [0]).values()) > 1.9 * stated
+
+
+def test_pauli_error_of_an_ideal_gate_is_zero_for_every_label() -> None:
+    assert _pauli_profile().pauli_error("rz", [2]) == {"X": 0.0, "Y": 0.0, "Z": 0.0}
+
+
+def test_pauli_error_resolves_names_and_unknown_gates_as_the_exports_do() -> None:
+    profile = _pauli_profile()
+    rx_only = Profile.model_validate(
+        toy(gates={"rz": {"virtual": True}, "rx": {"avg_infidelity": 4e-3}})
+    )
+
+    assert rx_only.pauli_error("sx", [0]) == rx_only.pauli_error("rx", [0])
+    with pytest.warns(NoiseApproximationWarning, match="h on qubit 0"):
+        assert profile.pauli_error("h", [0]) == profile.pauli_error("sx", [0])
+    with pytest.raises(MissingCalibrationError, match="h on qubit 0"):
+        profile.pauli_error("h", [0], unknown_gates="error")
+    with pytest.raises(ValueError, match="choose 'typical' or 'error'"):
+        profile.pauli_error("sx", [0], unknown_gates="ignore")
+    with pytest.raises(LayoutError):
+        profile.pauli_error("sx", [7])
+
+
+def _atoms(*effects: dict, error: float = 0.0) -> Profile:
+    return Profile.uniform(
+        "atoms",
+        technology="neutral_atom",
+        num_qubits=3,
+        one_qubit_error=error,
+        two_qubit_error=error,
+        effects=effects,
+    )
+
+
+def test_pauli_error_includes_the_erasing_effects_on_the_gate() -> None:
+    p = 0.08
+    profile = _atoms(
+        {"type": "atom_loss", "gate": "cz", "prob": p, "heralded": True},
+        {"type": "erasure", "on": "readout", "prob": 0.5},  # not a part of a gate's error
+    )
+    error = profile.pauli_error("cz", [0, 1])
+    each = 3 * p / 4  # an erasure is a depolarizing channel with this Pauli error on its qubit
+    assert error["XI"] == pytest.approx(each / 3 * (1 - each))
+    assert error["ZY"] == pytest.approx((each / 3) ** 2)
+    assert sum(error.values()) == pytest.approx(1 - (1 - each) ** 2)
+    assert sum(profile.pauli_error("h", [0]).values()) == pytest.approx(0.0, abs=1e-15)
+
+
+def test_pauli_error_is_the_noise_that_the_stim_export_adds_after_the_gate() -> None:
+    stim = require("stim")
+    profile = _atoms({"type": "erasure", "gate": "cz", "prob": 0.06}, error=1e-2)
+    noisy = profile.to_stim(stim.Circuit("CZ 0 1"))
+    gate_noise, erasure = noisy[1], noisy[2]
+    assert (gate_noise.name, erasure.name) == ("PAULI_CHANNEL_2", "DEPOLARIZE1")
+    labels = [a + b for a in "IXYZ" for b in "IXYZ"]
+    first = dict(zip(labels, [0.0, *gate_noise.gate_args_copy()], strict=True))
+    first["II"] = 1 - sum(first.values())
+    q = erasure.gate_args_copy()[0] / 3
+    one = {"I": 1 - 3 * q, "X": q, "Y": q, "Z": q}
+    times = {a + b: c for a, b, c in ("XYZ", "YZX", "ZXY", "YXZ", "ZYX", "XZY")}
+
+    def product(a: str, b: str) -> str:
+        return b if a == "I" else a if b == "I" else "I" if a == b else times[a + b]
+
+    expected = dict.fromkeys(labels, 0.0)
+    for label, weight in first.items():
+        for a, pa in one.items():
+            for b, pb in one.items():
+                expected[product(label[0], a) + product(label[1], b)] += weight * pa * pb
+    del expected["II"]
+    assert profile.pauli_error("cz", [0, 1]) == pytest.approx(expected, rel=1e-9)
+
+
+def test_pauli_error_refuses_a_name_that_is_no_gate() -> None:
+    with pytest.raises(ValueError, match="'hadamard' is not a gate"):
+        _pauli_profile().pauli_error("hadamard", [0])
+
+
+def test_pauli_error_refuses_a_gate_effect_that_it_leaves_out() -> None:
+    effect = {"type": "crosstalk_zz", "gate": "cz", "strength_hz": 1e3}
+    assert sum(_atoms(effect, error=1e-2).pauli_error("cz", [0, 1]).values()) > 0
+    with pytest.raises(UnsupportedEffect, match="crosstalk_zz on cz asks for allow='approximate'"):
+        _atoms({**effect, "allow": "approximate"}, error=1e-2).pauli_error("cz", [0, 1])
+    # An effect on another gate is not a part of the error of cz.
+    _atoms({**effect, "gate": "cx", "allow": "exact"}, error=1e-2).pauli_error("cz", [0, 1])
+
+
+def test_pauli_error_refuses_the_wrong_number_of_qubits() -> None:
+    profile = _pauli_profile()
+    with pytest.raises(ValueError, match="h acts on 1 qubits, but qubits names 2"):
+        profile.pauli_error("h", [0, 1])  # h is not a gate of the profile
+    with pytest.raises(ValueError, match="cz acts on 2 qubits, but qubits names 1"):
+        profile.pauli_error("cz", [0])
+
+
+def test_pauli_error_checks_only_the_effects_that_act_on_the_gate() -> None:
+    required = {"type": "crosstalk_zz", "gate": "cz", "strength_hz": 1e3, "allow": "exact"}
+    elsewhere = _atoms({**required, "qubits": [1, 2]}, error=1e-2)
+    assert sum(elsewhere.pauli_error("cz", [0, 1]).values()) > 0
+    with pytest.raises(UnsupportedEffect, match="crosstalk_zz on cz"):
+        elsewhere.pauli_error("cz", [2, 1])

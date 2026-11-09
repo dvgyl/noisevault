@@ -1,0 +1,141 @@
+name: IBM campaign
+
+# Runs scripts/ibm_campaign.py each week through the owner's IBM Quantum account, then writes
+# the drift report. The campaign job runs only when the repository has a secret named
+# IBM_QUANTUM_TOKEN. docs/recipes.md ("Run the weekly IBM campaign") tells how to add it.
+#
+# The campaign folder holds account data under IBM's terms. Run logs and artifacts of a public
+# repository are public, so the folder goes between runs as an artifact that is encrypted with
+# the token. The next run downloads the newest such artifact, collects the jobs it records and
+# adds this week's runs.
+on:
+  schedule:
+    - cron: "41 7 * * 1"
+  workflow_dispatch:
+    inputs:
+      devices:
+        description: "IBM devices, separated by spaces (default: the IBM_CAMPAIGN_DEVICES variable)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+  actions: read
+
+# Two runs at the same time could submit the same week twice.
+concurrency:
+  group: ibm-campaign
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  UV_SYSTEM_PYTHON: "1"
+  PYTHONUNBUFFERED: "1"
+  ARTIFACT: ibm-campaign
+  ARCHIVE: campaign.tar.gz.enc
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    outputs:
+      run: ${{ steps.check.outputs.run }}
+    steps:
+      - id: check
+        env:
+          IBM_QUANTUM_TOKEN: ${{ secrets.IBM_QUANTUM_TOKEN }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          if [ -z "$IBM_QUANTUM_TOKEN" ]; then
+            message="The repository has no secret IBM_QUANTUM_TOKEN, so the IBM campaign did not run. To add the secret, follow \"Run the weekly IBM campaign\" in docs/recipes.md."
+          elif [ "$GITHUB_REF_NAME" != "$DEFAULT_BRANCH" ]; then
+            message="The IBM campaign runs only on $DEFAULT_BRANCH, so that every run continues the same campaign folder. Start it on $DEFAULT_BRANCH."
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "::notice title=IBM campaign skipped::$message"
+          echo "$message" >> "$GITHUB_STEP_SUMMARY"
+          echo "run=false" >> "$GITHUB_OUTPUT"
+
+  campaign:
+    needs: gate
+    if: needs.gate.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    env:
+      IBM_QUANTUM_TOKEN: ${{ secrets.IBM_QUANTUM_TOKEN }}
+      IBM_QUANTUM_INSTANCE: ${{ secrets.IBM_QUANTUM_INSTANCE }}
+      DEVICES: ${{ inputs.devices || vars.IBM_CAMPAIGN_DEVICES || 'ibm_kingston ibm_fez' }}
+      DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - uses: astral-sh/setup-uv@v6
+      - run: uv pip install -e '.[ibm]'
+
+      - name: Restore the campaign folder of the last run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # The newest unexpired archive that a run of this workflow on the default branch saved.
+          id=$(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/artifacts?name=$ARTIFACT&per_page=100" \
+              --jq ".artifacts[] | select((.expired | not) and .workflow_run.head_branch == \"$DEFAULT_BRANCH\") | [.created_at, .id] | @tsv" \
+            | sort | tail -n 1 | cut -f 2)
+          if [ -z "$id" ]; then
+            echo "No earlier campaign artifact, so the campaign folder starts empty."
+            exit 0
+          fi
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$id/zip" > previous.zip
+          unzip -q previous.zip -d previous
+          if ! openssl enc -d -aes-256-cbc -pbkdf2 -pass env:IBM_QUANTUM_TOKEN \
+              -in "previous/$ARCHIVE" | tar -xz; then
+            rm -rf campaign
+            echo "::error::Could not decrypt artifact $id with IBM_QUANTUM_TOKEN. A changed token cannot open an older archive. To start an empty campaign folder, delete the old $ARTIFACT artifacts."
+            exit 1
+          fi
+          echo "Restored the campaign folder from artifact $id."
+
+      # The full output names jobs and calibrations of the account, and the log of a public
+      # repository is public. So the output goes to a file in the encrypted folder, and the
+      # log shows only the status table.
+      - name: Run this week's jobs and collect earlier jobs
+        timeout-minutes: 300
+        run: |
+          mkdir -p campaign/logs
+          log="campaign/logs/$(date -u +%Y-%m-%dT%H%MZ).log"
+          echo "The full output goes to $log in the encrypted archive."
+          status=0
+          # DEVICES is a list separated by spaces, so it is not in quotes.
+          python scripts/ibm_campaign.py $DEVICES > "$log" 2>&1 || status=$?
+          sed -n '/^device  /,$p' "$log"
+          exit "$status"
+
+      - name: Write the drift report
+        if: always()
+        run: |
+          if [ -d campaign ]; then
+            python scripts/drift_report.py
+          fi
+
+      - name: Encrypt the campaign folder
+        id: encrypt
+        if: always()
+        run: |
+          if [ -d campaign ]; then
+            tar --exclude='campaign/*/.lock' -cz campaign | openssl enc -aes-256-cbc -pbkdf2 -salt \
+              -pass env:IBM_QUANTUM_TOKEN -out "$ARCHIVE.part"
+            mv "$ARCHIVE.part" "$ARCHIVE"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        if: always() && steps.encrypt.outcome == 'success'
+        with:
+          name: ${{ env.ARTIFACT }}
+          path: ${{ env.ARCHIVE }}
+          if-no-files-found: ignore
+          retention-days: 90

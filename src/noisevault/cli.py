@@ -615,7 +615,7 @@ def _print_card(
         grid.add_row("disabled", "qubits " + ", ".join(map(str, data["disabled_qubits"])))
     _add_lines(grid, "unmodeled", [line.short for line in data["unmodeled_note"]])
     if not brief:
-        _add_lines(grid, "not modeled", [_plain_effect(line) for line in data["effects"]])
+        _add_lines(grid, "effects", [_plain_effect(line) for line in data["effects"]])
     prov = data["provenance"]
     grid.add_row("provenance", _provenance(prov))
     redistribution = _REDISTRIBUTION[prov["redistributable"]]
