@@ -50,7 +50,8 @@ pennylane = ["pennylane>=0.43.3"]
 stim = ["stim>=1.15"]
 google = ["noisevault[cirq]", "cirq-google>=1.6"]
 hf = ["pyarrow>=14.0.1"]
-all = ["noisevault[qiskit,ibm,cirq,pennylane,stim,google,hf]"]
+braket = ["amazon-braket-sdk>=1.127"]
+all = ["noisevault[qiskit,ibm,cirq,pennylane,stim,google,hf,braket]"]
 dev = [
   "noisevault[all]",
   "amazon-braket-schemas>=1.22",

@@ -259,7 +259,9 @@ uv run https://raw.githubusercontent.com/dvgyl/noisevault/main/scripts/run_on_ib
 ```
 
 The script shows IBM's estimate of the QPU time and asks before it submits the job. It also prints
-the `nv compare` command for the counts.
+the `nv compare` command for the counts. For IQM, Rigetti, AQT and IonQ devices on Amazon Braket,
+`scripts/run_on_braket.py` does the same. It shows the cost in US dollars and submits only with
+`--confirm-cost`.
 [Measure a profile against hardware](docs/recipes.md#measure-a-profile-against-hardware) shows how
 to plan and record a run. [Counts format](docs/counts-format.md) describes the counts file.
 [Limitations](docs/limitations.md#what-the-unmodeled-error-factors-absorb) lists what the factors

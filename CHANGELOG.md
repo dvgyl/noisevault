@@ -14,6 +14,16 @@ This file lists all notable changes to NoiseVault. Versions follow
 - The README gives the install line for a virtual environment from `uv venv`, which has no pip.
   The README section [Coming from fake backends](README.md#coming-from-fake-backends) shows the
   one-line change from `AerSimulator.from_backend` and what a profile adds.
+- **Counts from Amazon Braket.** `scripts/run_on_braket.py` runs the `nv compare` circuits on
+  IQM Garnet, Rigetti Cepheus, AQT IBEX-Q1, IonQ Forte or another Braket device, and saves a
+  counts file and its calibration. Each circuit runs in a verbatim box as native gates on its
+  physical qubits. The script shows the cost in US dollars and submits only with
+  `--confirm-cost`. It uses one program set task where the device supports one. It saves the
+  task ids, so the same command collects a run whose wait stopped. Braket has no gate-level
+  delay, so the script plans from the calibration without gate durations, and the gate factor
+  includes idle error. `--local PROPERTIES` runs the circuits free on the Braket
+  `LocalEmulator`. The new `braket` extra installs `amazon-braket-sdk`. See
+  [Counts from an Amazon Braket device](docs/counts-format.md#counts-from-an-amazon-braket-device).
 
 ### Changed
 
