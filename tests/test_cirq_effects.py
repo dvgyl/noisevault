@@ -147,19 +147,22 @@ def test_herald_keys_skip_the_circuits_own_keys():
     assert keys == {"herald_erasure_m0_q0", "herald_erasure_m0_q0_1"}
 
 
-def test_a_measurement_only_circuit_warns_that_its_heralds_are_lost():
+def test_run_refuses_a_measurement_only_circuit_that_it_would_simulate_one_time():
     profile = _atoms({"type": "erasure", "on": "readout", "prob": 0.5, "heralded": True})
     circuit = cirq.Circuit(cirq.measure(q0, key="m"))
     model = profile.to_cirq()
-    noisy = circuit.with_noise(model)  # no warning here, and the next call reuses the result
+    noisy = circuit.with_noise(model)  # no error here, and the next call reuses the result
     with warnings.catch_warnings():
         warnings.simplefilter("error")
         kept = cirq.Simulator(noise=model, seed=1).simulate(circuit)
     assert "herald_erasure_m0_q0" in kept.measurements
-    with pytest.warns(NoiseApproximationWarning, match="with_noise"):
-        cirq.Simulator(noise=model, seed=1).run(circuit, repetitions=5)
-    result = cirq.Simulator(seed=1).run(noisy, repetitions=200)
-    _within_5_sigma(result.measurements["herald_erasure_m0_q0"].mean(), 0.5, 200)
+    for simulator in (cirq.Simulator, cirq.DensityMatrixSimulator):
+        for _ in range(2):  # the second call reuses the noisy circuit and must refuse again
+            with pytest.raises(UnsupportedEffect, match="with_noise"):
+                simulator(noise=model, seed=1).run(circuit, repetitions=5)
+    result = cirq.Simulator(seed=1).run(noisy, repetitions=2000)
+    _within_5_sigma(result.measurements["herald_erasure_m0_q0"].mean(), 0.5, 2000)
+    _within_5_sigma(result.measurements["m"].mean(), 0.25, 2000)  # an erasure gives 1 half the time
 
 
 @pytest.mark.parametrize("gate", ["measure", "reset"])

@@ -11,7 +11,7 @@ from typing import Any, get_args
 
 import numpy as np
 
-from ..errors import LayoutError, install_hint, qubit_loci
+from ..errors import LayoutError, UnsupportedEffect, install_hint, qubit_loci
 
 try:
     import cirq
@@ -369,7 +369,7 @@ class NoiseVaultNoiseModel(cirq.NoiseModel):
         # stay fast and report events do not count shots.
         if self._last is not None and self._last[0] == moments:
             if self._last[2]:
-                self._warn_lost_heralds()
+                self._refuse_one_simulation()
             return self._last[1]
         self._qubits.physical(system_qubits)
         later: set[cirq.Qid] = set()
@@ -387,19 +387,21 @@ class NoiseVaultNoiseModel(cirq.NoiseModel):
             noisy.append([self._noisy(op, terminal=(i, op) in terminal) for op in moment])
         self._moment = None
         ops = [op for moment in moments for op in moment]
-        lost = len(self._keys) > circuit_keys and all(cirq.is_measurement(op) for op in ops)
-        if lost:
-            self._warn_lost_heralds()
-        self._last = (moments, noisy, lost)
+        # A simulator's run() samples every repetition of such a circuit from one simulation.
+        sampled = all(isinstance(op.gate, cirq.MeasurementGate) for op in ops)
+        heralds = len(self._keys) > circuit_keys and sampled
+        self._last = (moments, noisy, heralds)
+        if heralds:
+            self._refuse_one_simulation()
         return noisy
 
-    def _warn_lost_heralds(self) -> None:
+    def _refuse_one_simulation(self) -> None:
         if _inside_simulator_run():
-            self.report.warn_once(
-                "measurement_only_heralds",
-                "a circuit of measurements only: a Cirq simulator built with noise=model samples"
-                " it from one simulation and returns no herald records. Simulate"
-                " circuit.with_noise(model) instead",
+            raise UnsupportedEffect(
+                "a circuit of measurements only with a heralded effect: a Cirq simulator built"
+                " with noise=model samples every repetition from one simulation. Each erasure"
+                " would then occur in every repetition or in none, with no herald record",
+                hint="simulate circuit.with_noise(model) instead",
             )
 
     def noisy_operation(self, operation: cirq.Operation) -> cirq.OP_TREE:
@@ -597,8 +599,8 @@ class NoiseVaultNoiseModel(cirq.NoiseModel):
 
 
 def _inside_simulator_run() -> bool:
-    """True inside a Cirq simulator's run(), whose sampling of a circuit of measurements only
-    drops herald records. simulate() and Circuit.with_noise keep them."""
+    """True inside a Cirq simulator's run(), which simulates a circuit of measurements only
+    one time for all repetitions. simulate() and Circuit.with_noise decide each herald anew."""
     frame = sys._getframe(1)
     while frame is not None:
         if frame.f_code.co_name == "_run" and frame.f_globals.get("__name__", "").startswith(
