@@ -148,6 +148,8 @@ This file lists all notable changes to NoiseVault. Versions follow
 - `from_qiskit_backend` keeps a global 1-qubit instruction (`qargs=None`) of the `Target` as an
   uncalibrated gate on every qubit, and `provenance.notes` names a global instruction on more
   qubits. Before, the importer dropped each global instruction with no note.
+- The IBM BackendProperties importers divide an error or a probability with the unit `%` by
+  100, and refuse a different unit with a `SourceDataError`. Before, `0.5 %` became 0.5.
 
 ### Changed
 

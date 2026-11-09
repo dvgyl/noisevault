@@ -323,6 +323,40 @@ def test_an_ideal_gate_outside_the_registry_keeps_its_arity() -> None:
     assert profile.table.gate("phase", (3,)).state == "ideal"
 
 
+def _with_units(gate_error: dict, prob_meas1_prep0: dict) -> nv.Profile:
+    from noisevault.sources.qiskit_backend import calibration_from_properties, to_profile
+
+    props = json.loads((FIXTURES / "manila_properties.json").read_bytes())
+    [entry] = [e for e in props["gates"] if e["gate"] == "sx" and e["qubits"] == [0]]
+    next(p for p in entry["parameters"] if p["name"] == "gate_error").update(gate_error)
+    next(p for p in props["qubits"][0] if p["name"] == "prob_meas1_prep0").update(prob_meas1_prep0)
+    origin = Origin("manila_properties.json")
+    return to_profile(
+        calibration_from_properties(props, origin=origin), {"source_kind": "other"}, origin=origin
+    )
+
+
+def test_an_error_in_percent_becomes_a_fraction() -> None:
+    profile = _with_units({"value": 0.5, "unit": "%"}, {"value": 2, "unit": "%"})
+    assert profile.table.gate("sx", (0,)).avg_infidelity == 0.005
+    assert profile.table.qubit(0).readout[0] == 0.02
+
+
+def test_an_error_with_no_unit_keeps_its_value() -> None:
+    profile = _with_units({"value": 0.005, "unit": None}, {"value": 0.02})
+    assert profile.table.gate("sx", (0,)).avg_infidelity == 0.005
+    assert profile.table.qubit(0).readout[0] == 0.02
+
+
+def test_an_error_in_an_unknown_unit_is_refused() -> None:
+    with pytest.raises(nv.SourceDataError) as info:
+        _with_units({"value": 500, "unit": "ppm"}, {})
+    assert info.value.message == (
+        "manila_properties.json: gate_error of sx on qubit 0 has the unknown unit 'ppm', not %"
+        " or no unit"
+    )
+
+
 def test_aer_simulator_from_a_fake_models_that_device() -> None:
     aer = require("qiskit_aer")
     profile = nv.from_qiskit_backend(aer.AerSimulator.from_backend(_backend("FakeManilaV2")))

@@ -458,16 +458,19 @@ def calibration_from_properties(props: Mapping[str, Any], *, origin: Origin) -> 
         qubits[index] = QubitCalibration(
             t1_us=_in_unit(values.get("T1"), "us", origin, owner),
             t2_us=_in_unit(values.get("T2"), "us", origin, owner),
-            p1_given_0=_value(values.get("prob_meas1_prep0")),
-            p0_given_1=_value(values.get("prob_meas0_prep1")),
-            prep_error=_value(values.get("init_error")),
+            p1_given_0=_fraction(values.get("prob_meas1_prep0"), origin, owner),
+            p0_given_1=_fraction(values.get("prob_meas0_prep1"), origin, owner),
+            prep_error=_fraction(values.get("init_error"), origin, owner),
             operational=_operational(values, origin, owner),
         )
         error, length = values.get("readout_error"), values.get("readout_length")
         if error is not None or length is not None:
             instructions.append(
                 Instruction(
-                    "measure", (index,), _value(error), _in_unit(length, "ns", origin, owner)
+                    "measure",
+                    (index,),
+                    _fraction(error, origin, owner),
+                    _in_unit(length, "ns", origin, owner),
                 )
             )
     skipped = set()
@@ -488,7 +491,7 @@ def calibration_from_properties(props: Mapping[str, Any], *, origin: Origin) -> 
             Instruction(
                 canonical,
                 locus,
-                error=_value(values.get("gate_error")),
+                error=_fraction(values.get("gate_error"), origin, owner),
                 duration_ns=_in_unit(values.get("gate_length"), "ns", origin, owner),
                 operational=_operational(values, origin, owner),
             )
@@ -561,6 +564,17 @@ def _locus(
 
 def _value(param: Mapping[str, Any] | None) -> float | None:
     return None if param is None else param.get("value")
+
+
+def _fraction(param: Mapping[str, Any] | None, origin: Origin, owner: str) -> float | None:
+    """An error or a probability from 0 to 1. ``origin`` refuses a unit that is not ``%``."""
+    if param is None or param.get("value") is None or not param.get("unit"):
+        return _value(param)
+    if param["unit"] == "%":
+        return param["value"] / 100
+    raise origin.refuse(
+        f"{param['name']} of {owner} has the unknown unit {param['unit']!r}, not % or no unit"
+    )
 
 
 def _operational(values: Mapping[str, Mapping[str, Any]], origin: Origin, owner: str) -> bool:

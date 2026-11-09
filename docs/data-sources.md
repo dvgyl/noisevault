@@ -407,7 +407,9 @@ Each importer turns its source's conventions into explicit fields, so no export 
   error or a probability must be a finite number from 0 to 1. A duration must be a finite number
   0 or more. In BackendProperties data, an `operational` flag must be 0 or 1. The importer
   refuses any other value. A T1 or T2 that is not a positive finite number counts as missing, and
-  `provenance.notes` names it.
+  `provenance.notes` names it. In BackendProperties data, the importer divides an error or a
+  probability with the unit `%` by 100. It refuses an error or a probability with a different
+  unit.
 - **Quantinuum.** The importer repeats the analysis code in Quantinuum's repository
   (`qtm_spec`). The importer pools the randomized-benchmarking decays over gate zones and
   converts them to the average infidelity per native gate. The importer adds leakage to that
