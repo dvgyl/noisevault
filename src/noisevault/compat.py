@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import json
+import math
 from typing import Any, NoReturn
 
 from pydantic import TypeAdapter, ValidationError
 
-from . import gates
+from . import gates, metrics
 from .errors import NoiseVaultError
 
 _IBM_PROVIDERS = {"ibm", "qiskit_fake"}
@@ -103,7 +104,11 @@ def upgrade_v01(old: dict[str, Any]) -> dict[str, Any]:
     data_kind, source_kind = _KINDS.get(provider, ("unknown", "other"))
     prov = old["provenance"]
     licensing = _licensing(provider, prov.get("raw_hash"))
-    notes = [*prov.get("notes", []), "Upgraded from NoiseVault format 0.1."]
+    notes = [
+        *prov.get("notes", []),
+        "Upgraded from NoiseVault format 0.1.",
+        *_coherence_notes(old["qubits"]),
+    ]
     if provider == "qiskit_fake" and licensing["redistributable"] != "yes":
         source_kind = "other"
         notes.append(_UNVERIFIED_FAKE)
@@ -178,8 +183,11 @@ def _parse(old: dict[str, Any]) -> dict[str, Any]:
             and isinstance(gate.get("qubits"), list)
         ):
             _fail(f"gates[{i}] needs a name and a list of qubits")
-        if not isinstance(gate.get("error"), int | float | None):
-            _fail(f"gates[{i}]: error should be a number, not {_json_type(gate['error'])}")
+        error = gate.get("error")
+        if isinstance(error, bool) or not isinstance(error, int | float | None):
+            _fail(f"gates[{i}]: error should be a number, not {_json_type(error)}")
+        if isinstance(error, float) and not math.isfinite(error):
+            _fail(f"gates[{i}]: error should be a finite number, not {_shown(error)}")
         gate_entries.append({**gate, "operational": _flag(gate, f"gates[{i}]")})
     qubit_entries = []
     for i, qubit in enumerate(old["qubits"]):
@@ -268,7 +276,10 @@ def _explicitly_free(entry: dict[str, Any]) -> bool:
 def _record(entry: dict[str, Any]) -> dict[str, Any]:
     record: dict[str, Any] = {"gate": entry["name"], "qubits": entry["qubits"]}
     error = entry.get("error")
-    if not entry["operational"] or (error is not None and error >= 1):
+    # No channel has an average infidelity above d/(d+1), the value of full depolarization.
+    # IBM writes such a value, often 1, to mark a broken gate.
+    limit = metrics.max_avg_infidelity(len(entry["qubits"]))
+    if not entry["operational"] or (error is not None and error >= limit):
         record["disabled"] = True
     elif error is not None:
         record["avg_infidelity"] = error
@@ -277,10 +288,30 @@ def _record(entry: dict[str, Any]) -> dict[str, Any]:
     return record
 
 
+_COHERENCE = {"t1_us": "T1", "t2_us": "T2"}
+
+
+def _invalid_time(value: Any) -> bool:
+    """A dead qubit can report T1 = 0. The value counts as missing, as in the IBM importer."""
+    if isinstance(value, float) and not math.isfinite(value):
+        return True
+    return isinstance(value, int | float) and not isinstance(value, bool) and value <= 0
+
+
+def _coherence_notes(qubits: list[dict[str, Any]]) -> list[str]:
+    return [
+        f"Qubit {q['index']} reported {label} = {_shown(q[key])} us."
+        " NoiseVault treats the value as missing."
+        for q in qubits
+        for key, label in _COHERENCE.items()
+        if _invalid_time(q.get(key))
+    ]
+
+
 def _qubit(q: dict[str, Any]) -> dict[str, Any]:
     out: dict[str, Any] = {"index": q["index"]}
-    for key in ("t1_us", "t2_us"):
-        if q.get(key) is not None:
+    for key in _COHERENCE:
+        if q.get(key) is not None and not _invalid_time(q[key]):
             out[key] = q[key]
     a, b = q.get("prob_meas1_prep0"), q.get("prob_meas0_prep1")
     if a is not None and b is not None:

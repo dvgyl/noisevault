@@ -93,6 +93,70 @@ def test_ibm_sentinel_error_disables_the_gate() -> None:
     assert table.gate("cx", (1, 0)).state == "calibrated"
 
 
+def _small_v01() -> dict:
+    """A 2-qubit IBM file in format 0.1, small enough to check each value by hand."""
+    return {
+        "schema_version": "0.1",
+        "provider": "ibm",
+        "backend_name": "ibm_small",
+        "num_qubits": 2,
+        "captured_at": "2024-01-02T00:00:00Z",
+        "basis_gates": ["sx", "cx"],
+        "coupling_map": [[0, 1]],
+        "gates": [
+            {"name": "sx", "qubits": [0], "error": 1e-3, "duration_ns": 32.0},
+            {"name": "sx", "qubits": [1], "error": 1e-3, "duration_ns": 32.0},
+            {"name": "cx", "qubits": [0, 1], "error": 1e-2, "duration_ns": 300.0},
+        ],
+        "qubits": [
+            {"index": 0, "t1_us": 100.0, "t2_us": 80.0},
+            {"index": 1, "t1_us": 100.0, "t2_us": 80.0},
+        ],
+        "provenance": {"source_timestamp": "2024-01-01T00:00:00Z", "notes": []},
+    }
+
+
+def _small_gate(data: dict, name: str, qubits: list[int]) -> dict:
+    return next(g for g in data["gates"] if g["name"] == name and g["qubits"] == qubits)
+
+
+# The largest average infidelity of a channel is d/(d+1): 2/3 for 1 qubit, 4/5 for 2 qubits.
+@pytest.mark.parametrize(
+    ("name", "qubits", "error", "state"),
+    [
+        ("sx", [0], 0.6, "calibrated"),
+        ("sx", [0], 2 / 3, "disabled"),
+        ("sx", [0], 0.7, "disabled"),
+        ("cx", [0, 1], 0.75, "calibrated"),
+        ("cx", [0, 1], 0.8, "disabled"),
+        ("cx", [0, 1], 0.85, "disabled"),
+        ("cx", [0, 1], 2.0, "disabled"),
+    ],
+)
+def test_an_error_at_the_largest_infidelity_of_its_arity_disables_the_gate(
+    name: str, qubits: list[int], error: float, state: str
+) -> None:
+    data = _small_v01()
+    _small_gate(data, name, qubits)["error"] = error
+    found = _upgrade(data).table.gate(name, tuple(qubits))
+    assert found.state == state
+    if state == "calibrated":
+        assert found.avg_infidelity == error
+
+
+def test_a_coherence_time_of_0_or_less_counts_as_missing_with_a_note() -> None:
+    data = _small_v01()
+    data["qubits"][1].update(t1_us=0, t2_us=-1.5)
+    profile = _upgrade(data)
+    assert profile.table.qubit(1).t1_ns is None
+    assert profile.table.qubit(1).t2_ns is None
+    assert profile.table.qubit(0).t1_ns == 100_000
+    assert [n for n in profile.provenance.notes if n.startswith("Qubit 1")] == [
+        "Qubit 1 reported T1 = 0 us. NoiseVault treats the value as missing.",
+        "Qubit 1 reported T2 = -1.5 us. NoiseVault treats the value as missing.",
+    ]
+
+
 def test_rz_stays_calibrated_when_it_has_an_error() -> None:
     data = _v01()
     for gate in data["gates"]:
@@ -191,6 +255,12 @@ def _prov(**changes) -> dict:
         (_v01(qubits=[{"t1_us": 1.0}]), "qubits[0] needs an integer index"),
         (_v01(gates=[{"name": "sx"}]), "gates[0] needs a name and a list of qubits"),
         (_first_gate(error="high"), "gates[0]: error should be a number"),
+        (_first_gate(error=True), "gates[0]: error should be a number, not true or false"),
+        (
+            _first_gate(error=float("inf")),
+            "gates[0]: error should be a finite number, not Infinity",
+        ),
+        (_first_gate(error=float("nan")), "gates[0]: error should be a finite number, not NaN"),
         (_v01(provenance={"raw_hash": ["x"]}), "provenance.raw_hash should be a string"),
         (
             _first_gate(operational="maybe"),
@@ -224,6 +294,9 @@ def _prov(**changes) -> dict:
         "qubit-index",
         "gate-qubits",
         "gate-error",
+        "gate-error-bool",
+        "gate-error-infinite",
+        "gate-error-nan",
         "raw-hash",
         "gate-flag-word",
         "gate-flag-null",

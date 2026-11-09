@@ -621,7 +621,12 @@ so the same profile always produces the same bytes.
 ## Files in format 0.1
 
 NoiseVault 0.1 files (`"schema_version": "0.1"`) still load. NoiseVault upgrades them in memory
-and emits a `MigrationWarning`. Save the profile to keep the 1.0 form.
+and emits a `MigrationWarning`. Save the profile to keep the 1.0 form. The upgrade follows these
+rules:
+
+- A gate whose error is at or above d/(d+1) is disabled. The limit is 2/3 for 1 qubit and 4/5
+  for 2 qubits. IBM writes such a value, often 1, to mark a broken gate.
+- A T1 or T2 of 0 or less counts as missing, and `provenance.notes` names it.
 
 ## How technologies map
 

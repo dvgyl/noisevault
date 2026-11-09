@@ -153,6 +153,13 @@ This file lists all notable changes to NoiseVault. Versions follow
   1000.9999999999999 ns, so it has the same fingerprint as `"duration_ns": 1001`.
 - An error about a key with a line break stays on one line. This applies to the free-form
   sections of a profile and to every key of a counts file.
+- The upgrade of a 0.1 file disables a gate whose error is at or above d/(d+1), the largest
+  average infidelity: 2/3 for 1 qubit and 4/5 for 2 qubits. Before, the limit was 1, so such a
+  file did not load. A T1 or T2 of 0 or less counts as missing, and `provenance.notes` names
+  it. Before, such a file did not load either. The upgrade refuses an error of `true` or a value
+  that is not finite. Before, it disabled the gate. A file with an error exactly at the limit
+  gets a new fingerprint, because that gate was calibrated before and is disabled now, as in the
+  IBM importer. The 0.1 test fixtures keep their fingerprints.
 - `load_counts` gives a `CountsError` for an execution flag nested as deep as the JSON parser
   takes, not a `RecursionError`.
 - `scripts/run_on_ibm.py` stops with an error that names the two devices when it collects a job
