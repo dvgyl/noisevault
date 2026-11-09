@@ -16,7 +16,6 @@ from noisevault.channels import ChannelSpec, gate_channels, superoperator
 from noisevault.conversion import resolve_op
 from noisevault.errors import (
     DisabledGateError,
-    MissingCalibrationError,
     NoiseApproximationWarning,
     NoiseVaultError,
     UnsupportedEffect,
@@ -1248,6 +1247,23 @@ def test_unknown_gates_error_leaves_uncalibrated_natives_to_transpile_around() -
     assert sim.report.events == {}  # no guessed noise anywhere
 
 
+def test_unknown_gates_typical_leaves_out_loci_that_no_native_fits() -> None:
+    profile = Profile.model_validate(
+        toy(
+            gates={"rz": {"virtual": True}, "sx": {"avg_infidelity": 1e-3}, "cz": {}},
+            calibrations=[{"gate": "cz", "qubits": [0, 1], "avg_infidelity": 0.01}],
+        )
+    )
+    sim = to_qiskit(profile)
+    cz = sim.target["cz"]
+    assert set(cz) == {(0, 1), (1, 0)}
+    assert [cz[q].error for q in [(0, 1), (1, 0)]] == pytest.approx([0.01, 0.01], abs=1e-12)
+    assert (
+        "native cz: no error metric on qubits 1-2 and 2-1, and unknown_gates='typical' finds no"
+        " typical noise for it there, so transpile does not use this native there"
+    ) in sim.report.to_dict()["omitted"]
+
+
 def test_unknown_gates_error_refuses_when_no_entangler_is_calibrated() -> None:
     profile = Profile.model_validate(
         toy(gates={"rz": {"virtual": True}, "sx": {"avg_infidelity": 1e-3}, "cz": {}})
@@ -1434,11 +1450,15 @@ def test_the_report_offers_typical_noise_only_when_unknown_gates_typical_runs(
     ]
     assert len(entries) == len(extra)
     assert all(e.endswith(_TYPICAL_FITS) is offered for e in entries), entries
-    if offered:
-        _run_natives(profile, unknown_gates="typical")
-    else:
-        with pytest.raises(MissingCalibrationError):
-            quiet_export(profile, unknown_gates="typical")
+    _run_natives(profile, unknown_gates="typical")
+    typical = quiet_export(profile, unknown_gates="typical")
+    assert "swap" not in typical.target.operation_names
+    assert ("iswap" in typical.target.operation_names) is ("iswap" in extra)
+    assert (
+        "native swap: no error metric on qubits 0-1, 1-0, 1-2 and 2-1, and unknown_gates='typical'"
+        " finds no typical noise for it there, so transpile does not use this native there"
+        in typical.report.to_dict()["omitted"]
+    ) is ("swap" in extra)
 
 
 def test_the_report_names_a_native_that_no_listed_pair_allows() -> None:

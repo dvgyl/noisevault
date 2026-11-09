@@ -128,7 +128,11 @@ What the report can list:
 - **Omitted.** Idle time outside explicit delays. When the profile gives every instruction a
   duration, transpile with `scheduling_method="alap"` to insert delays on idle qubits. The report
   names this step only then. Effects. `to_qiskit()` leaves natives that Qiskit cannot target,
-  such as Google's `sycamore`, out of the simulator. The report names these natives.
+  such as Google's `sycamore`, out of the simulator. The report names these natives. A native
+  on a locus where it has no error metric stays out of the `Target` in two cases: with
+  `unknown_gates="error"`, and with `"typical"` when the typical-noise rule gives the native no
+  noise on that locus. An example is `swap`, which needs more than one entangling gate.
+  `transpile` then does not use the native there, and the report names the loci.
 - **Unknown.** Values the profile lacks. The bundled IBM profiles have no preparation error, so
   resets add none. A `delay` on a qubit with no T1, T2 or dephasing rate adds no noise, and the
   report names the qubit.

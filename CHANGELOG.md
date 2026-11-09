@@ -176,6 +176,9 @@ This file lists all notable changes to NoiseVault. Versions follow
   `readout="none"` turned readout error on.
 - The Stim export applies the noise of a calibrated `ii` to `II`. Before, `II` was always
   noiseless, and the report did not state that the export left out the calibrated noise.
+- The default `to_qiskit()` leaves a native out of the `Target` on a locus where the native has
+  no error metric and typical noise does not fit, and the report names the locus. Before, the
+  export raised `MissingCalibrationError` for a profile that `unknown_gates="error"` accepts.
 
 ### Changed
 

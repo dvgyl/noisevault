@@ -489,7 +489,10 @@ def _placements(
     report: Report,
     omitted: dict[str, str | LociText],
 ) -> list[Placement]:
-    """Every native on every locus that gets noise. Uncalibrated loci drop out in error mode."""
+    """Every native on every locus that gets noise.
+
+    Uncalibrated loci drop out in error mode, and in typical mode where no typical native fits.
+    """
     loci = _loci(table, enabled)
     memo: dict[tuple, Placement] = {}
     out = []
@@ -504,20 +507,31 @@ def _placements(
                 continue
             if found.state == "disabled":
                 continue
-            if found.state == "uncalibrated" and unknown_gates == "error":
+            if found.state == "uncalibrated" and (
+                unknown_gates == "error" or not _typical_fits(table, export.canonical, qargs)
+            ):
                 uncalibrated.append(qargs)
                 continue
             out.append(_placement(table, export, qargs, found, unknown_gates, report, memo))
         if uncalibrated:
             left_out[export.canonical] = uncalibrated
+            why = (
+                "unknown_gates='error'"
+                if unknown_gates == "error"
+                else "unknown_gates='typical' finds no typical noise for it there"
+            )
             omitted[export.canonical] = LociText(
                 "no error metric on ",
                 uncalibrated,
-                ", and unknown_gates='error', so transpile does not use this native there",
+                f", and {why}, so transpile does not use this native there",
             )
         elif unavailable and len(unavailable) == len(candidates):
             omitted[export.canonical] = unavailable[0]
-    if left_out and all(_typical_fits(table, n, q) for n, qs in left_out.items() for q in qs):
+    if (
+        unknown_gates == "error"
+        and left_out
+        and all(_typical_fits(table, n, q) for n, qs in left_out.items() for q in qs)
+    ):
         for name in left_out:
             omitted[name] = LociText(
                 omitted[name],
