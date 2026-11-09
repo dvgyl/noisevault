@@ -332,3 +332,33 @@ def test_an_effect_on_measure_or_reset_adds_nothing_and_names_the_target_to_use(
     noisy = Profile.from_dict(data).to_stim("R 0\nM 0")
     assert str(noisy) == "R 0\nM 0"
     assert "not gate: reset" in noisy.report.summary()
+
+
+@pytest.mark.parametrize(
+    ("program", "effect", "last_line"),
+    [
+        (
+            "REPEAT 6 {\n    M 0 1 2\n}\nDETECTOR rec[-10]",
+            {"type": "atom_loss", "on": "readout", "prob": 0.1, "heralded": True},
+            "DETECTOR rec[-19]",
+        ),
+        (
+            "REPEAT 6 {\n    M 1\n}\nDETECTOR rec[-6]",
+            {"type": "erasure", "gate": "cx", "prob": 0.1, "heralded": True},
+            "DETECTOR rec[-6]",
+        ),
+    ],
+    ids=["heralds_in_the_loop", "no_herald"],
+)
+def test_a_target_after_a_loop_reads_a_record_of_an_early_pass(program, effect, last_line):
+    # The target reaches farther back than the records before the end of the first pass.
+    noisy = _atoms(effect).to_stim(program)
+    assert str(noisy).splitlines()[-1] == last_line
+    assert noisy.flattened() == _atoms(effect).to_stim(stim.Circuit(program).flattened())
+
+
+def test_kept_heralds_in_a_loop_keep_a_later_target_on_its_record():
+    program = "REPEAT 6 {\n    HERALDED_ERASE(0.2) 0\n    M 0\n}\nDETECTOR rec[-7]"
+    effect = {"type": "erasure", "on": "idle", "rate_per_s": 1e3, "heralded": True}
+    noisy = _atoms(effect).to_stim(program, existing_noise="keep", readout="none")
+    assert str(noisy) == program  # without tick_ns, the idle effect adds no herald

@@ -500,7 +500,9 @@ class _Exporter:
             return
         if records:
             last = list(self._records)[-records:]
-            first = max(1, passes - len(self._records) // records - 1)
+            # Only the last passes stay in the map. The map can hold more than it holds now.
+            kept = (self._records.maxlen or 0) // records + 1
+            first = max(1, passes - kept)
             for n in range(first, passes + 1):
                 self._records.extend(r + n * written for r in last)
         self._written += passes * written
