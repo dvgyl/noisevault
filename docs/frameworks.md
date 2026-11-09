@@ -136,7 +136,7 @@ What the report can list:
 `readout=False` leaves measurements noiseless. The `Target` then gives `measure` an error of 0,
 so `transpile` does not place circuits by a readout error that the simulator does not apply.
 
-Qiskit Aer 0.17.0 to 0.18.0 can stop Python with a segmentation fault or a bus error during
+Qiskit Aer 0.17.0 to 0.18.2 can stop Python with a segmentation fault or a bus error during
 `sim.run`. A run can also fail with `QuantumError: Kraus is empty.` The fault occurs with the
 `statevector` method, which Aer selects for small shot counts and for wide circuits. With this
 method, Aer converts each gate error to Kraus operators with the LAPACK routine `zheevx`. A
@@ -147,7 +147,10 @@ change of a few parts per million in one T1 value can cause or remove the fault.
 `density_matrix` method does not use this conversion. To avoid the fault, run
 `sim.run(transpile(ghz, sim), shots=1000, method="density_matrix")`. The `density_matrix` method
 needs 16 x 4^n bytes for n qubits, for example 16 MiB for 10 qubits. Aer issue
-[#2455](https://github.com/Qiskit/qiskit-aer/issues/2455) records the `zheevx` failure.
+[#2455](https://github.com/Qiskit/qiskit-aer/issues/2455) records the `zheevx` failure. Aer pull
+request [#2510](https://github.com/Qiskit/qiskit-aer/pull/2510) fixes both defects on the
+`stable/0.18` branch, after the 0.18.2 release. On 2026-11-09, 0.18.2 is the newest release, and
+the reproducer in the issue still fails with it.
 
 On a profile with disabled qubits or gates, transpile with
 `initial_layout=list(profile.suggest_layout(n).values())`. Qiskit's `optimization_level=0`

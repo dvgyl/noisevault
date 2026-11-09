@@ -41,7 +41,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 import noisevault as nv  # noqa: E402
-from noisevault import catalog, gates  # noqa: E402
+from noisevault import catalog, compat, gates  # noqa: E402
 from noisevault._jobfile import BINARY, Owned  # noqa: E402
 from noisevault._jobfile import beside as _beside  # noqa: E402
 from noisevault._jobfile import create as _create  # noqa: E402
@@ -258,9 +258,7 @@ def usage_seconds(
 
 
 def submit(backend: Any, batch: Batch) -> Any:
-    from qiskit_ibm_runtime import SamplerV2
-
-    sampler = SamplerV2(mode=backend, options=batch.options)
+    sampler = compat.ibm_sampler()(mode=backend, options=batch.options)
     try:
         return sampler.run(list(batch.circuits))
     except Exception as exc:
