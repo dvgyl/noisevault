@@ -40,6 +40,7 @@ LOCAL_EXAMPLES = {
     "cirq_google.py": "linear XEB fidelity",
     "custom_device.py": "approximated: effect atom_loss on readout",
     "qec_surface_code.py": "d=5: logical error",
+    "neutral_atom_erasure.py": "logical error, heralds used:",
 }
 OTHER_EXAMPLES = {"compare_devices.py", "drift.py", "mitigation_zne.py"}
 
