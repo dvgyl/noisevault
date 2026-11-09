@@ -1044,6 +1044,12 @@ def check(
             _none_installed(missing, ref=ref, framework=named)
         if not result.frameworks and not result.failed:
             raise NoiseVaultError("no framework could run the check")
+        if framework is not None and result.skipped:
+            skipped = [name for name, _ in result.skipped]
+            them = "it" if len(skipped) == 1 else "them"
+            raise NoiseVaultError(
+                f"--framework names {joined(skipped)}, but the check skipped {them}"
+            )
         if not result.passed:
             raise typer.Exit(1)
 
