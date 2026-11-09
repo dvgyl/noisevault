@@ -470,7 +470,7 @@ def test_every_export_that_refuses_the_profile_is_skipped_with_its_reason() -> N
 
 def test_nv_check_names_every_export_that_refuses_the_profile(tmp_path: Path) -> None:
     path = _asks_for_an_effect().save(tmp_path / "effect.json")
-    result = CliRunner().invoke(app, ["check", str(path)], env={"COLUMNS": "200"})
+    result = CliRunner().invoke(app, ["check", str(path)], env={"COLUMNS": "400"})
     lines = re.sub(r"\x1b\[[0-9;]*m", "", result.stdout).splitlines()
     assert [line.split() for line in lines[3:7]] == [[name, "skipped"] for name in FRAMEWORKS]
     assert lines[7:] == [f"{name}: {_refused(name)}" for name in FRAMEWORKS]

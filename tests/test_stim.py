@@ -1056,13 +1056,17 @@ def test_layout_errors_name_the_qubit():
         to_stim(_manila(), "H 7")
 
 
-def test_effects_are_omitted_or_refused():
-    effect = {"type": "leakage", "gate": "cz", "prob": 1e-4}
+def test_effects_are_omitted_approximated_or_refused():
+    effect = {"type": "crosstalk_zz", "on": "idle", "strength_hz": 1e3}
     omitted = to_stim(Profile.model_validate(toy(effects=[effect])), "CZ 0 1")
-    assert "effect leakage on cz" in omitted.report.to_dict()["omitted"]
-    refused = Profile.model_validate(toy(effects=[{**effect, "allow": "approximate"}]))
-    with pytest.raises(UnsupportedEffect):
-        to_stim(refused, "CZ 0 1")
+    assert "effect crosstalk_zz on idle" in omitted.report.to_dict()["omitted"]
+    leakage = {"type": "leakage", "gate": "cz", "prob": 1e-4}
+    approximated = to_stim(Profile.model_validate(toy(effects=[leakage])), "CZ 0 1")
+    whats = [a["what"] for a in approximated.report.to_dict()["approximated"]]
+    assert "effect leakage on cz" in whats
+    for strict in ({**effect, "allow": "approximate"}, {**leakage, "allow": "exact"}):
+        with pytest.raises(UnsupportedEffect):
+            to_stim(Profile.model_validate(toy(effects=[strict])), "CZ 0 1")
 
 
 def test_layout_from_coords_places_a_surface_code_on_the_best_grid_patch():

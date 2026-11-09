@@ -402,7 +402,7 @@
     },
     "Effect": {
       "additionalProperties": false,
-      "description": "Physics that the format records but no export and no reference simulator models yet.\n\nWith ``allow=\"omit\"``, the exports and the reference simulator leave the effect out. Each\nreport lists the effect as omitted, and ``compare`` names it in a note. With any other\n``allow`` value, the exports, ``simulate`` and ``compare`` refuse the profile.",
+      "description": "Physics outside the gate-and-readout model, such as leakage, atom loss and erasure.\n\nThe Stim and Cirq exports model ``leakage``, ``atom_loss`` and ``erasure`` as an erasure\nchannel. The other exports and the reference simulator leave every effect out. ``allow``\nis the least faithful treatment that the profile accepts (``omit``, ``approximate`` or\n``exact``). An export, ``simulate`` or ``compare`` whose treatment is less faithful refuses\nthe profile. docs/profile-format.md gives the rules.",
       "properties": {
         "type": {
           "enum": [

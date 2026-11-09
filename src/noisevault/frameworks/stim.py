@@ -196,11 +196,11 @@ def to_stim(
         Erasures(profile, readout=reads),
     )
     lines, _ = exporter.block(circuit, set())
-    exporter.finish()
-
     out = NoiseVaultStimCircuit("\n".join(lines))
-    out.report, out.profile, out.layout = report, profile, physical
+    # Heralds add records, so the flip table comes from the output circuit.
     out.readout_flips = exporter.record_flips(out) if readout == "exact" else None
+    exporter.finish()  # after record_flips, which notes qubits without readout error
+    out.report, out.profile, out.layout = report, profile, physical
     return out
 
 
@@ -531,8 +531,9 @@ class _Exporter:
                 if channel:
                     noise.setdefault(channel, []).append(q)
             lines.extend(_noise_lines(noise))
-            tick = float(self.tick_ns)
-            self._erase([(q, self.erasures.idle(self.physical[q], tick)) for q in idle], lines)
+            if self.erasures.on_idle:
+                tick = float(self.tick_ns)
+                self._erase([(q, self.erasures.idle(self.physical[q], tick)) for q in idle], lines)
         lines.append(str(inst))
         return set()
 
@@ -561,9 +562,11 @@ class _Exporter:
                 lines.extend(resolved.lines)
                 if resolved.prefix:
                     noise.setdefault(resolved.prefix, []).extend(qubits)
-                erased += ((q, resolved.erasures) for q in qubits)
+                if resolved.erasures:
+                    erased += ((q, resolved.erasures) for q in qubits)
             lines.extend(_noise_lines(noise))
-            self._erase(erased, lines)
+            if erased:
+                self._erase(erased, lines)
         return busy
 
     def _measure(self, inst: stim.CircuitInstruction, busy: set[int], lines: list[str]) -> set[int]:
@@ -588,7 +591,9 @@ class _Exporter:
                 else:
                     runs.append((flip, [group]))
             busy.update(measured)
-            self._erase([(q, self.erasures.readout(self.physical[q])) for q in measured], lines)
+            if self.erasures.on_readout:
+                erased = [(q, self.erasures.readout(self.physical[q])) for q in measured]
+                self._erase(erased, lines)
             # Runs of equal flip probability keep the targets, and so the record order, unchanged.
             lines.extend(_text(inst, run, [flip] if flip else []) for flip, run in runs)
             self._record(len(chunk))
