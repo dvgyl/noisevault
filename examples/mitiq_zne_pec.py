@@ -97,16 +97,20 @@ def commute(p: str, q: str) -> bool:
     return sum(x != "I" and y != "I" and x != y for x, y in zip(p, q, strict=True)) % 2 == 0
 
 
-def pauli_channel(op: cirq.Operation) -> pec.OperationRepresentation:
-    """The representation that inverts the Pauli channel of the profile exactly."""
-    error = pauli_error(op)
-    labels = ["I" * len(op.qubits), *error]
+def inverse_coefficients(error: dict[str, float]) -> dict[str, float]:
+    """The coefficient of each Pauli operation in the inverse of the Pauli channel error."""
+    labels = ["I" * len(next(iter(error))), *error]
     p = np.array([1.0 - sum(error.values()), *error.values()])
     sign = np.array([[1.0 if commute(s, t) else -1.0 for t in labels] for s in labels])
     eigenvalues = sign @ p
-    quasi = sign @ (1.0 / eigenvalues) / len(labels)
-    noisy = [pec.NoisyOperation(cirq.Circuit(op, pauli(label, op.qubits))) for label in labels]
-    return pec.OperationRepresentation(cirq.Circuit(op), noisy, list(quasi))
+    return dict(zip(labels, sign @ (1.0 / eigenvalues) / len(labels), strict=True))
+
+
+def pauli_channel(op: cirq.Operation) -> pec.OperationRepresentation:
+    """The representation that inverts the Pauli channel of the profile exactly."""
+    quasi = inverse_coefficients(pauli_error(op))
+    noisy = [pec.NoisyOperation(cirq.Circuit(op, pauli(label, op.qubits))) for label in quasi]
+    return pec.OperationRepresentation(cirq.Circuit(op), noisy, list(quasi.values()))
 
 
 # 4. The ideal, noisy, ZNE and PEC values.

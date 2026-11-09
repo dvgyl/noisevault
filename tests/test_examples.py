@@ -9,6 +9,7 @@ Tests that need the network run only with NOISEVAULT_NETWORK=1. A Python block p
 
 from __future__ import annotations
 
+import ast
 import json
 import math
 import os
@@ -18,11 +19,14 @@ import sys
 from dataclasses import dataclass
 from importlib.util import find_spec
 from pathlib import Path
+from typing import Any
 
+import numpy as np
 import pytest
 from typer.testing import CliRunner
 
 import noisevault as nv
+from noisevault.channels import ChannelSpec, pauli_kraus, superoperator
 from noisevault.cli import app
 from noisevault.diff import METRICS
 
@@ -168,6 +172,51 @@ def test_mitiq_zne_pec_says_how_to_install_mitiq(tmp_path: Path) -> None:
     skip_if_optional_missing(result)
     assert result.returncode == 1
     assert "pip install mitiq" in result.stdout
+
+
+def _functions(example: str, *names: str) -> dict[str, Any]:
+    """Functions of an example that need only NumPy, without a run of the example."""
+    tree = ast.parse((EXAMPLES / example).read_text(encoding="utf-8"))
+    found = [n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name in names]
+    assert sorted(n.name for n in found) == sorted(names)
+    scope: dict[str, Any] = {"np": np}
+    exec(compile(ast.Module(found, type_ignores=[]), example, "exec"), scope)
+    return scope
+
+
+PAULIS = {
+    "I": np.eye(2),
+    "X": np.array([[0, 1], [1, 0]]),
+    "Y": np.array([[0, -1j], [1j, 0]]),
+    "Z": np.diag([1, -1]),
+}
+
+
+@pytest.mark.parametrize(("gate", "qubits"), [("sx", (96,)), ("cz", (96, 103))])
+def test_the_pec_coefficients_of_the_mitiq_example_invert_the_pauli_channel(
+    gate: str, qubits: tuple[int, ...]
+) -> None:
+    # PEC is exact only if the sum of q_P * (P after the noise) is the identity channel. The
+    # sampled values of the example cannot show this: their standard error is too large.
+    error = nv.load("ibm_fez@2025-02-26").pauli_error(gate, qubits)
+    assert sum(error.values()) > 1e-4
+    functions = _functions("mitiq_zne_pec.py", "commute", "inverse_coefficients")
+    quasi = functions["inverse_coefficients"](error)
+    assert sum(quasi.values()) == pytest.approx(1.0)
+    wires = tuple(range(len(qubits)))
+
+    def channel(kraus: list[np.ndarray]) -> np.ndarray:
+        return superoperator([ChannelSpec("pauli", wires, tuple(kraus))], wires)
+
+    def unitary(label: str) -> np.ndarray:
+        out = np.eye(1)
+        for letter in label:
+            out = np.kron(out, PAULIS[letter])
+        return out
+
+    noise = channel(pauli_kraus(list(error.values())))
+    inverse = sum(q * channel([unitary(label)]) for label, q in quasi.items())
+    np.testing.assert_allclose(inverse @ noise, np.eye(4 ** len(qubits)), atol=1e-12)
 
 
 def test_each_block_of_the_mitiq_tutorial_is_part_of_its_example() -> None:

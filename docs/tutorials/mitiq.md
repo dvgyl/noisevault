@@ -141,22 +141,26 @@ the larger Z error. A Pauli channel with probabilities p_P changes each Pauli op
 a factor f_Q. f_Q is the sum of p_P over the P that commute with Q, minus the sum over the P
 that do not. The inverse channel divides by f_Q. As a sum of Pauli operations, the inverse has
 the coefficients q_P = 4^-k sum over Q of (+1 or -1) / f_Q. The sign is +1 when P and Q
-commute. Each term of the representation is the noisy gate, then the Pauli operation P, with
-the coefficient q_P. The helper `commute` tells if two Pauli labels commute, and `pauli` gives
-the gates of a label. Both are in the script.
+commute. `inverse_coefficients` gives the q_P. Each term of the representation is the noisy
+gate, then the Pauli operation P, with the coefficient q_P. The helper `commute` tells if two
+Pauli labels commute, and `pauli` gives the gates of a label. Both are in the script.
 
 <!-- not-run: a part of examples/mitiq_zne_pec.py -->
 ```python
-def pauli_channel(op: cirq.Operation) -> pec.OperationRepresentation:
-    """The representation that inverts the Pauli channel of the profile exactly."""
-    error = pauli_error(op)
-    labels = ["I" * len(op.qubits), *error]
+def inverse_coefficients(error: dict[str, float]) -> dict[str, float]:
+    """The coefficient of each Pauli operation in the inverse of the Pauli channel error."""
+    labels = ["I" * len(next(iter(error))), *error]
     p = np.array([1.0 - sum(error.values()), *error.values()])
     sign = np.array([[1.0 if commute(s, t) else -1.0 for t in labels] for s in labels])
     eigenvalues = sign @ p
-    quasi = sign @ (1.0 / eigenvalues) / len(labels)
-    noisy = [pec.NoisyOperation(cirq.Circuit(op, pauli(label, op.qubits))) for label in labels]
-    return pec.OperationRepresentation(cirq.Circuit(op), noisy, list(quasi))
+    return dict(zip(labels, sign @ (1.0 / eigenvalues) / len(labels), strict=True))
+
+
+def pauli_channel(op: cirq.Operation) -> pec.OperationRepresentation:
+    """The representation that inverts the Pauli channel of the profile exactly."""
+    quasi = inverse_coefficients(pauli_error(op))
+    noisy = [pec.NoisyOperation(cirq.Circuit(op, pauli(label, op.qubits))) for label in quasi]
+    return pec.OperationRepresentation(cirq.Circuit(op), noisy, list(quasi.values()))
 ```
 
 The script builds one representation for each operation in the circuit. An `rz` gate has no
