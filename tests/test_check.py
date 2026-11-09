@@ -407,20 +407,24 @@ def test_cirq_readout_must_come_before_the_measurement(monkeypatch) -> None:
 
 
 def test_qiskit_readout_is_also_sampled_through_aer_measurement(monkeypatch) -> None:
-    from qiskit_aer.noise import NoiseModel
-
     from noisevault.frameworks import qiskit as nv_qiskit
 
     export = nv_qiskit.to_qiskit
 
     def readout_dropped_at_run(profile, **options):
         sim = export(profile, **options)
-        data = sim.noise_model.to_dict()
-        data["errors"] = [e for e in data["errors"] if e["type"] != "roerror"]
+        # The same noise model without its ReadoutError entries. NoiseModel.from_dict is
+        # deprecated since qiskit-aer 0.15.0.
+        without_readout = export(profile, **{**options, "readout": False}).noise_model
+        kinds = [e["type"] for e in sim.noise_model.to_dict()["errors"]]
+        assert "roerror" in kinds
+        assert [e["type"] for e in without_readout.to_dict()["errors"]] == [
+            k for k in kinds if k != "roerror"
+        ]
         run = sim.run
 
         def run_without_readout(circuits, *args, **kwargs):
-            sim.set_options(noise_model=NoiseModel.from_dict(data))
+            sim.set_options(noise_model=without_readout)
             return run(circuits, *args, **kwargs)
 
         sim.run = run_without_readout
