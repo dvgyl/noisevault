@@ -269,25 +269,34 @@ not reach.
 
 On each grid, the fit starts from the best grid point and builds a quadratic from the nine grid
 points around it. The quadratic includes the term that couples the two factors. The fit then
-computes the likelihood at the vertex of the quadratic. It keeps that value when the quadratic
-predicts it within 0.02 and no neighboring grid point is more than 3.84 lower. Otherwise, the fit
-climbs from the best point. At each readout factor, it finds the best gate factor, and it then moves
-the readout factor. Each climb steps to a better neighbor, or it computes the vertex of a parabola
-through its two neighbors and makes its step smaller. A climb stops when both neighbors are within
-0.001 of its best point. It also stops when the parabola predicts the likelihood at the vertex
-within 0.001 and no neighbor is more than 3.84 lower. Fits with one factor held climb along the
-other factor in the same way. Thus each maximum that the fit reports is the likelihood of the model
-at the reported factors. No reported maximum is above the true maximum. A grid can step over a kept
-peak that is narrower than its step, for example when one grid spans the whole factor range. Thus
-the fit also computes the likelihood of each set at each kept peak. The fit compares each kept peak
-with the points one step of the coarsest grid away. When one of these points is more than 3.84
-lower for the observed counts, the peak is narrower than the grids. The fit climbs from such a peak
-in each set. The fit keeps the highest result over all grids, kept peaks and climbs. Thus no
-reported maximum is below the likelihood at a kept peak, and a set whose maximum is at a second
-peak gets that maximum. In an example with two peaks, a search near the estimate alone gave
-p = 0.012. The search near both peaks gives p = 0.0075, below the poor-fit limit of 0.01. In an
-example where one grid spans the range, the grids alone gave p = 0.586. The climb from the narrow
-peak gives p = 0.564.
+computes the likelihood at the vertex of the quadratic. It keeps that value when the best point is
+not on an edge of the grid, the quadratic predicts it within 0.02, and no neighboring grid point is
+more than 3.84 lower. Otherwise, the fit climbs from the best point. This includes a best point at
+an end of the factor range, because the maximum can be between that end and the next grid point. At
+each readout factor, it finds the best gate factor, and it then moves the readout factor. Each climb
+steps to a better neighbor, or it computes the vertex of a parabola through its two neighbors and
+makes its step smaller. A climb stops when both neighbors are within 0.001 of its best point. It
+also stops when the parabola predicts the likelihood at the vertex within 0.001 and no neighbor is
+more than 3.84 lower. Fits with one factor held climb along the other factor in the same way. At
+each relaxation floor, the slope of the likelihood along the gate factor can change sign, so a climb
+cannot pass from one side of a floor to the other. Thus each search for the best gate factor climbs
+once between each two neighboring floors, and once above the highest floor. It keeps the best
+result. When the gate factor is so low that every gate is at its floor, no probability changes with
+the factor. No climb goes into that flat part. Thus each maximum that the fit reports is the
+likelihood of the model at the reported factors. No reported maximum is above the true maximum. A
+grid can step over a kept peak that is narrower than its step, for example when one grid spans the
+whole factor range. Thus the fit also computes the likelihood of each set at each kept peak. The fit
+compares each kept peak with the points one step of the coarsest grid away. When one of these points
+is more than 3.84 lower for the observed counts, the peak is narrower than the grids. The fit climbs
+from such a peak in each set. The fit keeps the highest result over all grids, kept peaks and
+climbs. Thus no reported maximum is below the likelihood at a kept peak, and a set whose maximum is
+at a second peak gets that maximum. A set drawn at a tested factor far from the estimate can have
+its maximum between the grids. Thus the fit also computes the likelihood of each set on a coarse
+grid of 33 points on each fitted factor that spans the whole factor range. When a point of that grid
+is higher than the best result, the fit climbs from that point. In an example with two peaks, a
+search near the estimate alone gave p = 0.012. The search near both peaks gives p = 0.0075, below
+the poor-fit limit of 0.01. In an example where one grid spans the range, the grids alone gave
+p = 0.586. The climb from the narrow peak gives p = 0.564.
 
 On a narrow ridge of the likelihood, the quadratic on the grid misses the maximum, and the climb
 finds it. An example is one qubit with an `x x` circuit of 10^8 shots and a readout circuit of 4000
