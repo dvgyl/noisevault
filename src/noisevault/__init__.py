@@ -83,6 +83,19 @@ def from_iqm(
     return convert(metrics, architecture=architecture, device=device)
 
 
+def from_rigetti(
+    path_or_dict: str | Path | dict[str, Any], *, device: str | None = None
+) -> Profile:
+    """A profile from a saved Rigetti QCS instruction set architecture (ISA).
+
+    Save ``qcs_sdk.qpu.isa.get_instruction_set_architecture(id).json()``. ``device`` names the
+    profile. By default, the name is the ISA's ``name``, such as ``"Ankaa-3"``.
+    """
+    from .sources.rigetti import from_rigetti as convert
+
+    return convert(path_or_dict, device=device)
+
+
 def from_cirq_google(processor_id: str) -> Profile:
     """A profile from a calibration cirq_google ships (rainbow, weber, willow_pink)."""
     from .sources.google import from_cirq_google as convert
@@ -146,6 +159,7 @@ __all__ = [
     "from_ibm_csv",
     "from_iqm",
     "from_qiskit_backend",
+    "from_rigetti",
     "json_schema",
     "load",
     "profiles",

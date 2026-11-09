@@ -7,9 +7,9 @@ NoiseVault gets calibrations three ways:
 - **Pulled.** `nv pull` (or `nv.pull`) fetches a live calibration from IBM or IonQ and saves it
   to your vault, `~/.noisevault/profiles`. Set `NOISEVAULT_HOME` to move the vault.
 - **Imported.** An importer reads data that you already have. The data can be a Qiskit backend,
-  an IBM calibration CSV, saved Amazon Braket device properties or a saved IQM Resonance
-  quality metric set. The data can also be a calibration that cirq-google ships, or a local
-  copy of a published archive of IBM calibrations.
+  an IBM calibration CSV, saved Amazon Braket device properties, a saved IQM Resonance quality
+  metric set or a saved Rigetti QCS ISA. The data can also be a calibration that cirq-google
+  ships, or a local copy of a published archive of IBM calibrations.
 
 `nv list` shows the vault first, then the bundled set. A vault profile with the same id,
 calibration time and fingerprint as a bundled profile hides that bundled profile. When one
@@ -108,6 +108,7 @@ nv list
 | `nv.from_ibm_csv(path, device=..., calibrated_at=...)` | The calibration CSV you download from the IBM Quantum platform. Formats from 2023 to 2026. | To download it | One file is one calibration. You give its time as `calibrated_at`. | `unknown` | Per-qubit T1, T2, readout errors and readout length, per-gate errors and durations, and qubits marked not operational. |
 | `nv.from_braket(path_or_dict, device=...)` | Braket device properties you saved with `AwsDevice(arn).properties.json()`, or their `standardized` part (v1, v2, v3). | AWS, to save it | No. One file is one calibration. | AWS Customer Agreement, `no` | For v1 and v2, per-qubit T1, T2 and fidelities, and per-pair gate fidelities. For v3, device-level values. |
 | `nv.from_iqm(metrics, architecture=..., device=...)` | An IQM Resonance quality metric set that you saved with `iqm-client`, and optionally the dynamic quantum architecture of the same calibration set. | IQM Resonance, to save it | No. One set is one calibration. | IQM Resonance terms of use, `unknown` | Per-qubit T1, T2 and readout errors, per-qubit `prx` and per-pair `cz` fidelities, durations where the set has them, and disabled qubits and pairs from the architecture. See [the mapping](#iqm-resonance). |
+| `nv.from_rigetti(path_or_dict, device=...)` | A Rigetti QCS instruction set architecture (ISA) that you saved with `qcs-sdk-python`. | Rigetti QCS, to save it | No. One ISA is one calibration. | Rigetti QCS terms of service, `no` | Per-qubit readout error, `rx` RB fidelity, T1 and T2 where the ISA has them, per-pair `cz` or `iswap` fidelities, and disabled qubits and pairs. See [the mapping](#rigetti-qcs). |
 | `nv.from_calibration_archive(path, device, at=...)` | A local copy of the Hugging Face dataset `phanerozoic/qiskit-calibration-drift`, which records each new IBM calibration of `ibm_fez`, `ibm_kingston`, `ibm_marrakesh` and `ibm_torino`. Install `noisevault[hf]`. | None | Yes. Each property takes its newest calibration at or before `at`. | `unknown`. The dataset is CC-BY-4.0, and the numbers are IBM's. | The same fields as a pull. Early dates have fewer gates, and `ibm_torino` has no durations. |
 | `nv.from_cirq_google(processor_id)` | The calibration cirq-google ships for `rainbow`, `weber` or `willow_pink`. Install `noisevault[google]` (cirq-google 1.6 or later). | None | No. cirq-google ships one calibration per device. | Apache-2.0 | The same fields as the bundled Google profiles. |
 | `noisevault.sources.quantinuum.from_repository(machine, date)` | Any of the 15 datasets in Quantinuum's repository at the pinned commit, such as `("H1-1", "2023_01_20")`. The importer downloads the dataset from GitHub. | None | Yes. Each dataset is one date, and `date=None` gives the newest dataset for the device. | Apache-2.0 | The same fields as the bundled Quantinuum profiles. |
@@ -322,19 +323,22 @@ The ISA has no unit field. Fidelities are from 0 to 1, and times are in seconds.
 | --- | --- | --- | --- |
 | instruction `MEASURE`, one site per qubit | `fRO` | `qubits[].readout.error` = 1 - fRO | |
 | benchmark `randomized_benchmark_1q` | `fRB` | `calibrations[]` of `rx`, `avg_infidelity` = 1 - fRB | `method: "rb"`, `measured: "isolated"`, `assumption` |
-| benchmark `randomized_benchmark_simultaneous_1q` | `fRB` | the same, only for a qubit with no isolated value | `method: "srb"`, `measured: "simultaneous"`, `assumption` |
+| benchmark `randomized_benchmark_simultaneous_1q` | `fRB` | the same, only for a qubit with no usable isolated value | `method: "srb"`, `measured: "simultaneous"`, `assumption` |
 | instruction `CZ`, one site per pair | `fCZ` | `calibrations[]` of `cz`, `avg_infidelity` = 1 - fCZ | `method: "vendor"`, `assumption` |
 | instruction `ISWAP`, one site per pair | `fISWAP` | `calibrations[]` of `iswap`, `avg_infidelity` = 1 - fISWAP | `method: "vendor"`, `assumption` |
 | benchmark `FreeInversionRecovery` | `T1` | `qubits[].t1_us` | |
 | benchmark `FreeInductionDecay` | `T2` | `qubits[].t2_us` | `t2_kind: "ramsey"` |
 | `fRB`, `fCZ` or `fISWAP` | `error` | `stderr` of that record | |
-| instruction `RZ` | none | `rz` with `virtual: true` | |
+| instruction `RZ` | none | `rz` with `virtual: true`, and a record with `disabled: true` on each live node without an `RZ` site | |
 
 In the simultaneous benchmark, one site lists all qubits, and each `fRB` names its qubit in its
-own `node_ids`. `fRO` is the mean of P(0|0) and P(1|1), as pyquil reads it. One number cannot give the two
-error probabilities, so the importer stores 1 - fRO as a symmetric `readout.error`. That is
-correct for the mean error only. For example, P(1|0) = 0.01 and P(0|1) = 0.09 give fRO = 0.95
-and `error` = 0.05. `provenance.notes` says so. Rigetti does not publish T1 and T2 for all processors, so both are optional.
+own `node_ids`. `fRO` is the mean of P(0|0) and P(1|1), as pyquil reads it. One number cannot
+give the two error probabilities, so the importer stores 1 - fRO as a symmetric
+`readout.error`. That is correct for the mean error only. For example, P(1|0) = 0.01 and
+P(0|1) = 0.09 give fRO = 0.95 and `error` = 0.05. `provenance.notes` says so. Rigetti does not
+publish T1 and T2 for all processors, so both are optional. A T1 or T2 must be more than 0 s
+and less than 1 s, and any other value is unknown. A superconducting qubit has no T1 of 1 s or
+more, so such a value more probably has a different unit.
 
 Other rules:
 
@@ -346,12 +350,17 @@ Other rules:
   connectivity is the `architecture` edges. For each two-qubit gate, an edge with no site for
   that gate gets a record with `disabled: true`. pyquil marks an edge dead only when it has no
   two-qubit site at all, so the importer is stricter per gate.
-- **Sentinels.** Rigetti reports a dead site as `value` 0.5 with `error` 1.0. That site gives a
-  record with `disabled: true`. The other rules are the same NoiseVault rules as for IQM, in the
-  same order: a fidelity of exactly 1, or of 0 or less, is unknown, and then a gate fidelity at
-  or below 1/(d+1) gives `disabled: true`. Rigetti's `error` is the standard error of the value,
-  and the importer stores it as `stderr`. A timestamp of
-  `1970-01-01T00:00:00+00:00` is a placeholder, and the importer ignores it.
+- **Site checks.** The importer refuses a site of a known instruction with the wrong number of
+  nodes, such as an `RX` site on two nodes, as pyquil does. It also refuses a characteristic
+  whose `node_ids` are outside its site.
+- **Sentinels.** Rigetti reports a dead site as `value` 0.5 with `error` 1.0. A gate site with
+  that marker gives a record with `disabled: true`. A `MEASURE`, `T1` or `T2` value with it is
+  unknown. The other rules are the same NoiseVault rules as for IQM, in the same order: a
+  fidelity of exactly 1, or of 0 or less, is unknown, and then a gate fidelity at or below
+  1/(d+1) gives `disabled: true`. When the isolated `fRB` of a qubit is unknown, the importer
+  uses the simultaneous one. Rigetti's `error` is the standard error of the value, and the
+  importer stores it as `stderr`. A timestamp of `1970-01-01T00:00:00+00:00` is a placeholder,
+  and the importer ignores it.
 - **Calibration time.** `device.calibrated_at` is the newest timestamp of a characteristic that
   the importer reads. `provenance.notes` gives the oldest timestamp too.
 - **Not read.** `RESET` with `fAR`, because the active reset fidelity possibly includes readout
