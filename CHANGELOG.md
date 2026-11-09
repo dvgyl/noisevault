@@ -14,12 +14,26 @@ This file lists all notable changes to NoiseVault. Versions follow
 - The README gives the install line for a virtual environment from `uv venv`, which has no pip.
   The README section [Coming from fake backends](README.md#coming-from-fake-backends) shows the
   one-line change from `AerSimulator.from_backend` and what a profile adds.
+- The Stim and Cirq exports model the `leakage`, `atom_loss` and `erasure` effects as an
+  erasure channel. A heralded effect adds `HERALDED_ERASE` in Stim, with later `rec[]` targets
+  shifted past the herald records, and a `HeraldedErasure` gate with a measurement key in Cirq.
+  An effect without a herald adds `DEPOLARIZE1(3p/4)` or `cirq.depolarize(3p/4)`. The report
+  calls `erasure` exact and the other two approximated.
+  [docs/profile-format.md](docs/profile-format.md#effects) gives the rules.
+- `Profile.uniform` takes `effects`.
+- [examples/neutral_atom_erasure.py](examples/neutral_atom_erasure.py) runs a surface-code
+  memory on a neutral-atom device with heralded erasures. It compares the logical error of a
+  decoder that ignores the heralds with one that uses them.
 
 ### Changed
 
 - The Qiskit Aer note in [docs/frameworks.md](docs/frameworks.md#qiskit) names Aer 0.18.0 as
   affected too. It gives `QuantumError: Kraus is empty.` as a second failure. It also says that
   every gate error of a profile with T1 or T2 values goes through the failing conversion.
+- With `allow` set to `omit`, the Stim and Cirq exports now model the effects that they can,
+  instead of omitting every effect. `allow` is the least faithful treatment that a profile
+  accepts. An export that treats an effect less faithfully raises `UnsupportedEffect`.
+- `nv show` lists effects under "effects" instead of "not modeled".
 
 ## 0.3.0 (2026-10-04)
 

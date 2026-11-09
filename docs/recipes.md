@@ -189,6 +189,8 @@ The CNOTs in Stim's circuit get the grid's `cx` calibration, and `tick_ns=50` ad
 idle qubits at each `TICK`. To run on a real device's topology, use a profile whose qubits record
 `coords`, such as `google_weber`. Then check that `layout_from_coords` finds a placement.
 [examples/qec_surface_code.py](../examples/qec_surface_code.py) compares distances 3 and 5.
+[examples/neutral_atom_erasure.py](../examples/neutral_atom_erasure.py) adds heralded erasures
+to a neutral-atom device and decodes with and without the heralds.
 
 ## Describe a hypothetical device
 
