@@ -1,5 +1,7 @@
 """Leakage, atom loss and erasure in the Cirq export, against analytic results."""
 
+import warnings
+
 import numpy as np
 import pytest
 from conftest import require
@@ -148,9 +150,14 @@ def test_herald_keys_skip_the_circuits_own_keys():
 def test_a_measurement_only_circuit_warns_that_its_heralds_are_lost():
     profile = _atoms({"type": "erasure", "on": "readout", "prob": 0.5, "heralded": True})
     circuit = cirq.Circuit(cirq.measure(q0, key="m"))
+    model = profile.to_cirq()
+    noisy = circuit.with_noise(model)  # no warning here, and the next call reuses the result
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        kept = cirq.Simulator(noise=model, seed=1).simulate(circuit)
+    assert "herald_erasure_m0_q0" in kept.measurements
     with pytest.warns(NoiseApproximationWarning, match="with_noise"):
-        cirq.Simulator(noise=profile.to_cirq(), seed=1).run(circuit, repetitions=5)
-    noisy = circuit.with_noise(profile.to_cirq())
+        cirq.Simulator(noise=model, seed=1).run(circuit, repetitions=5)
     result = cirq.Simulator(seed=1).run(noisy, repetitions=200)
     _within_5_sigma(result.measurements["herald_erasure_m0_q0"].mean(), 0.5, 200)
 
