@@ -57,6 +57,7 @@ from .profile import (
     _readable_json,
     _sha256,
     _string_keys,
+    gzip_reproducibly,
     read_json_file,
     write_atomically,
 )
@@ -450,10 +451,18 @@ class MeasuredCounts(_Model):
         return self.model_dump(mode="json")
 
     def save(self, path: str | Path) -> Path:
-        """Write readable canonical JSON, replacing ``path``."""
+        """Write readable canonical JSON and replace ``path``. A ``.gz`` suffix writes
+        reproducible gzip."""
         path = Path(path)
-        write_atomically(path, (_readable_json(self.to_dict()) + "\n").encode("utf-8"))
+        write_atomically(path, self.file_bytes(path))
         return path
+
+    def file_bytes(self, path: Path) -> bytes:
+        """The bytes that :meth:`save` writes to ``path``."""
+        if path.suffix == ".gz":
+            text = json.dumps(self.to_dict(), separators=(",", ":"), ensure_ascii=False)
+            return gzip_reproducibly(text.encode("utf-8"))
+        return (_readable_json(self.to_dict()) + "\n").encode("utf-8")
 
 
 _PLAIN_ERRORS = {

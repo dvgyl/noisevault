@@ -358,7 +358,9 @@ it does not exist.
 of the loaded file. The loaded file has its keys in one order, with zero counts dropped. The
 same run therefore has one SHA-256, whether its file says `qiskit` or `clbit0_left`.
 `counts.save(path)` writes readable JSON of the loaded form, so the same run always gives the
-same bytes.
+same bytes. A `.gz` suffix writes gzip with a zero timestamp, as `profile.save(path)` does.
+`scripts/run_on_ibm.py` writes its counts file in the same way, so `-o run.counts.json.gz` gives
+a gzip file.
 
 ## Errors
 

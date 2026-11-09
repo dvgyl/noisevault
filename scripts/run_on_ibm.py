@@ -65,7 +65,6 @@ from noisevault.errors import (  # noqa: E402
 )
 from noisevault.profile import (  # noqa: E402
     Profile,
-    _readable_json,
     exact_ref,
     file_bytes,
     ref_on_day,
@@ -510,7 +509,7 @@ def run(
         bound = binding.profile
         measured = counts_file(bound, submitted, ran)
         _, timing, profile_file = _files(output)
-        files = {output: (_readable_json(measured.to_dict()) + "\n").encode("utf-8")}
+        files = {output: measured.file_bytes(output)}
         if ran.timing:
             files[timing] = (json.dumps(ran.timing, indent=1) + "\n").encode("utf-8")
         ref = None if keep_profile else catalog_ref(bound)

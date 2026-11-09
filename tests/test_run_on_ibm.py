@@ -5,6 +5,7 @@ import copy
 import dataclasses
 import errno
 import functools
+import gzip
 import importlib.util
 import io
 import json
@@ -761,6 +762,33 @@ def test_a_disk_that_refuses_the_counts_leaves_the_job_to_collect_again(
     )
     assert info.value.hint == f"run the same command again to collect them. {_new_job(pending)}"
     assert sorted(tmp_path.iterdir()) == [pending]
+
+
+def test_a_gz_counts_file_is_gzip_with_no_time_stamp_that_load_counts_reads(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    profile = _fez_profile()
+    submitted, ran = _submitted_and_ran(profile)
+    folder = tmp_path / "counts"
+    folder.mkdir()
+    output, pending = folder / "fez.counts.json.gz", folder / "fez.job.json"
+    _save_job_file(submitted, pending)
+    monkeypatch.setattr(script, "collect", lambda *args: ran)
+    measured = script.run(
+        device="ibm_fez",
+        shots=SHOTS,
+        output=output,
+        pending=pending,
+        calibration=lambda at: profile,
+        open_backend=lambda fractional: None,
+        open_job=lambda job_id: job_id,
+        confirm=None,
+    )
+    data = output.read_bytes()
+    assert (data[:2], data[4:8]) == (b"\x1f\x8b", bytes(4))
+    assert json.loads(gzip.decompress(data)) == measured.to_dict()
+    assert load_counts(output).to_dict() == measured.to_dict()
+    assert measured.save(folder / "saved.counts.json.gz").read_bytes() == data
 
 
 @pytest.mark.parametrize("name", ["fez.timing.json", "fez.profile.json"])
