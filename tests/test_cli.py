@@ -15,7 +15,14 @@ from pathlib import Path
 from typing import Any, NamedTuple
 
 import pytest
-from conftest import MANILA_V01, deeper_than_the_parser_takes, migrated, require, toy
+from conftest import (
+    MANILA_V01,
+    deeper_than_the_parser_takes,
+    migrated,
+    rename_an_aer_class,
+    require,
+    toy,
+)
 from typer.testing import CliRunner, Result
 
 import noisevault as nv
@@ -1178,6 +1185,19 @@ def test_check_failure_exits_1(monkeypatch) -> None:
     result = runner.invoke(app, ["check", "ibm_manila", "--framework", "cirq"])
     assert result.exit_code == 1 and "FAIL" in result.stdout
     assert "A pass means" not in result.stdout
+
+
+def test_check_shows_an_import_error_in_an_installed_export_as_a_failure(monkeypatch) -> None:
+    require("cirq")
+    error = rename_an_aer_class(monkeypatch)
+    args = ["check", "ibm_manila", "--framework", "qiskit,cirq"]
+    result = runner.invoke(app, args, env={"COLUMNS": "1000"})
+    assert result.exit_code == 1, result.output
+    lines = result.stdout.splitlines()
+    assert lines[3].split()[:2] == ["cirq", "pass"]
+    assert lines[4].split() == ["qiskit", "FAIL"]
+    assert lines[5] == f"qiskit: the export raised ImportError: {error}"
+    assert "not installed" not in result.stdout and "pip install" not in result.stdout
 
 
 def test_check_json_and_skips() -> None:

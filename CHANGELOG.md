@@ -179,6 +179,9 @@ This file lists all notable changes to NoiseVault. Versions follow
 - The default `to_qiskit()` leaves a native out of the `Target` on a locus where the native has
   no error metric and typical noise does not fit, and the report names the locus. Before, the
   export raised `MissingCalibrationError` for a profile that `unknown_gates="error"` accepts.
+- `nv check` shows an `ImportError` in an installed export as `FAIL` with the error, and exits
+  1. `check()` puts the error in the new `CheckResult.failed`. Before, `nv check` showed the
+  framework as "not installed" and could exit 0.
 
 ### Changed
 

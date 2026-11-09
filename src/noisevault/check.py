@@ -20,6 +20,7 @@ import warnings
 from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
+from importlib.util import find_spec
 from math import pi
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -55,7 +56,14 @@ NOTE = (
     "A pass means each export implements the same noise model as the NoiseVault reference on"
     " these circuits. A pass does not measure how well the model matches the hardware."
 )
-_EXTRAS = {"qiskit": "qiskit", "cirq": "cirq", "pennylane": "pennylane", "stim": "stim"}
+# The top-level packages that each export needs. A missing one means "not installed". Each
+# framework name is also the name of its pip extra.
+_PACKAGES = {
+    "qiskit": ("qiskit", "qiskit_aer"),
+    "cirq": ("cirq",),
+    "pennylane": ("pennylane",),
+    "stim": ("stim",),
+}
 # Gate angles for check circuits: pi/2 unless listed. r keeps a phase off 0 so Cirq does not
 # turn it into an X rotation. p takes an angle no fixed gate has: Cirq cannot tell p(pi/2)
 # from S and charges a profile's s for it.
@@ -170,11 +178,12 @@ class CheckResult:
     circuits: tuple[Circuit, ...]
     frameworks: tuple[FrameworkCheck, ...]
     skipped: tuple[tuple[str, str], ...] = ()  # (framework, reason)
+    failed: tuple[tuple[str, str], ...] = ()  # (framework, error of an installed export)
 
     @property
     def passed(self) -> bool:
-        """At least one framework ran, and every one that ran passed."""
-        return bool(self.frameworks) and all(f.passed for f in self.frameworks)
+        """At least one framework ran, every one that ran passed, and no export raised an error."""
+        return bool(self.frameworks) and all(f.passed for f in self.frameworks) and not self.failed
 
     def summary(self) -> str:
         qubits = qubit_loci([self.layout[i] for i in range(len(self.layout))])
@@ -190,6 +199,7 @@ class CheckResult:
             )
             lines += [f"    {n.describe()}" for n in f.not_run]
         lines += [f"  {name:<10} skipped: {why}" for name, why in self.skipped]
+        lines += [f"  {name:<10} FAIL: {error}" for name, error in self.failed]
         lines.append(NOTE)
         return "\n".join(lines)
 
@@ -213,6 +223,7 @@ class CheckResult:
             ],
             "frameworks": [f.to_dict() for f in self.frameworks],
             "skipped": [{"framework": n, "reason": r} for n, r in self.skipped],
+            "failed": [{"framework": n, "error": e} for n, e in self.failed],
             "note": NOTE,
         }
 
@@ -240,14 +251,18 @@ def check(
     validate_shots(shots)
     chain, circuits = plan_circuits(profile, layout, purpose="check")
     expected = _Expected(profile, chain)
-    results, skipped = [], []
+    results, skipped, failed = [], [], []
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", NoiseApproximationWarning)  # each report records it
         for name in names:
+            if any(find_spec(package) is None for package in _PACKAGES[name]):
+                skipped.append((name, f"not installed: {install_hint(name)}"))
+                continue
             try:
                 outcome = _run(_RUNNERS[name](profile, chain), circuits, expected, shots, seed)
-            except ImportError:
-                outcome = f"not installed: {install_hint(_EXTRAS[name])}"
+            except ImportError as exc:
+                failed.append((name, f"the export raised ImportError: {exc}"))
+                continue
             except NoiseVaultError as exc:
                 outcome = f"the export refused this profile: {exc}"
             if isinstance(outcome, str):
@@ -263,6 +278,7 @@ def check(
         circuits=circuits,
         frameworks=tuple(results),
         skipped=tuple(skipped),
+        failed=tuple(failed),
     )
 
 

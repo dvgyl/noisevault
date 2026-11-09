@@ -13,6 +13,7 @@ import importlib
 import importlib.util
 import json
 import os
+import sys
 import warnings
 from collections.abc import Iterator
 from importlib.metadata import version
@@ -78,6 +79,20 @@ def require(module: str) -> ModuleType:
         if os.environ.get("NOISEVAULT_REQUIRE_ALL") == "1":
             pytest.fail(f"{module} must be installed when NOISEVAULT_REQUIRE_ALL=1 ({exc})")
         pytest.skip(f"{module} is not installed", allow_module_level=True)
+
+
+def rename_an_aer_class(monkeypatch: pytest.MonkeyPatch) -> str:
+    """Remove a class that the Qiskit export imports, as a new qiskit-aer release can do.
+
+    Returns the text of the ImportError that the Qiskit export then raises.
+    """
+    require("qiskit")
+    module = importlib.import_module("qiskit_aer.backends.backendconfiguration")
+    monkeypatch.delattr(module, "AerBackendConfiguration")
+    monkeypatch.delitem(sys.modules, "noisevault.frameworks.qiskit", raising=False)
+    with pytest.raises(ImportError) as caught:
+        from qiskit_aer.backends.backendconfiguration import AerBackendConfiguration  # noqa: F401
+    return str(caught.value)
 
 
 # Fake backends newer than the qiskit-ibm-runtime floor, with the release that added them.

@@ -10,7 +10,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from conftest import require, toy
+from conftest import rename_an_aer_class, require, toy
 from typer.testing import CliRunner
 
 import noisevault as nv
@@ -445,6 +445,20 @@ def test_a_missing_framework_is_skipped_with_the_install_command(monkeypatch) ->
     assert result.frameworks == ()
     assert result.skipped == (("stim", f"not installed: {install_hint('stim')}"),)
     assert not result.passed
+
+
+def test_an_import_error_inside_an_installed_export_fails_the_check(monkeypatch) -> None:
+    require("cirq")
+    error = rename_an_aer_class(monkeypatch)
+    result = check(nv.load("ibm_manila"), frameworks=["qiskit", "cirq"])
+    assert result.skipped == ()
+    assert result.failed == (("qiskit", f"the export raised ImportError: {error}"),)
+    assert [f.framework for f in result.frameworks] == ["cirq"] and result.frameworks[0].passed
+    assert not result.passed
+    assert result.to_dict()["failed"] == [
+        {"framework": "qiskit", "error": f"the export raised ImportError: {error}"}
+    ]
+    assert f"  qiskit     FAIL: the export raised ImportError: {error}" in result.summary()
 
 
 def _asks_for_an_effect() -> Profile:

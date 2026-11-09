@@ -1003,6 +1003,7 @@ def check(
             parts[0],
             frameworks=tuple(f for part in parts for f in part.frameworks),
             skipped=tuple(s for part in parts for s in part.skipped),
+            failed=tuple(s for part in parts for s in part.failed),
         )
         missing = [n for n, why in result.skipped if why.startswith("not installed")]
         named = ",".join(names) if framework is not None else None
@@ -1020,6 +1021,7 @@ def check(
                 {"framework": name, "result": "not installed" if name in missing else "skipped"}
                 for name, _ in result.skipped
             ]
+            rows += [{"framework": name, "result": "[red]FAIL[/red]"} for name, _ in result.failed]
             columns = ["framework", "result", "deviation", "tolerance", "circuits", "method"]
             table = _fit(lambda shown: _check_table(rows, shown), columns, _CHECK_DROPS)
             _emit(table, natural_width=_natural_width(table))
@@ -1029,6 +1031,8 @@ def check(
             for name, reason in result.skipped:
                 if name not in missing:
                     _emit(f"{name}: {reason}")
+            for name, error in result.failed:
+                _emit(f"{name}: {error}")
             if missing:
                 command = install_hint(",".join(missing))
                 out.print(f"To add the missing frameworks: {command}", markup=False, soft_wrap=True)
@@ -1038,7 +1042,7 @@ def check(
                 _emit(NOTE)
         if len(missing) == len(names):
             _none_installed(missing, ref=ref, framework=named)
-        if not result.frameworks:
+        if not result.frameworks and not result.failed:
             raise NoiseVaultError("no framework could run the check")
         if not result.passed:
             raise typer.Exit(1)
