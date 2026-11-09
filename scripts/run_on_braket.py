@@ -155,6 +155,7 @@ class Submitted:
     program_set: bool
     tasks: tuple[tuple[str, tuple[str, ...]], ...]
     ended: bool = False
+    unconfirmed: str | None = None
 
 
 @dataclass(frozen=True)
@@ -529,7 +530,7 @@ def run(
                     f"Braket refused the task ({_reason(exc)})",
                     hint="the script submitted nothing. Run the same command again",
                 ) from None
-            _end(record, created)
+            _end(record, created, None if refused else _reason(exc))
             os.close(record.fd)
             maybe = "" if refused else ". Braket may also have accepted the next task"
             if not created:
@@ -614,6 +615,13 @@ def run(
     warning = recalibrated(target, submitted, ran.run_at)
     if warning:
         print(f"warning: {warning}", file=sys.stderr)
+    if submitted.unconfirmed is not None:
+        print(
+            f"warning: Braket did not answer the request after {_tasks(submitted.tasks)}"
+            f" ({submitted.unconfirmed}), so Braket may have accepted one more task. Look for it in"
+            f" {CONSOLE}. The counts leave it out",
+            file=sys.stderr,
+        )
     missing = [c.name for c in submitted.planned if c.name not in ran.counts]
     if missing:
         print(
@@ -689,11 +697,23 @@ def _keep_elsewhere(
     )
 
 
-def _end(record: Owned, created: Sequence[tuple[str, tuple[str, ...]]]) -> None:
-    """Mark the end of the submission, so a collector knows that no task follows."""
+def _end(
+    record: Owned, created: Sequence[tuple[str, tuple[str, ...]]], unconfirmed: str | None = None
+) -> None:
+    """Mark the end of the submission, so a collector knows that no task follows.
+
+    ``unconfirmed`` is why Braket did not answer the last request, which can have created a
+    task that the job file does not record.
+    """
+    size = len(record.data)
+    end: dict[str, Any] = {"end": len(created)}
+    if unconfirmed is not None:
+        end["unconfirmed"] = unconfirmed
     try:
-        record.append(line({"end": len(created)}))
+        record.append(line(end))
     except OSError as exc:
+        with contextlib.suppress(OSError):
+            record.cut(size)
         print(
             f"warning: could not mark the end of the submission in {record.path}"
             f" ({_reason(exc)}). To collect the tasks, add --partial",
@@ -726,7 +746,7 @@ def _resume(pending: Path, partial: bool = False) -> tuple[Owned, Submitted]:
         with open(fd, "rb", closefd=False) as handle:
             lines = handle.readlines()
         try:
-            submitted = _submitted(lines)
+            submitted = _submitted(lines, partial)
         except Exception as exc:
             ids = _task_ids_in(lines)
             raise NoiseVaultError(
@@ -760,20 +780,28 @@ def _resume(pending: Path, partial: bool = False) -> tuple[Owned, Submitted]:
     return Owned(pending, fd, b"".join(lines)), submitted
 
 
-def _submitted(lines: list[bytes]) -> Submitted:
+def _submitted(lines: list[bytes], partial: bool = False) -> Submitted:
+    """The submission that a job file records. With ``partial``, a last line that a failed write
+    cut off is left out."""
+    if partial and len(lines) > 1 and not lines[-1].endswith(b"\n"):
+        lines = lines[:-1]
     first = parse_json(lines[0])
     profile = Profile.model_validate(first["profile"])
     planned = tuple(PlannedCircuit.model_validate(c) for c in first["planned"])
     names = {c.name for c in planned}
     tasks: list[tuple[str, tuple[str, ...]]] = []
     ended = False
+    unconfirmed = None
     for raw in lines[1:]:
         entry = parse_json(raw)
         if ended:
             raise ValueError("a line follows the end of the submission")
-        if set(entry) == {"end"}:
+        if "end" in entry and set(entry) <= {"end", "unconfirmed"}:
             if entry["end"] != len(tasks):
                 raise ValueError(f"the end line counts {entry['end']!r} tasks, not {len(tasks)}")
+            unconfirmed = entry.get("unconfirmed")
+            if unconfirmed is not None and not isinstance(unconfirmed, str):
+                raise ValueError(f"unconfirmed is {unconfirmed!r}")
             ended = True
             continue
         task_id, circuits = entry["task"], tuple(entry["circuits"])
@@ -788,7 +816,7 @@ def _submitted(lines: list[bytes]) -> Submitted:
     )
     submitted = Submitted(
         first["device"], first["local"] is not None, profile, planned, shots,
-        bool(first["program_set"]), tuple(tasks), ended,
+        bool(first["program_set"]), tuple(tasks), ended, unconfirmed,
     )  # fmt: skip
     _bind(profile, counts_file(profile, submitted, probe, "check"))
     return submitted

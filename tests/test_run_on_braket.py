@@ -406,7 +406,8 @@ def test_a_first_task_that_braket_did_not_confirm_keeps_the_job_file(
         f" {garnet.pending} and run the command again. The script submits nothing while the job"
         " file exists"
     )
-    assert json.loads(garnet.pending.read_text().splitlines()[-1]) == {"end": 0}
+    end = json.loads(garnet.pending.read_text().splitlines()[-1])
+    assert end == {"end": 0, "unconfirmed": script._reason(failure)}
     garnet.hardware.refuse_from = None
     with pytest.raises(NoiseVaultError) as again:
         garnet()
@@ -431,7 +432,9 @@ def test_tasks_accepted_before_a_refusal_are_collected_by_the_same_command(
     assert "warning: the counts leave out single_qubit, readout" in err
 
 
-def test_a_lost_connection_after_some_tasks_says_the_next_task_may_exist(tmp_path: Path) -> None:
+def test_a_lost_connection_after_some_tasks_says_the_next_task_may_exist(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     run = _run(tmp_path, FORTE)
     run.hardware.refuse_from = 1
     run.hardware.failure = ConnectionError("connection reset")
@@ -440,6 +443,44 @@ def test_a_lost_connection_after_some_tasks_says_the_next_task_may_exist(tmp_pat
     assert caught.value.message.endswith(
         "(connection reset). Braket may also have accepted the next task"
     )
+    end = json.loads(run.pending.read_text().splitlines()[-1])
+    assert end == {"end": 1, "unconfirmed": "connection reset"}
+    capsys.readouterr()
+    run.hardware.refuse_from = None
+    measured = run(shots=100)
+    assert [c.name for c in measured.circuits] == ["ghz_chain"]
+    (task_id,) = run.hardware.tasks
+    assert (
+        f"warning: Braket did not answer the request after task {task_id} (connection reset), so"
+        " Braket may have accepted one more task. Look for it in the Amazon Braket console. The"
+        " counts leave it out"
+    ) in capsys.readouterr().err
+
+
+def test_an_end_line_that_a_full_disk_cuts_off_is_removed_or_left_out_with_partial(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run = _run(tmp_path, FORTE)
+    run.hardware.refuse_from = 2
+    write = script.os.write
+
+    def full_disk(fd: int, data: Any) -> int:
+        if bytes(data).startswith(b'{"end"'):
+            write(fd, bytes(data)[:7])
+            raise OSError(28, "No space left on device")
+        return write(fd, data)
+
+    monkeypatch.setattr(script.os, "write", full_disk)
+    with pytest.raises(NoiseVaultError):
+        run(shots=100)
+    monkeypatch.undo()
+    assert "To collect the tasks, add --partial" in capsys.readouterr().err
+    lines = run.pending.read_bytes().splitlines(keepends=True)
+    assert len(lines) == 3 and lines[-1].endswith(b"\n")
+    run.pending.write_bytes(b"".join(lines) + b'{"end":')
+    run.hardware.refuse_from = None
+    measured = run(shots=100, partial=True)
+    assert [c.name for c in measured.circuits] == ["ghz_chain", "mirror"]
 
 
 def test_a_job_file_without_the_end_of_its_submission_waits_for_the_submitting_run(

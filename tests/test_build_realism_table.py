@@ -72,7 +72,8 @@ def test_a_row_holds_the_fit_that_nv_compare_gives(h2_table: tuple[Path, dict[st
     assert row["readout"]["factor"] == pytest.approx(readout.factor, rel=1e-5)
     assert row["p_value"] == pytest.approx(result.p_value, rel=1e-5)
     assert row["calibration"]["fingerprint"] == counts.profile.fingerprint
-    assert row["counts"] == {"file": "h2.counts.json", "sha256": counts.sha256}
+    assert row["counts"] == counts.sha256
+    assert "h2.counts" not in json.dumps(table)
     assert row["shots"] == 2000 * len(counts.circuits)
     assert "job_ids" not in json.dumps(table)
 
@@ -109,6 +110,40 @@ def test_the_profile_beside_the_counts_binds_a_calibration_outside_the_catalog(
     )
 
 
+def test_a_catalog_profile_with_factors_binds_by_its_calibration(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calibration = nv.load(H2)
+    fitted = calibration.model_copy(update={"unmodeled_error": {"gates": {"factor": 1.4}}})
+    path = _simulated(tmp_path, calibration, "h2", 1.0, 1.0)
+
+    class Info:
+        id = calibration.id
+        fingerprint = fitted.fingerprint
+
+        def load(self) -> nv.Profile:
+            return fitted
+
+    monkeypatch.setattr(script.nv, "profiles", lambda: [Info()])
+    found = script.profile_for(path, load_counts(path))
+    assert found == calibration
+
+
+def test_simulated_counts_without_their_factors_say_the_factors_are_unknown(tmp_path: Path) -> None:
+    path = _simulated(tmp_path, nv.load(H2), "h2", 1.0, 1.0)
+    counts = load_counts(path)
+    options = {k: v for k, v in counts.execution.options.items() if k != "unmodeled_error"}
+    execution = counts.execution.model_dump(mode="json") | {"options": options}
+    bare = counts.model_copy(update={"execution": execution})
+    result = nv.load(H2).compare(bare)
+    found = script.row(bare, result)
+    assert found["simulated_with"] is None
+    page = script.markdown({"rows": [found]}, "Realism table")
+    assert "| simulated, factors unknown |" in page
+    with_none = script.row(counts, nv.load(H2).compare(counts))
+    assert with_none["simulated_with"] == {"gates": 1.0, "readout": 1.0}
+
+
 def _factor(factor: float, low: float | None, high: float | None, bound: str | None) -> Any:
     return {"factor": factor, "low": low, "high": high, "bound": bound}
 
@@ -125,7 +160,7 @@ def _row(**changes: Any) -> dict[str, Any]:
         "gates": _factor(1.84, 1.54, 2.12, None),
         "readout": _factor(0.9, 0.85, 0.95, None),
         "p_value": 0.4,
-        "counts": {"file": "g.counts.json"},
+        "counts": "sha256:00",
     }
     return base | changes
 

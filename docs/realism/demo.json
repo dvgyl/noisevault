@@ -41,10 +41,7 @@
    "dispersion": 1.0,
    "deviance": 36.383,
    "dof": 38,
-   "counts": {
-    "file": "04-google_weber-20211104.counts.json",
-    "sha256": "sha256:37640b6e6a6f0f20c488698025a13e79b5ec6964fdd3290d976acb50468cf565"
-   }
+   "counts": "sha256:37640b6e6a6f0f20c488698025a13e79b5ec6964fdd3290d976acb50468cf565"
   },
   {
    "device": "ibm_kingston",
@@ -85,10 +82,7 @@
    "dispersion": 1.0,
    "deviance": 29.5081,
    "dof": 38,
-   "counts": {
-    "file": "01-ibm_kingston-20260416.counts.json",
-    "sha256": "sha256:b1e2d80aedb9014e604e22d9cc06974b88dc54f0d38a8a87954695b980c05efa"
-   }
+   "counts": "sha256:b1e2d80aedb9014e604e22d9cc06974b88dc54f0d38a8a87954695b980c05efa"
   },
   {
    "device": "ibm_kingston",
@@ -129,10 +123,7 @@
    "dispersion": 1.0,
    "deviance": 37.2312,
    "dof": 38,
-   "counts": {
-    "file": "02-ibm_kingston-20260423.counts.json",
-    "sha256": "sha256:8a85b293d4d25041cc8dfcf77b99346416c08301ccf018abeeaf474b69e85420"
-   }
+   "counts": "sha256:8a85b293d4d25041cc8dfcf77b99346416c08301ccf018abeeaf474b69e85420"
   },
   {
    "device": "quantinuum_h1-1",
@@ -173,10 +164,7 @@
    "dispersion": 1.05395,
    "deviance": 40.0502,
    "dof": 38,
-   "counts": {
-    "file": "03-quantinuum_h1-1-20250503.counts.json",
-    "sha256": "sha256:7f9c9857e7f7a7479d021f6357514ac3c43c7f74c5029c4efffbdc3373abc718"
-   }
+   "counts": "sha256:7f9c9857e7f7a7479d021f6357514ac3c43c7f74c5029c4efffbdc3373abc718"
   }
  ]
 }

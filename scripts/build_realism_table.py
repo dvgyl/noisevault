@@ -13,6 +13,9 @@ Run from the repository root:
 each counts file, the script uses the profile file beside it (``<stem>.profile.json``, which the
 run scripts write) or else the catalog profile with the calibration fingerprint of the counts.
 
+The table holds no counts file name, job id or task id, because a name or an id can hold the id
+of an account. The SHA-256 of each counts file identifies it.
+
 The demo simulates counts from bundled profiles with known factors. Every demo row is
 "simulated", and the row gives the factors that the simulation used.
 """
@@ -73,20 +76,25 @@ def profile_for(path: Path, counts: MeasuredCounts) -> Profile:
         return nv.load(str(beside))
     want = counts.profile
     for info in nv.profiles():
-        if info.id == want.id and info.fingerprint == want.fingerprint:
-            return info.load()
+        if info.id != want.id:
+            continue
+        found = info.load()
+        if found.calibration_fingerprint == want.fingerprint:
+            return found.uncorrected()
     raise NoiseVaultError(
         f"{path}: no profile {want.id} nv:{want.fingerprint[:12]}",
         hint=f"put the profile file beside the counts as {beside.name}, or pull the calibration",
     )
 
 
-def row(path: Path, counts: MeasuredCounts, result: Comparison) -> dict[str, Any]:
+def row(counts: MeasuredCounts, result: Comparison) -> dict[str, Any]:
     profile = result.profile
     device = profile.device
     simulated_with = None
-    if counts.source == "simulated":
-        block = counts.execution.options.get("unmodeled_error") or {}
+    options = counts.execution.options
+    if counts.source == "simulated" and "unmodeled_error" in options:
+        # noisevault.counts.simulate records the factors it used, or null for none.
+        block = options["unmodeled_error"] or {}
         simulated_with = {
             axis: (block.get(axis) or {}).get("factor", 1.0) for axis in ("gates", "readout")
         }
@@ -111,7 +119,7 @@ def row(path: Path, counts: MeasuredCounts, result: Comparison) -> dict[str, Any
         "dispersion": _rounded(result.dispersion),
         "deviance": _rounded(result.deviance),
         "dof": result.dof,
-        "counts": {"file": path.name, "sha256": counts.sha256},
+        "counts": counts.sha256,
     }
 
 
@@ -125,8 +133,8 @@ def build(folder: Path) -> dict[str, Any]:
     for path in paths:
         counts = load_counts(path)
         result = profile_for(path, counts).compare(counts)
-        rows.append(row(path, counts, result))
-    rows.sort(key=lambda r: (r["device"], r["run_at"], r["counts"]["file"]))
+        rows.append(row(counts, result))
+    rows.sort(key=lambda r: (r["device"], r["run_at"], r["counts"]))
     return {"realism_table": TABLE_FORMAT, "note": " ".join(NOTE), "rows": rows}
 
 
@@ -273,8 +281,10 @@ def _fit(p_value: float | None) -> str:
 
 def _source(r: dict[str, Any]) -> str:
     used = r["simulated_with"]
-    if r["source"] != "simulated" or used is None:
+    if r["source"] != "simulated":
         return r["source"]
+    if used is None:
+        return "simulated, factors unknown"
     return f"simulated, x{used['gates']:g} gates, x{used['readout']:g} readout"
 
 

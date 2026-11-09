@@ -320,7 +320,9 @@ device properties, imports them with `nv.from_braket` and plans from the result.
 - **No second charge.** If Braket does not answer a request, for example after a timeout, the
   task can exist all the same. The script then keeps the job file and stops. Look for the task in
   the Amazon Braket console before you delete the job file. The script deletes the job file only
-  when Braket refuses the first task with an error.
+  when Braket refuses the first task with an error. When the request without an answer follows
+  other tasks, the job file records that. The collector then saves the counts of the recorded
+  tasks and prints a warning: look in the console for one more task.
 - **The end of the submission.** After the last task, the script adds an end line to the job
   file. A collector refuses a job file that has fewer tasks than circuits and no end line,
   because another run can still add tasks to it. If no run adds tasks, for example after a
