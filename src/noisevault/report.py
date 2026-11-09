@@ -13,7 +13,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, NoReturn
 
-from .effects import RANK
+from .effects import RANK, stated_noise
 from .errors import LociText, NoiseApproximationWarning, UnsupportedEffect, qubit_loci
 from .profile import unmodeled_note
 
@@ -31,7 +31,7 @@ _INCLUDES = {
         "single-qubit gate error",
         "explicit single-qubit gates in the circuit add their own error on top",
     ),
-    "leakage": ("leakage", "applied as depolarizing noise, so no population leaves the qubit"),
+    "leakage": ("leakage", "applied as {noise}, so no population leaves the qubit"),
     "spam": (
         "state preparation and measurement error",
         "readout and preparation noise, where applied, add their own error on top",
@@ -144,7 +144,8 @@ class Report:
             )
         for item in spec.includes or ():
             name, effect = _INCLUDES[item]
-            self.approximate(what, f"the stated error already includes {name}", effect)
+            detail = effect.format(noise=stated_noise(spec))
+            self.approximate(what, f"the stated error already includes {name}", detail)
         if spec.statistic in ("median", "mean"):
             self.approximate(what, f"a device {spec.statistic} applied to every locus")
         if spec.assumption:

@@ -115,6 +115,8 @@ This file lists all notable changes to NoiseVault. Versions follow
   cause. The drift report of the IBM campaign has the same lists.
 - `nv diff` and `ProfileDiff.summary()` show "from 0" for a value that changes from 0. Before,
   they showed "-", the same symbol as for no data. The JSON keeps `relative: null`.
+- The noise report says "Pauli noise" for leakage in the stated error of a gate with a `pauli`
+  metric. Before, the report said "depolarizing noise" for every gate.
 - NoiseVault requires typer below 0.29. typer 0.29.0 removed `typer.main.get_click_type`,
   so the CLI did not start on a new install.
 - `scripts/run_on_ibm.py` submits its job with the server-side `SamplerV2` primitive on

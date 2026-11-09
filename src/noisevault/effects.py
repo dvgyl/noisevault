@@ -69,9 +69,10 @@ def treatment(
         )
     counted = _counted_in_gate(effect, profile)
     if counted == "all":
+        noise = " or ".join(sorted({stated_noise(s) for s in _loci_specs(effect, profile)}))
         return Treatment(
             "approximate",
-            f"counted in the stated error of {effect.gate} as depolarizing noise",
+            f"counted in the stated error of {effect.gate} as {noise}",
             "the gate's includes lists leakage, so the export does not add the effect again",
         )
     number = "rate_per_s" if effect.on == "idle" else "prob"
@@ -250,6 +251,12 @@ def _counted_in_gate(effect: Effect, profile: Profile) -> Literal["all", "some",
     """
     if effect.type != "leakage" or effect.gate is None:
         return "none"
+    counted = {_counts_leakage(spec) for spec in _loci_specs(effect, profile)}
+    return "all" if counted == {True} else "some" if True in counted else "none"
+
+
+def _loci_specs(effect: Effect, profile: Profile) -> list[GateSpec]:
+    """The definition and records of ``effect.gate`` that give the noise where ``effect`` acts."""
     from .table import GateNoise
 
     table = profile.table
@@ -258,15 +265,20 @@ def _counted_in_gate(effect: Effect, profile: Profile) -> Literal["all", "some",
     else:
         records = [r.qubits for r in profile.calibrations if r.gate == effect.gate]
         loci = {order for qubits in records for order in permutations(qubits)}
-    counted = set() if effect.qubits else {_counts_leakage(profile.gates[effect.gate])}
+    specs = [] if effect.qubits else [profile.gates[effect.gate]]
     for locus in loci:
         found = table.gate(effect.gate, locus)
         if isinstance(found, GateNoise) and found.gate == effect.gate:
-            counted.add(_counts_leakage(found.spec))
-    return "all" if counted == {True} else "some" if True in counted else "none"
+            specs.append(found.spec)
+    return specs
 
 
 def _counts_leakage(spec: GateSpec) -> bool:
     """True when the stated error of ``spec`` contains leakage. A gate without a stated error
     takes the noise of another gate, so its ``includes`` describes no error."""
     return spec.metric is not None and "leakage" in (spec.includes or ())
+
+
+def stated_noise(spec: GateSpec) -> str:
+    """The channel that the exports make from the stated error of ``spec``."""
+    return "Pauli noise" if spec.metric and spec.metric[0] == "pauli" else "depolarizing noise"

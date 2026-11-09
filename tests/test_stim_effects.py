@@ -262,15 +262,22 @@ def test_exact_erasure_meets_allow_exact():
     assert "DEPOLARIZE1" in str(_atoms(effect).to_stim("CX 0 1"))
 
 
-def test_leakage_already_in_a_gate_error_is_not_added_again():
-    data = _atoms({"type": "leakage", "gate": "cx", "prob": 0.01}, noise=1e-3).to_dict()
-    data["gates"]["cx"]["includes"] = ["leakage"]
+@pytest.mark.parametrize(
+    ("metric", "noise"),
+    [
+        ({"avg_infidelity": 1e-3}, "depolarizing noise"),
+        ({"pauli": [1e-4] * 15}, "Pauli noise"),
+    ],
+)
+def test_leakage_already_in_a_gate_error_is_not_added_again(metric, noise):
+    data = _atoms({"type": "leakage", "gate": "cx", "prob": 0.01}).to_dict()
+    data["gates"]["cx"] = {**metric, "includes": ["leakage"]}
     profile = Profile.from_dict(data)
     noisy = profile.to_stim("CX 0 1")
     assert "DEPOLARIZE1" not in str(noisy) and "ERASE" not in str(noisy)
     assert (
-        "approximated: effect leakage on cx: counted in the stated error of cx as depolarizing"
-        " noise (the gate's includes lists leakage, so the export does not add the effect again)"
+        f"approximated: effect leakage on cx: counted in the stated error of cx as {noise}"
+        " (the gate's includes lists leakage, so the export does not add the effect again)"
     ) in noisy.report.summary().splitlines()
 
 
