@@ -118,9 +118,12 @@ def thermal_relaxation_kraus(
             t2 = min(t2, 2.0 * t1)
     duration = float(duration_ns)
 
-    gamma = 0.0 if not np.isfinite(t1) else float(np.clip(1.0 - np.exp(-duration / t1), 0.0, 1.0))
+    # The survival amplitude comes from exp, not from sqrt(1 - gamma): when duration >> T1,
+    # 1 - gamma rounds to 0 and the small remaining coherence is lost.
+    survival = 1.0 if not np.isfinite(t1) else float(np.exp(-duration / (2.0 * t1)))
+    gamma = 0.0 if not np.isfinite(t1) else float(np.clip(-np.expm1(-duration / t1), 0.0, 1.0))
     amplitude = [
-        np.array([[1.0, 0.0], [0.0, np.sqrt(1.0 - gamma)]], dtype=complex),
+        np.array([[1.0, 0.0], [0.0, survival]], dtype=complex),
         np.array([[0.0, np.sqrt(gamma)], [0.0, 0.0]], dtype=complex),
     ]
     inverse_t1 = 0.0 if not np.isfinite(t1) else 1.0 / t1

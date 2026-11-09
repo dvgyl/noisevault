@@ -48,7 +48,7 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - uses: astral-sh/setup-uv@v6
-      - run: uv pip install -e . pytest
+      - run: uv pip install -e . pytest hypothesis
       # Framework tests skip here; this job proves the core works without any framework.
       - run: pytest -q
 

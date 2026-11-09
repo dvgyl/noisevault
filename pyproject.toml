@@ -54,6 +54,7 @@ all = ["noisevault[qiskit,ibm,cirq,pennylane,stim,google,hf]"]
 dev = [
   "noisevault[all]",
   "amazon-braket-schemas>=1.22",
+  "hypothesis>=6.100",
   "pymatching>=2.2",
   "pytest>=8",
   "ruff>=0.9",
