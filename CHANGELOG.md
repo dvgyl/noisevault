@@ -93,6 +93,11 @@ This file lists all notable changes to NoiseVault. Versions follow
 
 - NoiseVault requires typer below 0.29. typer 0.29.0 removed `typer.main.get_click_type`,
   so the CLI did not start on a new install.
+- `scripts/run_on_ibm.py` submits its job with the server-side `SamplerV2` primitive on
+  qiskit-ibm-runtime 0.52 too. Version 0.52 moved that primitive to
+  `qiskit_ibm_runtime.server_side` and gave the top-level `SamplerV2` name to a client-side
+  sampler. The new function `noisevault.compat.ibm_sampler()` returns the server-side class on
+  every supported release.
 - The Qiskit export applies gate noise to a gate with a label, such as `qc.x(0, label="a")`.
   Before, Aer looked up the noise by the label, so a labelled gate had no noise, and the
   report still called its noise exact. Save instructions keep their labels.

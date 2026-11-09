@@ -39,6 +39,21 @@ def pennylane_mid_measure() -> type:
     return MidMeasure
 
 
+def ibm_sampler() -> type:
+    """The server-side SamplerV2 of qiskit-ibm-runtime, which ``scripts/run_on_ibm.py`` uses.
+
+    qiskit-ibm-runtime 0.52 moved it to ``qiskit_ibm_runtime.server_side``. The top-level
+    ``SamplerV2`` became a client-side sampler with other pre- and post-processing.
+    """
+    try:
+        from qiskit_ibm_runtime.server_side import (  # type: ignore[import-untyped]
+            SamplerV2,
+        )
+    except ImportError:
+        from qiskit_ibm_runtime import SamplerV2  # type: ignore[import-untyped]
+    return SamplerV2
+
+
 def is_v01(data: Any) -> bool:
     return isinstance(data, dict) and data.get("schema_version") == "0.1"
 
