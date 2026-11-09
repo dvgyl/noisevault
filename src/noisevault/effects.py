@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
     from .profile import Effect, Profile
+    from .table import GateNoise
 
 Level = Literal["omit", "approximate", "exact"]
 RANK: dict[Level, int] = {"omit": 0, "approximate": 1, "exact": 2}
@@ -139,16 +140,17 @@ class Erasures:
     def on_idle(self) -> bool:
         return bool(self._idle)
 
-    def gate(
-        self, name: str, wires: tuple[int, ...], includes: Iterable[str] | None = ()
-    ) -> tuple[Erasure, ...]:
+    def gate(self, name: str, wires: tuple[int, ...], noise: GateNoise) -> tuple[Erasure, ...]:
         """Erasures on each qubit of ``wires`` after one application of gate ``name``.
 
-        ``includes`` is the qualifier of the gate's record on ``wires``. When it lists leakage,
-        the stated error already counts the leakage effects, so they add nothing.
+        ``noise`` is the record that gives the gate its noise on ``wires``. A gate without its
+        own noise takes the noise of the typical native gate. Such a gate takes the effects of
+        that native gate too, unless an effect names ``name``. When the record lists leakage in
+        ``includes``, its stated error already counts its leakage effects, so they add nothing.
         """
-        effects = self._gate.get(name)
-        if effects and "leakage" in (includes or ()):
+        source = name if name in self._gate else noise.gate
+        effects = self._gate.get(source)
+        if effects and source == noise.gate and "leakage" in (noise.spec.includes or ()):
             effects = [e for e in effects if e.type != "leakage"]
         if not effects:
             return ()

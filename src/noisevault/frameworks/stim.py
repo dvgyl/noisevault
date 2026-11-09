@@ -712,8 +712,7 @@ class _Exporter:
         except (MissingCalibrationError, DisabledGateError, LayoutError) as exc:
             raise self._explain(instruction, name, wires, exc, self._resolves) from exc
         events = _added_events(before, self.report.events)
-        own = built.gate.gate == name  # not the typical gate's record
-        erasures = self.erasures.gate(name, wires, built.gate.spec.includes if own else ())
+        erasures = self.erasures.gate(name, wires, built.gate)
         if len(qubits) > 2:
             probs = pauli_twirl(built.channels, wires)
             return _Resolved(events, lines=_correlated_errors(probs, qubits), erasures=erasures)

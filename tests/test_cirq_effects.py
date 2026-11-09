@@ -172,3 +172,12 @@ def test_an_effect_on_measure_or_reset_is_omitted_with_the_target_to_use(gate):
     data["effects"][0]["allow"] = "exact"
     with pytest.raises(UnsupportedEffect, match="use on: readout"):
         Profile.from_dict(data).to_cirq()
+
+
+def test_a_gate_with_typical_noise_takes_the_effects_of_the_typical_gate():
+    data = _atoms({"type": "erasure", "gate": "cz", "prob": 0.2, "heralded": True}).to_dict()
+    data["gates"] = {"h": data["gates"]["h"], "cz": data["gates"]["cz"]}
+    model = Profile.from_dict(data).to_cirq()
+    with pytest.warns(NoiseApproximationWarning, match="noise of cz"):
+        noisy = cirq.Circuit(cirq.CNOT(q0, q1)).with_noise(model)
+    assert cirq.measurement_key_names(noisy) == {"herald_erasure_m0_q0", "herald_erasure_m0_q1"}

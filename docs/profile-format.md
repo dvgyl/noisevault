@@ -364,12 +364,17 @@ The target of an effect sets where the effect acts and which number it uses:
 | --- | --- | --- |
 | `"gate": name` | After each application of the gate, after the gate's own noise. | `prob`, for each qubit of the gate and each application. |
 | `"on": "readout"` | Directly before each measurement of a qubit. | `prob`, for each measured qubit. |
-| `"on": "idle"` | During the idle time that an export models. | `rate_per_s`. An idle time t gives the probability 1 - exp(-`rate_per_s` t). |
+| `"on": "idle"` | After each idle time that an export models, after the relaxation of that time. | `rate_per_s`. An idle time t gives the probability 1 - exp(-`rate_per_s` t). |
 
 Without `qubits`, the effect acts on every qubit. On a gate, `qubits` names one locus, in any
 order. On `readout` or `idle`, `qubits` lists the qubits. An effect with `qubits` replaces an
 effect of the same `type` and target without `qubits` on those qubits. When several effects
 still match one place, all of them act, each with its own probability.
+
+A gate without its own noise takes the noise of the typical native gate (see `unknown_gates` in
+[Frameworks](frameworks.md)). Such a gate also takes the gate effects of that native gate, unless
+an effect names the gate itself. For example, on a device whose 2-qubit native gate is `cz`, a
+`cx` in the circuit takes the noise of `cz` and each effect on `cz`.
 
 `"heralded": true` means that the device reports each event, for example when imaging finds an
 empty trap. Without `"heralded": true`, the event is silent.

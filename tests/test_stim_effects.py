@@ -6,7 +6,7 @@ from conftest import require
 
 stim = require("stim")
 
-from noisevault.errors import UnsupportedEffect  # noqa: E402
+from noisevault.errors import NoiseApproximationWarning, UnsupportedEffect  # noqa: E402
 from noisevault.profile import Profile  # noqa: E402
 
 SHOTS = 200_000
@@ -362,3 +362,33 @@ def test_kept_heralds_in_a_loop_keep_a_later_target_on_its_record():
     effect = {"type": "erasure", "on": "idle", "rate_per_s": 1e3, "heralded": True}
     noisy = _atoms(effect).to_stim(program, existing_noise="keep", readout="none")
     assert str(noisy) == program  # without tick_ns, the idle effect adds no herald
+
+
+def _cz_native(*effects: dict, **more_gates: dict) -> Profile:
+    """A device whose only 2-qubit native gate is cz, so CX takes the typical noise of cz."""
+    data = _atoms(*effects).to_dict()
+    data["gates"] = {"h": data["gates"]["h"], "cz": data["gates"]["cz"], **more_gates}
+    return Profile.from_dict(data)
+
+
+def test_a_gate_with_typical_noise_takes_the_effects_of_the_typical_gate():
+    profile = _cz_native({"type": "erasure", "gate": "cz", "prob": 0.2, "heralded": True})
+    with pytest.warns(NoiseApproximationWarning, match="noise of cz"):
+        noisy = profile.to_stim("CX 0 1")
+    assert str(noisy).splitlines() == ["CX 0 1", "HERALDED_ERASE(0.2) 0 1"]
+
+
+def test_an_effect_on_the_gate_itself_replaces_the_effects_of_the_typical_gate():
+    profile = _cz_native(
+        {"type": "erasure", "gate": "cz", "prob": 0.2},
+        {"type": "erasure", "gate": "cx", "prob": 0.4},
+        cx={},  # defined, but without an error, so CX takes the typical noise of cz
+    )
+    with pytest.warns(NoiseApproximationWarning, match="noise of cz"):
+        noisy = profile.to_stim("CX 0 1\nCZ 0 1")
+    assert str(noisy).splitlines() == [
+        "CX 0 1",
+        "DEPOLARIZE1(0.3) 0 1",
+        "CZ 0 1",
+        "DEPOLARIZE1(0.15) 0 1",
+    ]

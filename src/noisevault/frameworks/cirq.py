@@ -456,10 +456,7 @@ class NoiseVaultNoiseModel(cirq.NoiseModel):
             self._table, name, physical, unknown_gates=self._unknown_gates, report=self.report
         )
         qid_of = dict(zip(physical, qids, strict=True))
-        own = built.gate.gate == name  # not the typical gate's record
-        erasures = self._erasures.gate(
-            name, tuple(physical), built.gate.spec.includes if own else ()
-        )
+        erasures = self._erasures.gate(name, tuple(physical), built.gate)
         return [
             *(
                 cirq.KrausChannel(list(channel.kraus)).on(*(qid_of[w] for w in channel.wires))
