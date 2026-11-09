@@ -12,3 +12,6 @@ dist/
 .env
 .DS_Store
 _site/
+
+# Weekly IBM campaign data: account data under IBM's terms (docs/recipes.md)
+/campaign/

@@ -127,10 +127,13 @@ class Ran:
 
 
 def prepare(
-    calibration: Calibration, open_backend: Callable[[bool], Any], shots: int
+    calibration: Calibration,
+    open_backend: Callable[[bool], Any],
+    shots: int,
+    layout: Sequence[int] | None = None,
 ) -> tuple[Any, Batch]:
     profile = calibration(None)
-    planned = plan(profile)
+    planned = plan(profile, layout)
     fractional = any(op.name in FRACTIONAL_GATES for c in planned for op in c.ops)
     try:
         backend = open_backend(fractional)
@@ -405,15 +408,28 @@ def run(
     confirm: Callable[[str], bool] | None,
     collect_only: bool = False,
     job_id: str | None = None,
+    layout: Sequence[int] | None = None,
+    approve: Callable[[Batch], None] | None = None,
+    wait: bool = True,
+    keep_profile: bool = False,
 ) -> MeasuredCounts | None:
+    """Submit one job and save its counts, or collect the job that ``pending`` records.
+
+    ``layout`` gives the chain to plan on, else ``plan`` chooses one. ``approve`` sees the batch
+    before the script saves ``pending`` and submits, and can stop the run with NoiseVaultError.
+    With ``wait`` False, the function returns None after it submits, and a later call collects
+    the job. With ``keep_profile``, the profile file is always saved beside the counts file.
+    """
     if collect_only or pending.exists():
         record, submitted, job = _resume(pending, job_id, open_job)
         print(f"collecting job {submitted.job_id}, submitted earlier for {output}")
     else:
-        backend, batch = prepare(calibration, open_backend, shots)
+        backend, batch = prepare(calibration, open_backend, shots, layout)
         print(summary(batch, output))
         print()
         device = batch.profile.device.name
+        if approve is not None:
+            approve(batch)
         if confirm is not None and not confirm(f"Submit the job to {device}? [y/N] "):
             print("nothing submitted")
             return None
@@ -465,6 +481,10 @@ def run(
             os.close(record.fd)
             _save_elsewhere(changed, kept, submitted.job_id, plan + job_line)
         print(f"submitted job {submitted.job_id} to {device}")
+        if not wait:
+            os.close(record.fd)
+            print(f"run the same command again to collect it. {pending} records the job")
+            return None
     print("waiting for it to run")
     print("Ctrl-C stops waiting. Run the same command again to collect the job")
     again = f"run the same command again to collect them. {_new_job(pending)}"
@@ -481,7 +501,7 @@ def run(
         files = {output: (_readable_json(measured.to_dict()) + "\n").encode("utf-8")}
         if ran.timing:
             files[timing] = (json.dumps(ran.timing, indent=1) + "\n").encode("utf-8")
-        ref = catalog_ref(bound)
+        ref = None if keep_profile else catalog_ref(bound)
         if ref is None:
             ref = str(profile_file)
             files[profile_file] = file_bytes(bound, profile_file)
