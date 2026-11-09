@@ -390,8 +390,8 @@ The Stim export changes every `rec[-k]` target after an added herald, so that de
 observables and classically controlled gates read the same measurements as before. Herald
 records stay in the samples of `compile_sampler()`. The Cirq key of a herald is
 `herald_<type>_m<moment>_q<qubit>`, for example `herald_erasure_m3_q5`, where the qubit is the
-device qubit. When two heralds in one moment get the same key, the second key ends in `_1`, the
-third in `_2`, and so on.
+device qubit. When the circuit or another herald already uses the key, the herald's key ends in
+`_1`, or else `_2`, and so on.
 
 The channel is exact for `erasure`. For the other two types, the report states the
 approximation:
@@ -420,6 +420,8 @@ The Stim export applies idle effects only to qubits idle in a `TICK` layer with 
 for idle relaxation. The report also omits an effect in these cases:
 
 - The effect has no `prob` (on a gate or on `readout`) or no `rate_per_s` (on `idle`).
+- The effect names the gate `measure`, `reset` or `delay`. Use `"on": "readout"` or
+  `"on": "idle"` instead.
 - The effect is on `readout`, and the export adds no readout error (`readout="none"` in Stim,
   `readout=False` in Cirq).
 - The effect is on `idle`, and the Stim export has no `tick_ns`.

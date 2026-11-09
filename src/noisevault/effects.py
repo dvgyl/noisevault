@@ -10,6 +10,7 @@ from __future__ import annotations
 import math
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
+from itertools import permutations
 from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
@@ -18,6 +19,7 @@ if TYPE_CHECKING:
 Level = Literal["omit", "approximate", "exact"]
 RANK: dict[Level, int] = {"omit": 0, "approximate": 1, "exact": 2}
 ERASING = frozenset({"leakage", "atom_loss", "erasure"})
+_NOT_GATES = frozenset({"measure", "reset", "delay"})  # operations the exports handle apart
 _HOW = {
     "erasure": ("an erasure (the qubit becomes I/2)", ""),
     "atom_loss": (
@@ -59,6 +61,10 @@ def treatment(
     """
     if effect.type not in ERASING:
         return Treatment("omit", detail=f"the {framework} export does not model {effect.type}")
+    if effect.gate in _NOT_GATES:
+        return Treatment(
+            "omit", detail=f"use on: readout or on: idle, not gate: {effect.gate}, for this effect"
+        )
     counted = _counted_in_gate(effect, profile)
     if counted == "all":
         return Treatment(
@@ -98,14 +104,17 @@ class Erasures:
         self._gate: dict[str, list[Effect]] = {}
         self._readout: list[Effect] = []
         self._idle: list[Effect] = []
+        # An effect without its number still replaces a default; _pick then drops it.
         for effect in profile.effects:
-            if effect.type not in ERASING or _counted_in_gate(effect, profile) == "all":
+            if effect.type not in ERASING or effect.gate in _NOT_GATES:
                 continue
-            if effect.gate is not None and effect.prob is not None:
+            if _counted_in_gate(effect, profile) == "all":
+                continue
+            if effect.gate is not None:
                 self._gate.setdefault(effect.gate, []).append(effect)
-            elif effect.on == "readout" and effect.prob is not None and readout:
+            elif effect.on == "readout" and readout:
                 self._readout.append(effect)
-            elif effect.on == "idle" and effect.rate_per_s is not None:
+            elif effect.on == "idle":
                 self._idle.append(effect)
 
     @property
@@ -116,7 +125,7 @@ class Erasures:
     def heralded(self) -> bool:
         """True when some effect can add a herald."""
         effects = [*self._readout, *self._idle, *(e for v in self._gate.values() for e in v)]
-        return any(e.heralded for e in effects)
+        return any(e.heralded and (e.prob or e.rate_per_s) for e in effects)
 
     @property
     def on_readout(self) -> bool:
@@ -182,17 +191,24 @@ def _prob(effect: Effect) -> float:
 
 
 def _counted_in_gate(effect: Effect, profile: Profile) -> Literal["all", "some", "none"]:
-    """Whether the gate records that ``effect`` acts on already count it in their error."""
+    """Whether the records of the loci that ``effect`` acts on already count it in their error.
+
+    A locus effect acts on its qubits in either order, and each order can resolve to its own
+    record. An effect without ``qubits`` acts on every locus: the definition and each record.
+    """
     if effect.type != "leakage" or effect.gate is None:
         return "none"
-    definition = profile.gates[effect.gate].includes
-    matching = [
-        definition if record.includes is None else record.includes
-        for record in profile.calibrations
-        if record.gate == effect.gate
-        and (not effect.qubits or sorted(record.qubits) == sorted(effect.qubits))
-    ]
-    # A locus effect acts only where its locus's record applies.
-    records = matching if effect.qubits and matching else [definition, *matching]
-    counted = {"leakage" in (includes or ()) for includes in records}
+    from .table import GateNoise
+
+    table = profile.table
+    if effect.qubits:
+        loci = set(permutations(effect.qubits))
+    else:
+        records = [r.qubits for r in profile.calibrations if r.gate == effect.gate]
+        loci = {order for qubits in records for order in permutations(qubits)}
+    counted = set() if effect.qubits else {"leakage" in (profile.gates[effect.gate].includes or ())}
+    for locus in loci:
+        found = table.gate(effect.gate, locus)
+        if isinstance(found, GateNoise) and found.gate == effect.gate:
+            counted.add("leakage" in (found.spec.includes or ()))
     return "all" if counted == {True} else "some" if True in counted else "none"
