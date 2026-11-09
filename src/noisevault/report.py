@@ -11,16 +11,18 @@ import sys
 import warnings
 from collections import Counter
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NoReturn
 
+from .effects import RANK
 from .errors import LociText, NoiseApproximationWarning, UnsupportedEffect, qubit_loci
 from .profile import unmodeled_note
 
 if TYPE_CHECKING:
-    from collections.abc import Collection, Iterable
+    from collections.abc import Callable, Collection, Iterable
     from types import FrameType
 
     from .channels import GateChannels
+    from .effects import Treatment
     from .profile import Effect, GateSpec, Profile
 
 HONESTY = "Calibration-derived models approximate the hardware. They are not a digital twin."
@@ -44,6 +46,7 @@ _EVENTS = {  # event -> how summary() states one key's count
     "circuit_channel_kept": (
         "the export kept the circuit's own {key} as written, with no noise added, {times}"
     ),
+    "herald_added": "the {key} effect added a herald measurement record {times}",
 }
 
 
@@ -147,21 +150,52 @@ class Report:
         if spec.assumption:
             self.approximate(what, "read under an importer assumption", spec.assumption)
 
-    def record_effects(self, effects: Iterable[Effect]) -> None:
-        """Omit or refuse each effect, because no export and no reference simulator models
-        effects in this release."""
+    def record_effects(
+        self, effects: Iterable[Effect], treat: Callable[[Effect], Treatment] | None = None
+    ) -> None:
+        """Record how this export treats each effect, or refuse an effect whose ``allow`` asks
+        for more. ``treat`` gives the treatment; without it, the export omits every effect."""
+        for effect in effects:
+            target = effect.gate or effect.on
+            what = f"effect {effect.type} on {target}"
+            if treat is None:
+                self._omit_effect(effect, what)
+                continue
+            done = treat(effect)
+            if RANK[done.level] < RANK[effect.allow]:
+                self._refuse_effect(effect, what, done)
+            if done.level == "exact":
+                self.mark_exact(f"{what}: {done.how}")
+            elif done.level == "approximate":
+                self.approximate(what, done.how, done.detail)
+            else:
+                self.omit(f"{what} ({done.detail})" if done.detail else what)
+
+    def _omit_effect(self, effect: Effect, what: str) -> None:
         model, fix = _MODELS.get(
             self.framework, (f"{self.framework} export", "export without the effect")
         )
-        for effect in effects:
-            target = effect.gate or effect.on
-            if effect.allow != "omit":
-                raise UnsupportedEffect(
-                    f"effect {effect.type} on {target} asks for allow={effect.allow!r}, but"
-                    f" {model} does not model effects yet",
-                    hint=f"set allow to 'omit' to {fix}",
-                )
-            self.omit(f"effect {effect.type} on {target}")
+        if effect.allow != "omit":
+            raise UnsupportedEffect(
+                f"{what} asks for allow={effect.allow!r}, but {model} does not model effects yet",
+                hint=f"set allow to 'omit' to {fix}",
+            )
+        self.omit(what)
+
+    def _refuse_effect(self, effect: Effect, what: str, done: Treatment) -> NoReturn:
+        export = f"the {self.framework} export"
+        if done.level == "omit":
+            reason = done.detail or f"{export} does not model {effect.type}"
+            raise UnsupportedEffect(
+                f"{what} asks for allow={effect.allow!r}, but {reason}",
+                hint="set allow to 'omit' to export without the effect",
+            )
+        detail = f" ({done.detail})" if done.detail else ""
+        raise UnsupportedEffect(
+            f"{what} asks for allow={effect.allow!r}, but {export} approximates it as"
+            f" {done.how}{detail}",
+            hint="set allow to 'approximate' to accept the approximation",
+        )
 
     def warn_once(self, key: str, message: str) -> None:
         if key not in self._warned:

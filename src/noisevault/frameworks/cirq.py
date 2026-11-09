@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import numbers
 import re
+import sys
 from collections import defaultdict
 from collections.abc import Container, Iterable, Mapping, Sequence
 from dataclasses import dataclass
@@ -20,6 +21,7 @@ except ImportError as exc:
 from .. import gates
 from ..channels import readout_matrix
 from ..conversion import UnknownGates, idle_channel, native_name, resolve_op
+from ..effects import Erasure, Erasures, treatment
 from ..layout import normalize_layout
 from ..profile import Profile, QubitRecord
 from ..report import Report
@@ -113,6 +115,49 @@ class ECRGate(cirq.Gate):
 
     def __repr__(self) -> str:
         return "noisevault.frameworks.cirq.ECRGate()"
+
+
+@cirq.value_equality
+class HeraldedErasure(cirq.Gate):
+    """Erase one qubit with probability ``p``, and record 1 under ``key`` when it happens.
+
+    An erasure leaves the qubit in I/2. On a density matrix the gate applies I/2. In a
+    state-vector trajectory it applies a random Pauli. A ``cirq.KrausChannel`` with a key is not
+    enough, because ``cirq.DensityMatrixSimulator`` does not record which operator it applied.
+    """
+
+    def __init__(self, p: float, key: str) -> None:
+        self.p = p
+        self.key = key
+
+    def _num_qubits_(self) -> int:
+        return 1
+
+    def _is_measurement_(self) -> bool:
+        return True
+
+    def _measurement_key_name_(self) -> str:
+        return self.key
+
+    def _act_on_(self, sim_state: Any, qubits: Sequence[cirq.Qid]) -> bool:
+        if isinstance(sim_state, cirq.SimulationProductState):
+            sim_state = sim_state[qubits[0]]  # the state of the qubit's own factor
+        erased = bool(sim_state.prng.random() < self.p)
+        sim_state.classical_data.record_measurement(
+            cirq.MeasurementKey(self.key), [int(erased)], qubits
+        )
+        if erased:
+            cirq.act_on(cirq.depolarize(0.75), sim_state, qubits)
+        return True
+
+    def _value_equality_values_(self) -> tuple:
+        return (self.p, self.key)
+
+    def _circuit_diagram_info_(self, args: Any) -> tuple[str]:
+        return (f"Erase({self.p:.3g})",)
+
+    def __repr__(self) -> str:
+        return f"noisevault.frameworks.cirq.HeraldedErasure(p={self.p!r}, key={self.key!r})"
 
 
 def _registry_by_class() -> dict[str, str]:
@@ -281,6 +326,9 @@ class NoiseVaultNoiseModel(cirq.NoiseModel):
     Report events count each noisy circuit that the model builds, not shots or runs. Cirq asks
     for a noisy circuit once per run or once per part of a run. A repeat of the last circuit
     uses the noisy circuit again.
+
+    Leakage, atom loss and erasure effects add ``cirq.depolarize(3p/4)``, or a
+    :class:`HeraldedErasure` with the key ``herald_<type>_m<moment>_q<device qubit>``.
     """
 
     def __init__(
@@ -298,10 +346,19 @@ class NoiseVaultNoiseModel(cirq.NoiseModel):
         self._qubits = qubits
         self._unknown_gates = unknown_gates
         self._readout = readout
-        self._last: tuple[tuple[cirq.Moment, ...], list[cirq.OP_TREE]] | None = None
+        self._erasures = Erasures(profile, readout=readout)
+        self._moment: int | None = None  # index of the moment that _noisy works on
+        self._keys: set[str] = set()  # measurement keys in use in this noisy circuit
+        # The last moments, their noisy moments, and whether heralds there need a warning.
+        self._last: tuple[tuple[cirq.Moment, ...], list[cirq.OP_TREE], bool] | None = None
 
     def __repr__(self) -> str:
         return f"NoiseVaultNoiseModel({self.profile.id}, nv:{self.profile.fingerprint[:12]})"
+
+    def _measurement_key_names_(self) -> frozenset[str]:
+        # cirq.DensityMatrixSimulator simulates the start of a circuit once for all repetitions
+        # when the noise model touches no measurement key. Each repetition needs its own heralds.
+        return frozenset({"herald_*"}) if self._erasures.heralded else frozenset()
 
     def noisy_moments(
         self, moments: Iterable[cirq.Moment], system_qubits: Sequence[cirq.Qid]
@@ -311,6 +368,8 @@ class NoiseVaultNoiseModel(cirq.NoiseModel):
         # moments on every repetition. The model returns its last result again, so these paths
         # stay fast and report events do not count shots.
         if self._last is not None and self._last[0] == moments:
+            if self._last[2]:
+                self._warn_lost_heralds()
             return self._last[1]
         self._qubits.physical(system_qubits)
         later: set[cirq.Qid] = set()
@@ -320,12 +379,28 @@ class NoiseVaultNoiseModel(cirq.NoiseModel):
                 if cirq.is_measurement(op) and later.isdisjoint(op.qubits):
                     terminal.add((i, op))
             later.update(moments[i].qubits)
-        noisy: list[cirq.OP_TREE] = [
-            [self._noisy(op, terminal=(i, op) in terminal) for op in moment]
-            for i, moment in enumerate(moments)
-        ]
-        self._last = (moments, noisy)
+        noisy: list[cirq.OP_TREE] = []
+        self._keys = {key for moment in moments for key in cirq.measurement_key_names(moment)}
+        circuit_keys = len(self._keys)
+        for i, moment in enumerate(moments):
+            self._moment = i
+            noisy.append([self._noisy(op, terminal=(i, op) in terminal) for op in moment])
+        self._moment = None
+        ops = [op for moment in moments for op in moment]
+        lost = len(self._keys) > circuit_keys and all(cirq.is_measurement(op) for op in ops)
+        if lost:
+            self._warn_lost_heralds()
+        self._last = (moments, noisy, lost)
         return noisy
+
+    def _warn_lost_heralds(self) -> None:
+        if _inside_simulator_run():
+            self.report.warn_once(
+                "measurement_only_heralds",
+                "a circuit of measurements only: a Cirq simulator built with noise=model samples"
+                " it from one simulation and returns no herald records. Simulate"
+                " circuit.with_noise(model) instead",
+            )
 
     def noisy_operation(self, operation: cirq.Operation) -> cirq.OP_TREE:
         """The operation followed by its noise. A measurement gets a ``confusion_map``."""
@@ -381,10 +456,41 @@ class NoiseVaultNoiseModel(cirq.NoiseModel):
             self._table, name, physical, unknown_gates=self._unknown_gates, report=self.report
         )
         qid_of = dict(zip(physical, qids, strict=True))
+        own = built.gate.gate == name  # not the typical gate's record
+        erasures = self._erasures.gate(
+            name, tuple(physical), built.gate.spec.includes if own else ()
+        )
         return [
-            cirq.KrausChannel(list(channel.kraus)).on(*(qid_of[w] for w in channel.wires))
-            for channel in built.channels
+            *(
+                cirq.KrausChannel(list(channel.kraus)).on(*(qid_of[w] for w in channel.wires))
+                for channel in built.channels
+            ),
+            *(
+                op
+                for qid, index in zip(qids, physical, strict=True)
+                for op in self._erase(qid, index, erasures)
+            ),
         ]
+
+    def _erase(
+        self, qid: cirq.Qid, index: int, erasures: Sequence[Erasure]
+    ) -> list[cirq.Operation]:
+        """An operation for each erasure of device qubit ``index``, which is ``qid``."""
+        out = []
+        for erasure in erasures:
+            if not erasure.heralded:
+                out.append(cirq.depolarize(0.75 * erasure.prob).on(qid))
+                continue
+            where = f"m{self._moment}_" if self._moment is not None else ""
+            key = base = f"herald_{erasure.type}_{where}q{index}"
+            n = 0
+            while key in self._keys:  # a key of the circuit or of an earlier herald
+                n += 1
+                key = f"{base}_{n}"
+            self._keys.add(key)
+            out.append(HeraldedErasure(erasure.prob, key).on(qid))
+            self.report.count("herald_added", erasure.type)
+        return out
 
     def _phased_xz(
         self, gate: cirq.PhasedXZGate, qids: Sequence[cirq.Qid], physical: tuple[int, ...]
@@ -429,6 +535,18 @@ class NoiseVaultNoiseModel(cirq.NoiseModel):
                 f"{operation!r} already has a confusion_map. Remove the confusion_map, or pass"
                 " readout=False to keep your own readout model"
             )
+        pairs = zip(operation.qubits, physical, strict=True)
+        erased = [op for q, i in pairs for op in self._erase(q, i, self._erasures.readout(i))]
+        return [*erased, self._read(operation, gate, physical, terminal=terminal)]
+
+    def _read(
+        self,
+        operation: cirq.Operation,
+        gate: cirq.MeasurementGate,
+        physical: tuple[int, ...],
+        *,
+        terminal: bool,
+    ) -> cirq.OP_TREE:
         matrices = {}
         for position, index in enumerate(physical):
             matrix = readout_matrix(self._table.qubit(index))
@@ -477,7 +595,21 @@ class NoiseVaultNoiseModel(cirq.NoiseModel):
             channel = idle_channel(self._table, index, duration, self.report, label="WaitGate")
             if channel is not None:
                 out.append(cirq.KrausChannel(list(channel.kraus)).on(qid))
+            out += self._erase(qid, index, self._erasures.idle(index, duration))
         return out
+
+
+def _inside_simulator_run() -> bool:
+    """True inside a Cirq simulator's run(), whose sampling of a circuit of measurements only
+    drops herald records. simulate() and Circuit.with_noise keep them."""
+    frame = sys._getframe(1)
+    while frame is not None:
+        if frame.f_code.co_name == "_run" and frame.f_globals.get("__name__", "").startswith(
+            "cirq.sim"
+        ):
+            return True
+        frame = frame.f_back  # type: ignore[assignment]
+    return False
 
 
 def _assignment_kraus(matrix: np.ndarray) -> list[np.ndarray]:
@@ -523,7 +655,9 @@ def to_cirq(
         unknown_gates=unknown_gates,
         readout=readout,
     )
-    report.record_effects(profile.effects)
+    report.record_effects(
+        profile.effects, lambda e: treatment(e, profile, "cirq", idle="exact", readout=readout)
+    )
     qubits = _QubitMap(profile, layout)
     report.mark_exact("gate noise as Kraus channels after each gate")
     if readout:
