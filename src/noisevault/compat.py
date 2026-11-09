@@ -24,6 +24,21 @@ _UNVERIFIED_FAKE = (
 )
 
 
+def pennylane_mid_measure() -> type:
+    """PennyLane's mid-circuit measurement class.
+
+    PennyLane 0.45 moved ``pennylane.measurements.MidMeasureMP`` to ``pennylane.ops.MidMeasure``
+    and keeps the old name as an alias. PennyLane 0.43, the floor, has only the old name.
+    """
+    try:
+        from pennylane.ops import MidMeasure  # type: ignore[import-untyped]
+    except ImportError:
+        from pennylane.measurements import (  # type: ignore[import-untyped]
+            MidMeasureMP as MidMeasure,
+        )
+    return MidMeasure
+
+
 def is_v01(data: Any) -> bool:
     return isinstance(data, dict) and data.get("schema_version") == "0.1"
 
