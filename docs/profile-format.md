@@ -627,6 +627,9 @@ rules:
 - A gate whose error is at or above d/(d+1) is disabled. The limit is 2/3 for 1 qubit and 4/5
   for 2 qubits. IBM writes such a value, often 1, to mark a broken gate.
 - A T1 or T2 of 0 or less counts as missing, and `provenance.notes` names it.
+- Qubit metadata goes to `extensions["v01_qubit_metadata"]`, keyed by qubit index. Gate metadata
+  goes to `extensions["v01_gate_metadata"]`, keyed by gate and qubits, for example `"cx:0-1"`.
+  `provenance.notes` names each gate metadata item that format 1.0 cannot hold, such as a NaN.
 
 ## How technologies map
 

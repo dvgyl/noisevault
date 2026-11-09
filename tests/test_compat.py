@@ -157,6 +157,37 @@ def test_a_coherence_time_of_0_or_less_counts_as_missing_with_a_note() -> None:
     ]
 
 
+def test_gate_metadata_is_kept_by_gate_and_qubits() -> None:
+    data = _small_v01()
+    _small_gate(data, "sx", [0])["metadata"] = {"rb_stderr": 1e-5}
+    _small_gate(data, "sx", [1])["metadata"] = {}
+    _small_gate(data, "cx", [0, 1])["metadata"] = {"date": "2024-01-01", "runs": [1, 2]}
+    profile = _upgrade(data)
+    assert profile.extensions["v01_gate_metadata"] == {
+        "sx:0": {"rb_stderr": 1e-5},
+        "cx:0-1": {"date": "2024-01-01", "runs": (1, 2)},
+    }
+    assert not [n for n in profile.provenance.notes if "metadata" in n]
+    assert Profile.from_dict(profile.to_dict()).extensions == profile.extensions
+
+
+def test_gate_metadata_that_format_1_0_cannot_hold_is_named_in_the_notes() -> None:
+    data = _small_v01()
+    _small_gate(data, "sx", [0])["metadata"] = {"fit": [0.5, float("nan")], "rb_stderr": 1e-5}
+    _small_gate(data, "cx", [0, 1])["metadata"] = {"bad": "\ud800", "\ud800": 1}
+    profile = _upgrade(data)
+    assert profile.extensions["v01_gate_metadata"] == {"sx:0": {"rb_stderr": 1e-5}}
+    surrogate = (
+        "holds the unpaired surrogate \\ud800, which UTF-8 cannot encode. Remove the surrogate or"
+        " write the whole character"
+    )
+    assert [n for n in profile.provenance.notes if "metadata" in n] == [
+        'Not converted: 0.1 gate metadata "fit" of sx:0 (fit[1]: nan is not a finite number).',
+        f'Not converted: 0.1 gate metadata "bad" of cx:0-1 (bad: the string {surrogate}).',
+        f"Not converted: 0.1 gate metadata \"\\ud800\" of cx:0-1 (the key '\\ud800' {surrogate}).",
+    ]
+
+
 def test_rz_stays_calibrated_when_it_has_an_error() -> None:
     data = _v01()
     for gate in data["gates"]:
@@ -261,6 +292,7 @@ def _prov(**changes) -> dict:
             "gates[0]: error should be a finite number, not Infinity",
         ),
         (_first_gate(error=float("nan")), "gates[0]: error should be a finite number, not NaN"),
+        (_first_gate(metadata=[1]), "gates[0]: metadata should be an object, not a list"),
         (_v01(provenance={"raw_hash": ["x"]}), "provenance.raw_hash should be a string"),
         (
             _first_gate(operational="maybe"),
@@ -297,6 +329,7 @@ def _prov(**changes) -> dict:
         "gate-error-bool",
         "gate-error-infinite",
         "gate-error-nan",
+        "gate-metadata",
         "raw-hash",
         "gate-flag-word",
         "gate-flag-null",

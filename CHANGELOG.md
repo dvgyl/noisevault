@@ -160,6 +160,11 @@ This file lists all notable changes to NoiseVault. Versions follow
   that is not finite. Before, it disabled the gate. A file with an error exactly at the limit
   gets a new fingerprint, because that gate was calibrated before and is disabled now, as in the
   IBM importer. The 0.1 test fixtures keep their fingerprints.
+- The upgrade of a 0.1 file keeps gate metadata in `extensions["v01_gate_metadata"]`, keyed by
+  gate and qubits, for example `"cx:0-1"`. `provenance.notes` names each item that format 1.0
+  cannot hold, such as a NaN. Before, the upgrade dropped all gate metadata with no note. The
+  upgrade refuses gate metadata that is not an object, as it does for qubit metadata.
+  Fingerprints do not change, because extensions and notes are not physics.
 - `load_counts` gives a `CountsError` for an execution flag nested as deep as the JSON parser
   takes, not a `RecursionError`.
 - `scripts/run_on_ibm.py` stops with an error that names the two devices when it collects a job

@@ -104,10 +104,12 @@ def upgrade_v01(old: dict[str, Any]) -> dict[str, Any]:
     data_kind, source_kind = _KINDS.get(provider, ("unknown", "other"))
     prov = old["provenance"]
     licensing = _licensing(provider, prov.get("raw_hash"))
+    gate_metadata, dropped = _gate_metadata(old["gates"])
     notes = [
         *prov.get("notes", []),
         "Upgraded from NoiseVault format 0.1.",
         *_coherence_notes(old["qubits"]),
+        *dropped,
     ]
     if provider == "qiskit_fake" and licensing["redistributable"] != "yes":
         source_kind = "other"
@@ -126,6 +128,8 @@ def upgrade_v01(old: dict[str, Any]) -> dict[str, Any]:
     metadata = {str(q["index"]): q["metadata"] for q in old["qubits"] if q.get("metadata")}
     if metadata:
         extensions["v01_qubit_metadata"] = metadata
+    if gate_metadata:
+        extensions["v01_gate_metadata"] = gate_metadata
     calibrated_at = prov.get("source_timestamp")
     if calibrated_at is None:
         calibrated_at = old["captured_at"]
@@ -188,6 +192,8 @@ def _parse(old: dict[str, Any]) -> dict[str, Any]:
             _fail(f"gates[{i}]: error should be a number, not {_json_type(error)}")
         if isinstance(error, float) and not math.isfinite(error):
             _fail(f"gates[{i}]: error should be a finite number, not {_shown(error)}")
+        if not isinstance(gate.get("metadata", {}), dict):
+            _fail(f"gates[{i}]: metadata should be an object, not {_json_type(gate['metadata'])}")
         gate_entries.append({**gate, "operational": _flag(gate, f"gates[{i}]")})
     qubit_entries = []
     for i, qubit in enumerate(old["qubits"]):
@@ -271,6 +277,27 @@ def _licensing(provider: str, raw_hash: Any) -> dict[str, Any]:
 
 def _explicitly_free(entry: dict[str, Any]) -> bool:
     return entry.get("error") == 0 and entry.get("duration_ns") == 0
+
+
+def _gate_metadata(entries: list[dict[str, Any]]) -> tuple[dict[str, dict[str, Any]], list[str]]:
+    """The metadata of each gate, keyed like "cx:0-1", and a note for each item not kept."""
+    from .profile import _freeze  # profile imports this module
+
+    kept: dict[str, dict[str, Any]] = {}
+    notes = []
+    for entry in entries:
+        locus = f"{entry['name']}:{'-'.join(str(q) for q in entry['qubits'])}"
+        for key, value in entry.get("metadata", {}).items():
+            try:
+                # depth 3: extensions > v01_gate_metadata > locus
+                _freeze({key: value}, depth=3)
+            except ValueError as exc:
+                notes.append(
+                    f"Not converted: 0.1 gate metadata {json.dumps(key)} of {locus} ({exc})."
+                )
+            else:
+                kept.setdefault(locus, {})[key] = value
+    return kept, notes
 
 
 def _record(entry: dict[str, Any]) -> dict[str, Any]:
