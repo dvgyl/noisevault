@@ -7,8 +7,9 @@ NoiseVault gets calibrations three ways:
 - **Pulled.** `nv pull` (or `nv.pull`) fetches a live calibration from IBM or IonQ and saves it
   to your vault, `~/.noisevault/profiles`. Set `NOISEVAULT_HOME` to move the vault.
 - **Imported.** An importer reads data that you already have. The data can be a Qiskit backend,
-  an IBM calibration CSV or saved Amazon Braket device properties. The data can also be a
-  calibration that cirq-google ships, or a local copy of a published archive of IBM calibrations.
+  an IBM calibration CSV, saved Amazon Braket device properties or a saved IQM Resonance
+  quality metric set. The data can also be a calibration that cirq-google ships, or a local
+  copy of a published archive of IBM calibrations.
 
 `nv list` shows the vault first, then the bundled set. A vault profile with the same id,
 calibration time and fingerprint as a bundled profile hides that bundled profile. When one
@@ -106,6 +107,7 @@ nv list
 | `nv.from_qiskit_backend(backend)` | Any Qiskit `BackendV2`, such as a fake backend or one from your account. | Only for account backends | No. It reads the backend's current `Target`. For an older IBM calibration, use `nv pull --at`. | Apache-2.0 for qiskit-ibm-runtime fake backends, else `unknown` | Per-qubit T1, T2 and readout, per-gate errors and durations of every native in the `Target`. |
 | `nv.from_ibm_csv(path, device=..., calibrated_at=...)` | The calibration CSV you download from the IBM Quantum platform. Formats from 2023 to 2026. | To download it | One file is one calibration. You give its time as `calibrated_at`. | `unknown` | Per-qubit T1, T2, readout errors and readout length, per-gate errors and durations, and qubits marked not operational. |
 | `nv.from_braket(path_or_dict, device=...)` | Braket device properties you saved with `AwsDevice(arn).properties.json()`, or their `standardized` part (v1, v2, v3). | AWS, to save it | No. One file is one calibration. | AWS Customer Agreement, `no` | For v1 and v2, per-qubit T1, T2 and fidelities, and per-pair gate fidelities. For v3, device-level values. |
+| `nv.from_iqm(metrics, architecture=..., device=...)` | An IQM Resonance quality metric set that you saved with `iqm-client`, and optionally the dynamic quantum architecture of the same calibration set. | IQM Resonance, to save it | No. One set is one calibration. | IQM Resonance terms of use, `unknown` | Per-qubit T1, T2 and readout errors, per-qubit `prx` and per-pair `cz` fidelities, durations where the set has them, and disabled qubits and pairs from the architecture. See [the mapping](#iqm-resonance). |
 | `nv.from_calibration_archive(path, device, at=...)` | A local copy of the Hugging Face dataset `phanerozoic/qiskit-calibration-drift`, which records each new IBM calibration of `ibm_fez`, `ibm_kingston`, `ibm_marrakesh` and `ibm_torino`. Install `noisevault[hf]`. | None | Yes. Each property takes its newest calibration at or before `at`. | `unknown`. The dataset is CC-BY-4.0, and the numbers are IBM's. | The same fields as a pull. Early dates have fewer gates, and `ibm_torino` has no durations. |
 | `nv.from_cirq_google(processor_id)` | The calibration cirq-google ships for `rainbow`, `weber` or `willow_pink`. Install `noisevault[google]` (cirq-google 1.6 or later). | None | No. cirq-google ships one calibration per device. | Apache-2.0 | The same fields as the bundled Google profiles. |
 | `noisevault.sources.quantinuum.from_repository(machine, date)` | Any of the 15 datasets in Quantinuum's repository at the pinned commit, such as `("H1-1", "2023_01_20")`. The importer downloads the dataset from GitHub. | None | Yes. Each dataset is one date, and `date=None` gives the newest dataset for the device. | Apache-2.0 | The same fields as the bundled Quantinuum profiles. |
@@ -243,7 +245,7 @@ example `metrics.irb.cz.tgss.QB1__QB2.fidelity:par=d2`. The importer reads these
 | `metrics.ssro.<measure>.<impl>.QB<n>.fidelity` | none | `qubits[].readout.error` = 1 - fidelity, only when the two error values are missing | |
 | `metrics.rb.prx.<impl>.QB<n>.fidelity` | none | `calibrations[]` of `r`, `avg_infidelity` = 1 - fidelity | `method: "rb"`, `assumption` |
 | `metrics.irb.cz.<impl>.QB<a>__QB<b>.fidelity` | none | `calibrations[]` of `cz`, `avg_infidelity` = 1 - fidelity | `method: "irb"`, `assumption` |
-| `gates.<gate>.<impl>.<locus>.duration` | `s` | `duration_ns` of that record, or `readout.duration_ns` for a measure gate | |
+| `gates.<gate>.<impl>.<locus>.duration` | `s` | `duration_ns` of that record, also when the record has no fidelity, or `readout.duration_ns` for `measure` or `measure_fidelity` | |
 | `uncertainty` of a `prx` or `cz` fidelity | none | `stderr` of that record | `assumption` |
 
 `<measure>` is `measure` or `measure_fidelity`. The importer converts each time with its `unit`
@@ -260,14 +262,16 @@ Other rules:
 - **Implementations.** A gate can have several implementations, such as `tgss` and `crf` for
   `cz`. With a DQA, the importer uses only the implementation that the DQA selects for the
   locus (`override_default_implementation`, then `default_implementation`). When that
-  implementation has no fidelity, the gate stays uncalibrated on the locus, because a fidelity of
-  another implementation describes a different pulse. Without a DQA, the importer uses the first
-  implementation in alphabetical order. `provenance.notes` names each such choice.
+  implementation has no data or does not list the locus, the gate stays uncalibrated on the
+  locus, because data of another implementation describes a different pulse. Without a DQA,
+  the importer uses the first implementation in alphabetical order. `provenance.notes` names
+  each such choice.
 - **Disabled pairs and qubits.** The DQA lists only calibrated loci. There is no flag for a
-  disabled locus. With a DQA, the connectivity is the union of the `cz` loci. A pair that has a
-  fidelity but no DQA locus gets a `cz` record with `disabled: true`. A qubit that is not in the
-  DQA `qubits` list becomes `disabled: true`. Without a DQA, the connectivity is the set of pairs
-  that have a `cz` fidelity.
+  disabled locus. With a DQA, the connectivity is the union of the `cz` loci. A pair that has
+  data but no DQA locus gets a `cz` record with `disabled: true`. A qubit that is not in the DQA
+  `qubits` list becomes `disabled: true`. The importer refuses a DQA locus with the wrong number
+  of components, such as a `cz` locus with one qubit. Without a DQA, the connectivity is the set
+  of pairs that have a `cz` fidelity.
 - **Sentinels.** IQM marks data that automated systems must not use with `invalid: true`. The
   importer skips an invalid observation and names it in `provenance.notes`. It refuses a whole
   set that is invalid. The importer then applies these NoiseVault rules, in this order:
@@ -295,8 +299,9 @@ Other rules:
 
 The `assumption` of `r` says that IQM does not state whether its RB fidelity is per `prx` gate
 or per Clifford, and that NoiseVault reads it as the average gate fidelity of one `prx`. The
-`assumption` of `cz` says that NoiseVault reads the interleaved RB fidelity as the average gate
-fidelity of one `cz`.
+`assumption` of `cz` says that NoiseVault reads the fidelity as the average gate fidelity of one
+`cz`. The `method` of each record comes from the observation name, for example `irb` for
+`metrics.irb.cz...`.
 
 #### Rigetti QCS
 
