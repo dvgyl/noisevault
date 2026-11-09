@@ -144,6 +144,13 @@ def _no_gc_pauses_in_time_budgets(request: pytest.FixtureRequest) -> Iterator[No
 def pytest_configure(config: pytest.Config) -> None:
     config.addinivalue_line("markers", "slow: a scale test that still runs by default")
     config.addinivalue_line("markers", "timing: a time budget, checked only in a serial run")
+    if os.environ.get("NOISEVAULT_STRICT_WARNINGS") == "1":
+        # A deprecation that NoiseVault or a test module reaches becomes an error. The module
+        # field is a regular expression matched at the start of the module name.
+        for category in ("DeprecationWarning", "PendingDeprecationWarning", "FutureWarning"):
+            config.addinivalue_line(
+                "filterwarnings", f"error::{category}:(noisevault|test_|conftest)"
+            )
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:

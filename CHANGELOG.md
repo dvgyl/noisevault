@@ -29,6 +29,10 @@ This file lists all notable changes to NoiseVault. Versions follow
 - The README gives the install line for a virtual environment from `uv venv`, which has no pip.
   The README section [Coming from fake backends](README.md#coming-from-fake-backends) shows the
   one-line change from `AerSimulator.from_backend` and what a profile adds.
+- A `latest` CI job installs the newest releases that the dependency bounds allow, also on the
+  weekly run. It runs the tests on Python 3.14 with every extra and on Python 3.15 with the
+  extras that have Python 3.15 wheels. In this job, a deprecation warning that NoiseVault or a
+  test causes is an error. Set `NOISEVAULT_STRICT_WARNINGS=1` to get the same check locally.
 - Property-based tests with [Hypothesis](https://hypothesis.readthedocs.io) check the metric
   conversions and channels, the profile loader, the counts format, and the agreement of the
   Qiskit, Cirq, PennyLane and Stim exports with the reference simulator. CI runs 25 examples for
@@ -158,6 +162,12 @@ This file lists all notable changes to NoiseVault. Versions follow
 - The Qiskit Aer note in [docs/frameworks.md](docs/frameworks.md#qiskit) names Aer 0.18.0 as
   affected too. It gives `QuantumError: Kraus is empty.` as a second failure. It also says that
   every gate error of a profile with T1 or T2 values goes through the failing conversion.
+- The same note names Aer 0.18.1 and 0.18.2 as affected. The reproducer of Aer issue #2455
+  still fails on 0.18.2. The fix is on the Aer `stable/0.18` branch, after the 0.18.2 release.
+- The PennyLane export uses `pennylane.ops.MidMeasure`, the PennyLane 0.45 name of the
+  mid-circuit measurement class. On older releases, such as 0.43.3, it uses the old name
+  `MidMeasureMP`.
+- The tests no longer call `NoiseModel.from_dict`, which Qiskit Aer 0.15.0 deprecated.
 - With `allow` set to `omit`, the Stim and Cirq exports now model the effects that they can,
   instead of omitting every effect. `allow` is the least faithful treatment that a profile
   accepts. An export that treats an effect less faithfully raises `UnsupportedEffect`.
