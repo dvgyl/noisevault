@@ -53,6 +53,9 @@ This file lists all notable changes to NoiseVault. Versions follow
 
 ### Fixed
 
+- The Qiskit export applies gate noise to a gate with a label, such as `qc.x(0, label="a")`.
+  Before, Aer looked up the noise by the label, so a labelled gate had no noise, and the
+  report still called its noise exact. Save instructions keep their labels.
 - Thermal relaxation keeps a small coherence long after T1. For a gate 38 times longer than T1,
   the coherence was 0, not 0.5 e^-19.
 - `metrics.check_metric` refuses a Pauli vector with a NaN entry. A profile with a Pauli entry
