@@ -1214,13 +1214,12 @@ def test_check_exits_1_when_it_skips_a_framework_that_framework_names(monkeypatc
     refused = runner.invoke(app, ["check", "quantinuum_h1-1", "--framework", "stim,cirq"])
     assert refused.exit_code == 1, refused.output
     assert refused.stderr == "error: --framework names stim, but the check skipped it\n"
+    # A framework that is not installed is not such a skip: the output gives its install line.
     monkeypatch.setitem(sys.modules, "stim", None)
     monkeypatch.setitem(sys.modules, "pennylane", None)
     missing = runner.invoke(app, ["check", "ibm_manila", "--framework", "stim,cirq,pennylane"])
-    assert missing.exit_code == 1, missing.output
-    assert missing.stderr == (
-        "error: --framework names stim and pennylane, but the check skipped them\n"
-    )
+    assert missing.exit_code == 0, missing.output
+    assert missing.stderr == ""
 
 
 def test_check_counts_a_reduced_circuit_apart_and_names_its_missing_gates(tmp_path) -> None:
@@ -1251,31 +1250,29 @@ def _uvx(extra: str, command: str) -> str:
 
 
 @pytest.mark.parametrize(
-    ("args", "missing", "uvx", "code"),
+    ("args", "missing", "uvx"),
     [
         (
             ["ibm_manila"],
             "cirq,pennylane,stim",
             _uvx("qiskit,cirq,pennylane,stim", "nv check ibm_manila"),
-            0,
         ),
         (
             ["ibm_manila", "--framework", "stim,qiskit"],
             "stim",
             _uvx("stim,qiskit", "nv check --framework stim,qiskit ibm_manila"),
-            1,
         ),
     ],
     ids=["every_framework", "named_frameworks"],
 )
 def test_check_without_some_frameworks_gives_a_pip_and_a_whole_uvx_command(
-    monkeypatch, args: list[str], missing: str, uvx: str, code: int
+    monkeypatch, args: list[str], missing: str, uvx: str
 ) -> None:
     require("qiskit")
     for module in ("cirq", "pennylane", "stim"):
         monkeypatch.setitem(sys.modules, module, None)
     result = runner.invoke(app, ["check", *args], env={"COLUMNS": "80"})
-    assert result.exit_code == code, result.output
+    assert result.exit_code == 0, result.output
     lines = result.stdout.splitlines()
     pip = lines.index(f"To add the missing frameworks: {install_hint(missing)}")
     assert lines[pip + 1] == uvx
@@ -1303,13 +1300,13 @@ def test_the_uvx_check_command_runs_as_printed(
     nv.load("ibm_manila").save(path)
     args = ["check", "--framework", "qiskit,stim", *given]
     result = runner.invoke(app, args, env={"COLUMNS": "80"})
-    assert result.exit_code == 1, result.output
+    assert result.exit_code == 0, result.output
     uvx = _uvx("qiskit,stim", f"nv check --framework qiskit,stim {printed}")
     assert uvx in result.stdout.splitlines()
     words = shlex.split(uvx.partition(": ")[2])
     assert words[:4] == ["uvx", "--from", f"noisevault[qiskit,stim] @ git+{REPOSITORY}", "nv"]
     followed = runner.invoke(app, words[4:], env={"COLUMNS": "80"})
-    assert followed.exit_code == 1, followed.output
+    assert followed.exit_code == 0, followed.output
     assert followed.stdout.splitlines()[0] == result.stdout.splitlines()[0]
 
 

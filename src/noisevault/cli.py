@@ -1044,8 +1044,10 @@ def check(
             _none_installed(missing, ref=ref, framework=named)
         if not result.frameworks and not result.failed:
             raise NoiseVaultError("no framework could run the check")
-        if framework is not None and result.skipped:
-            skipped = [name for name, _ in result.skipped]
+        # A framework that is not installed has its install line above. A named framework that
+        # is installed and skipped means that the check did less than the command asked for.
+        skipped = [name for name, _ in result.skipped if name not in missing]
+        if framework is not None and skipped:
             them = "it" if len(skipped) == 1 else "them"
             raise NoiseVaultError(
                 f"--framework names {joined(skipped)}, but the check skipped {them}"

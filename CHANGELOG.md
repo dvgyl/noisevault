@@ -182,9 +182,10 @@ This file lists all notable changes to NoiseVault. Versions follow
 - `nv check` shows an `ImportError` in an installed export as `FAIL` with the error, and exits
   1. `check()` puts the error in the new `CheckResult.failed`. Before, `nv check` showed the
   framework as "not installed" and could exit 0.
-- `nv check --framework` exits 1 when it skips a framework that `--framework` names, because the
-  framework is not installed or its export refuses the profile. An error line names the skipped
-  framework. Before, it exited 0 when another named framework passed.
+- `nv check --framework` exits 1 when it skips a framework that `--framework` names and that is
+  installed, for example because the export refuses the profile. An error line names the skipped
+  framework. Before, it exited 0 when another named framework passed. A named framework that is
+  not installed still gets its install line and does not change the exit code.
 - `check(shots=...)` refuses a value that is not an integer, such as `True`, and a value below
   100. Before, `shots=5` or fewer accepted any result, because no sampled circuit could fail.
 
