@@ -378,3 +378,62 @@ def test_both_orders_of_a_symmetric_pair_moving_together_are_one_entry() -> None
     assert diff(off, on).reenabled == ("cz 0-1",)
     drifted = diff(on, _both_orders({"avg_infidelity": 0.03}, {"avg_infidelity": 0.03}))
     assert [(c.where, c.before, c.after) for c in drifted.pairs] == [("0-1", 0.01, 0.03)]
+
+
+def test_medians_are_the_device_values_that_diff_compares() -> None:
+    profile = _profile()
+
+    medians = profile.medians()
+    assert medians == pytest.approx(
+        {"t1_us": 100, "t2_us": 80, "error_1q": 1e-3, "error_2q": 0.015, "readout_error": 0.01}
+    )
+    assert json.loads(json.dumps(medians)) == medians
+    shown = {c.metric: c.before for c in diff(profile, _later()).medians}
+    assert shown == medians
+
+
+def test_medians_leave_out_a_disabled_qubit_and_its_pairs() -> None:
+    qubits = [
+        {"index": 0, "t1_us": 100},
+        {"index": 1, "t1_us": 120},
+        {"index": 2, "disabled": True},
+    ]
+
+    medians = _profile(qubits=qubits).medians()
+    assert medians["t1_us"] == pytest.approx(110)
+    assert medians["error_2q"] == pytest.approx(0.01)
+
+
+def test_medians_include_the_unmodeled_error_factors_as_the_exports_do() -> None:
+    profile = _profile(unmodeled_error={"gates": {"factor": 2.0}, "readout": {"factor": 2.0}})
+
+    stated = profile.uncorrected().medians()
+    scaled = profile.medians()
+    assert stated == _profile().medians()
+    assert scaled["error_1q"] > 1.9 * stated["error_1q"]
+    assert scaled["error_2q"] > 1.9 * stated["error_2q"]
+    assert scaled["readout_error"] > 1.9 * stated["readout_error"]
+    assert scaled["t1_us"] == stated["t1_us"]
+    assert scaled["t2_us"] == stated["t2_us"]
+
+
+def test_the_readout_median_is_the_median_of_each_qubit_mean_of_both_errors() -> None:
+    pairs = [(0.01, 0.05), (0.02, 0.06), (0.10, 0.30)]  # per-qubit means 0.03, 0.04, 0.20
+    qubits = [
+        {"index": i, "readout": {"p1_given_0": a, "p0_given_1": b}}
+        for i, (a, b) in enumerate(pairs)
+    ]
+
+    assert _profile(qubits=qubits).medians()["readout_error"] == pytest.approx(0.04)
+
+
+def test_a_median_is_none_when_no_qubit_or_pair_has_the_value() -> None:
+    bare = Profile.uniform("bare", technology="other", num_qubits=1, one_qubit_error=1e-3)
+
+    assert bare.medians() == {
+        "t1_us": None,
+        "t2_us": None,
+        "error_1q": pytest.approx(1e-3),
+        "error_2q": None,
+        "readout_error": None,
+    }

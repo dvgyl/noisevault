@@ -75,6 +75,17 @@ This file lists all notable changes to NoiseVault. Versions follow
 - [examples/neutral_atom_erasure.py](examples/neutral_atom_erasure.py) runs a surface-code
   memory on a neutral-atom device with heralded erasures. It compares the logical error of a
   decoder that ignores the heralds with one that uses them.
+- `profile.pauli_error(gate, qubits)` returns the Pauli-twirled error of a gate on physical
+  qubits, as the exports apply it. The keys are Pauli labels such as `"XI"`, and the values are
+  probabilities. The values include the `unmodeled_error` factors.
+- The tutorial [Mitiq: ZNE and PEC](docs/tutorials/mitiq.md) and the example
+  `examples/mitiq_zne_pec.py` run zero-noise extrapolation and probabilistic error cancellation
+  on IBM Fez noise. The tutorial builds each PEC representation from the profile's gate errors
+  and compares each mitigated value with the ideal value.
+- `profile.medians()` returns the device-wide medians that `nv diff` compares: T1, T2, readout
+  error, and the 1-qubit and 2-qubit gate errors. The result is a plain dict of the type
+  `nv.DeviceMedians`, ready for `json.dumps`. A value is `None` when no qubit or pair has it.
+  The values include the `unmodeled_error` factors.
 
 ### Fixed
 

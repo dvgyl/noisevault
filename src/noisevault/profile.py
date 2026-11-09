@@ -21,7 +21,7 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from itertools import permutations
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, Any, Literal, NamedTuple, Self
+from typing import TYPE_CHECKING, Annotated, Any, Literal, NamedTuple, Self, TypedDict
 
 from pydantic import (
     AfterValidator,
@@ -962,6 +962,36 @@ class Profile(_Model):
 
         return suggest_layout(self, n)
 
+    def medians(self) -> DeviceMedians:
+        """Device-wide medians over the enabled qubits and the usable ordered pairs.
+
+        ``t1_us`` and ``t2_us`` are in microseconds. ``readout_error`` is the mean of P(1|0) and
+        P(0|1) on each qubit. ``error_1q`` and ``error_2q`` are average infidelities of the
+        native gate that the exports use on each qubit or pair. A value is None when no qubit or
+        pair has it. The values include the ``unmodeled_error`` factors, as the exports apply
+        them, and ``profile.uncorrected().medians()`` gives the calibration as stated. ``nv diff``
+        compares these medians. The result is a plain dict, ready for ``json.dumps``.
+        """
+        from .diff import device_medians
+
+        return device_medians(self)
+
+    def pauli_error(
+        self, gate: str, qubits: Sequence[int], *, unknown_gates: str = "typical"
+    ) -> dict[str, float]:
+        """The Pauli-twirled error that the exports apply after ``gate`` on physical ``qubits``.
+
+        Each key is a non-identity Pauli label, and its value is a probability. Character i of
+        a label acts on ``qubits[i]``. For example, ``"XI"`` is an X error on ``qubits[0]`` only.
+        The twirl keeps the Pauli part of the gate's channels and drops the rest, such as the
+        pull of amplitude damping toward ``|0>``. The values include the ``unmodeled_error``
+        factors. A gate name resolves as in the exports, so ``"sx"`` uses ``rx`` on a profile
+        that defines only ``rx``. ``unknown_gates`` has the same meaning as in the exports.
+        """
+        from .conversion import pauli_error
+
+        return pauli_error(self, gate, qubits, unknown_gates=unknown_gates)
+
     def diff(self, other: Profile, *, top: int = 5) -> ProfileDiff:
         from .diff import diff
 
@@ -1064,6 +1094,16 @@ def gate_loci(profile: Profile, name: str) -> list[GateNoise]:
 
 def _resolved_alike(a: GateNoise, b: GateNoise) -> bool:
     return (a.state, a.avg_infidelity, a.duration_ns) == (b.state, b.avg_infidelity, b.duration_ns)
+
+
+class DeviceMedians(TypedDict):
+    """Device-wide medians of a profile, from :meth:`Profile.medians`."""
+
+    t1_us: float | None
+    t2_us: float | None
+    error_1q: float | None
+    error_2q: float | None
+    readout_error: float | None
 
 
 @dataclass(frozen=True)

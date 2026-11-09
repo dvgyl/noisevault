@@ -2,13 +2,22 @@ from __future__ import annotations
 
 from collections.abc import Container, Mapping, Sequence
 from types import MappingProxyType
-from typing import Literal
+from typing import TYPE_CHECKING, Literal, cast, get_args
 
-from . import gates
-from .channels import ChannelSpec, GateChannels, gate_channels, thermal_relaxation_kraus
+from . import gates, metrics
+from .channels import (
+    ChannelSpec,
+    GateChannels,
+    gate_channels,
+    pauli_twirl,
+    thermal_relaxation_kraus,
+)
 from .errors import LayoutError, MissingCalibrationError, qubit_loci
 from .report import Report
 from .table import GateNoise, NoiseTable, Unavailable, refuse_disabled
+
+if TYPE_CHECKING:
+    from .profile import Profile
 
 UnknownGates = Literal["typical", "error"]
 TYPICAL_FIX = "compile to native gates for realistic gate counts, or pass unknown_gates='error'"
@@ -80,6 +89,24 @@ def resolve_op(
             f" {noise.gate} instead. To fix: {TYPICAL_FIX}",
         )
     return _channels(table, noise, report)
+
+
+def pauli_error(
+    profile: Profile, gate: str, qubits: Sequence[int], *, unknown_gates: str = "typical"
+) -> dict[str, float]:
+    """See :meth:`noisevault.Profile.pauli_error`."""
+    if unknown_gates not in get_args(UnknownGates):
+        raise ValueError(f"unknown_gates={unknown_gates!r}: choose 'typical' or 'error'")
+    qubits = tuple(qubits)
+    name = native_name(gate, profile.gates)
+    report = Report.start(profile, "pauli_error", None)
+    built = resolve_op(
+        profile.table, name, qubits, unknown_gates=cast(UnknownGates, unknown_gates), report=report
+    )
+    labels = metrics.pauli_labels(len(qubits))
+    if not built.channels:
+        return dict.fromkeys(labels, 0.0)
+    return dict(zip(labels, pauli_twirl(built.channels, qubits), strict=True))
 
 
 def resolve_gate(

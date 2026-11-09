@@ -488,3 +488,78 @@ def test_fixed_angle_two_qubit_gates_are_named_by_the_registry_gate_they_equal(
     assert name == want
     native = gates.GATES[name].unitary(*params)
     assert abs(np.vdot(native, unitary)) == pytest.approx(4, abs=1e-6)  # equal up to phase
+
+
+def _pauli_profile(**gates) -> Profile:
+    return Profile.model_validate(toy(gates={**toy()["gates"], **gates}))
+
+
+def test_pauli_error_returns_a_stated_pauli_channel_with_the_first_label_on_the_first_qubit() -> (
+    None
+):
+    stated = [0.0] * 15
+    stated[3] = 2e-3  # "XI": an X error on the first qubit of the record
+    profile = _pauli_profile(
+        cz={"qubits": 2, "pauli": stated, "duration_ns": 70, "symmetric": False}
+    )
+
+    labels = [a + b for a in "IXYZ" for b in "IXYZ"][1:]
+    expected = {**dict.fromkeys(labels, 0.0), "XI": 2e-3}
+    forward = profile.pauli_error("cz", (0, 1))
+    assert list(forward) == labels
+    assert forward == pytest.approx(expected, abs=1e-15)
+
+
+def test_pauli_error_of_a_symmetric_gate_follows_the_order_of_the_qubits_asked_for() -> None:
+    stated = [0.0] * 15
+    stated[3] = 2e-3
+    profile = Profile.model_validate(
+        toy(calibrations=[{"gate": "cz", "qubits": [0, 1], "pauli": stated}])
+    )
+
+    assert profile.pauli_error("cz", (0, 1))["XI"] == pytest.approx(2e-3)
+    assert profile.pauli_error("cz", (1, 0))["IX"] == pytest.approx(2e-3)
+    assert profile.pauli_error("cz", (1, 0))["XI"] == pytest.approx(0.0, abs=1e-15)
+
+
+def test_pauli_error_of_a_depolarizing_gate_has_the_stated_average_infidelity() -> None:
+    profile = _pauli_profile(sx={"avg_infidelity": 1e-3})  # no duration, so no relaxation
+
+    error = profile.pauli_error("sx", [0])
+    assert error == pytest.approx(dict.fromkeys("XYZ", 1e-3 * 3 / 2 / 3))  # r (d+1)/d spread
+    cz = profile.pauli_error("cz", [0, 1])
+    assert sum(cz.values()) == pytest.approx(1e-2 * 5 / 4)
+
+
+def test_pauli_error_includes_relaxation_and_the_unmodeled_error_factor() -> None:
+    base = _pauli_profile()
+    relaxed = base.model_copy(
+        update={"qubits": [{"index": q, "t1_us": 100, "t2_us": 80} for q in range(3)]}
+    )
+    scaled = relaxed.model_copy(update={"unmodeled_error": {"gates": {"factor": 2.0}}})
+
+    stated = sum(base.pauli_error("sx", [0]).values())
+    assert sum(relaxed.pauli_error("sx", [0]).values()) == pytest.approx(stated, rel=1e-9)
+    assert relaxed.pauli_error("sx", [0])["Z"] > relaxed.pauli_error("sx", [0])["X"]
+    assert sum(scaled.pauli_error("sx", [0]).values()) > 1.9 * stated
+
+
+def test_pauli_error_of_an_ideal_gate_is_zero_for_every_label() -> None:
+    assert _pauli_profile().pauli_error("rz", [2]) == {"X": 0.0, "Y": 0.0, "Z": 0.0}
+
+
+def test_pauli_error_resolves_names_and_unknown_gates_as_the_exports_do() -> None:
+    profile = _pauli_profile()
+    rx_only = Profile.model_validate(
+        toy(gates={"rz": {"virtual": True}, "rx": {"avg_infidelity": 4e-3}})
+    )
+
+    assert rx_only.pauli_error("sx", [0]) == rx_only.pauli_error("rx", [0])
+    with pytest.warns(NoiseApproximationWarning, match="h on qubit 0"):
+        assert profile.pauli_error("h", [0]) == profile.pauli_error("sx", [0])
+    with pytest.raises(MissingCalibrationError, match="h on qubit 0"):
+        profile.pauli_error("h", [0], unknown_gates="error")
+    with pytest.raises(ValueError, match="choose 'typical' or 'error'"):
+        profile.pauli_error("sx", [0], unknown_gates="ignore")
+    with pytest.raises(LayoutError):
+        profile.pauli_error("sx", [7])
