@@ -151,6 +151,9 @@ This file lists all notable changes to NoiseVault. Versions follow
   sections of a profile and to every key of a counts file.
 - `load_counts` gives a `CountsError` for an execution flag nested as deep as the JSON parser
   takes, not a `RecursionError`.
+- `scripts/run_on_ibm.py` stops with an error that names the two devices when it collects a job
+  for one device and the command or IBM names another device. Before, the script bound the
+  counts to the calibration of the wrong device or gave a false recalibration warning.
 - With `bit_order` "qiskit", a `CountsError` names a refused key as the file writes it, not
   reversed.
 - `load_counts` refuses `0` or `1` for a `SamplerV2` option that must be `false` or `true`, as

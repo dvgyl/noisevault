@@ -242,6 +242,11 @@ stops with an error. If a value in the job file is not valid, the script stops b
 job. If the script can read a job id in the damaged file, the hint names that job. The script
 cannot collect that job, so find it in your IBM Quantum account.
 
+The job file records the device of the job. If `DEVICE` names another device, the script stops
+before it opens the job. If IBM reports that the job ran on another device, the script stops and
+writes no counts file. In both cases, the error names the two devices and the script keeps the
+job file.
+
 ### If the script cannot save the job id
 
 IBM gives the job id after the script submits the job. If the script cannot add the job id to the

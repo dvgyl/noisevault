@@ -189,6 +189,7 @@ class Campaign:
             _section(f"{device}: submit the {kind} chain {_loci(chains[kind].qubits)}")
             try:
                 runner.run(
+                    device=device,
                     shots=self.shots,
                     output=_counts(folder, kind),
                     pending=_job(folder, kind),
@@ -292,6 +293,7 @@ class Campaign:
         _section(f"{device}: collect the {kind} chain of the week of {job.parent.name}")
         try:
             measured = runner.run(
+                device=device,
                 shots=self.shots,
                 output=_counts(job.parent, kind),
                 pending=job,

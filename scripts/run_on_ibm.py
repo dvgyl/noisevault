@@ -124,6 +124,7 @@ class Ran:
     run_at: datetime
     counts: tuple[dict[str, int], ...]
     timing: dict[str, Any]
+    device: str | None = None
 
 
 def prepare(
@@ -277,12 +278,14 @@ def collect(job: Any, submitted: Submitted) -> Ran:
         compiled = pub.metadata.get("compilation", {}).get("scheduler_timing", {})
         if "timing" in compiled:
             timing[circuit.name] = compiled["timing"]
+    hardware = isinstance(job, RuntimeJobV2)
     return Ran(
         job_id=submitted.job_id,
-        source="hardware" if isinstance(job, RuntimeJobV2) else "simulated",
+        source="hardware" if hardware else "simulated",
         run_at=started_at(job.metrics()),
         counts=tuple(getattr(pub.data, CLBITS).get_counts() for pub in result),
         timing=timing,
+        device=job.backend().name if hardware else None,
     )
 
 
@@ -400,6 +403,7 @@ def catalog_ref(profile: Profile) -> str | None:
 
 def run(
     *,
+    device: str,
     shots: int,
     output: Path,
     pending: Path,
@@ -416,19 +420,20 @@ def run(
 ) -> MeasuredCounts | None:
     """Submit one job and save its counts, or collect the job that ``pending`` records.
 
-    ``layout`` gives the chain to plan on, else ``plan`` chooses one. ``approve`` sees the batch
+    ``device`` is the device that the command names. The function collects a job only when
+    ``pending`` and IBM record the job for that device. ``layout`` gives the chain to plan on,
+    else ``plan`` chooses one. ``approve`` sees the batch
     before the script saves ``pending`` and submits, and can stop the run with NoiseVaultError.
     With ``wait`` False, the function returns None after it submits, and a later call collects
     the job. With ``keep_profile``, the profile file is always saved beside the counts file.
     """
     if collect_only or pending.exists():
-        record, submitted, job = _resume(pending, job_id, open_job)
+        record, submitted, job = _resume(pending, job_id, device, open_job)
         print(f"collecting job {submitted.job_id}, submitted earlier for {output}")
     else:
         backend, batch = prepare(calibration, open_backend, shots, layout)
         print(summary(batch, output))
         print()
-        device = batch.profile.device.name
         if approve is not None:
             approve(batch)
         if confirm is not None and not confirm(f"Submit the job to {device}? [y/N] "):
@@ -495,6 +500,12 @@ def run(
             ran = collect(job, submitted)
         except Exception as exc:
             raise NoiseVaultError(f"{uncollected} ({_reason(exc)})", hint=again) from None
+        if ran.device not in (None, device):
+            raise NoiseVaultError(
+                f"job {submitted.job_id} ran on {ran.device}, but {pending} records a job for"
+                f" {device}",
+                hint=f"find the job for {device} in your IBM Quantum account. {_new_job(pending)}",
+            )
         binding = bind(submitted, ran, calibration)
         bound = binding.profile
         measured = counts_file(bound, submitted, ran)
@@ -559,7 +570,7 @@ def run(
 
 
 def _resume(
-    pending: Path, job_id: str | None, open_job: Callable[[str], Any]
+    pending: Path, job_id: str | None, device: str, open_job: Callable[[str], Any]
 ) -> tuple[Owned, Submitted, Any]:
     try:
         fd = os.open(pending, os.O_RDONLY | BINARY)
@@ -576,6 +587,12 @@ def _resume(
         ) from None
     try:
         data, submitted = _submitted(pending, fd, job_id)
+        recorded = submitted.profile.device.name
+        if recorded != device:
+            raise NoiseVaultError(
+                f"{pending} records a job for {recorded}, not for {device}",
+                hint=f"run the command with DEVICE {recorded} to collect the job",
+            )
         try:
             return Owned(pending, fd, data), submitted, open_job(submitted.job_id)
         except Exception as exc:
@@ -707,6 +724,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         _writable(args.output, pending)
         service = _service()
         measured = run(
+            device=args.device,
             shots=args.shots,
             output=args.output,
             pending=pending,

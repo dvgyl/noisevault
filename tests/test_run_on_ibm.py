@@ -206,6 +206,7 @@ def local_run(tmp_path_factory: pytest.TempPathFactory) -> LocalRun:
         with contextlib.redirect_stdout(printed), warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
             script.run(
+                device="ibm_fez",
                 shots=SHOTS,
                 output=output,
                 pending=folder / "fez.job.json",
@@ -392,6 +393,7 @@ def test_the_summary_shows_the_circuits_and_the_usage_and_a_no_submits_nothing(
         return False
 
     measured = script.run(
+        device="ibm_fez",
         shots=SHOTS,
         output=Path("fez.counts.json"),
         pending=Path("fez.job.json"),
@@ -410,6 +412,7 @@ def test_the_summary_shows_the_circuits_and_the_usage_and_a_no_submits_nothing(
 def _submitting(folder: Path, confirm: Callable[[str], bool]) -> Callable[[], Any]:
     profile, fake = _fez_profile(), _fez()
     return lambda: script.run(
+        device="ibm_fez",
         shots=SHOTS,
         output=folder / "fez.counts.json",
         pending=folder / "fez.job.json",
@@ -699,6 +702,7 @@ def _collecting_job_1(
         raise AssertionError("the script planned a new job instead of collecting job-1")
 
     return lambda: script.run(
+        device="ibm_fez",
         shots=SHOTS,
         output=folder / "fez.counts.json",
         pending=folder / "fez.job.json",
@@ -777,6 +781,7 @@ def test_a_file_that_appears_beside_the_counts_while_the_job_waits_is_kept(
     monkeypatch.setattr(script, "collect", another_experiment)
     with pytest.raises(NoiseVaultError) as info:
         script.run(
+            device="ibm_fez",
             shots=SHOTS,
             output=folder / "fez.counts.json",
             pending=pending,
@@ -1045,6 +1050,85 @@ def test_running_the_same_command_again_collects_a_job_whose_wait_failed(
     assert not pending.exists()
     printed = capsys.readouterr().out
     assert printed.startswith(f"collecting job {job_id}, submitted earlier for {output}\n{WAITING}")
+
+
+def _job_to_collect_on_fez(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], output: Path
+) -> tuple[Account, Submission]:
+    output.parent.mkdir()
+    submissions = _recording_sampler(monkeypatch, lose_the_first_wait=True)
+    seen = _account(monkeypatch, _fractional_fez(), submissions)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        assert script.main(["ibm_fez", "--yes", "-o", str(output)]) == 1
+    (submission,) = submissions
+    del submission.job.result
+    capsys.readouterr()
+    return seen, submission
+
+
+def test_a_command_for_another_device_stops_before_it_opens_the_job(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    folder = tmp_path / "counts"
+    output, pending = folder / "fez.counts.json", folder / "fez.job.json"
+    seen, _ = _job_to_collect_on_fez(monkeypatch, capsys, output)
+    record = pending.read_bytes()
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        assert script.main(["ibm_kingston", "--yes", "-o", str(output)]) == 1
+    assert capsys.readouterr().err == (
+        f"error: {pending} records a job for ibm_fez, not for ibm_kingston\n"
+        "hint: run the command with DEVICE ibm_fez to collect the job\n"
+    )
+    assert seen.jobs == []
+    assert sorted(folder.iterdir()) == [pending]
+    assert pending.read_bytes() == record
+
+
+def _on_hardware(job: Any, device: str) -> Any:
+    runtime = require("qiskit_ibm_runtime")
+
+    class HardwareJob(runtime.RuntimeJobV2):
+        def __init__(self) -> None:
+            pass
+
+        def job_id(self) -> str:
+            return job.job_id()
+
+        def result(self, *args: Any, **kwargs: Any) -> Any:
+            return job.result(*args, **kwargs)
+
+        def metrics(self) -> dict[str, Any]:
+            return job.metrics()
+
+        def backend(self, timeout: float | None = None) -> Any:
+            return dataclasses.make_dataclass("Backend", [("name", str)])(device)
+
+    return HardwareJob()
+
+
+def test_a_job_that_ran_on_another_device_gives_no_counts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    folder = tmp_path / "counts"
+    output, pending = folder / "fez.counts.json", folder / "fez.job.json"
+    _, submission = _job_to_collect_on_fez(monkeypatch, capsys, output)
+    job_id = submission.job.job_id()
+    record = pending.read_bytes()
+    service = require("qiskit_ibm_runtime").QiskitRuntimeService
+    monkeypatch.setattr(
+        service, "job", lambda self, job_id: _on_hardware(submission.job, "ibm_kingston")
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        assert script.main(["ibm_fez", "--yes", "-o", str(output)]) == 1
+    assert capsys.readouterr().err == (
+        f"error: job {job_id} ran on ibm_kingston, but {pending} records a job for ibm_fez\n"
+        f"hint: find the job for ibm_fez in your IBM Quantum account. {_new_job(pending)}\n"
+    )
+    assert sorted(folder.iterdir()) == [pending]
+    assert pending.read_bytes() == record
 
 
 @pytest.mark.parametrize("step", ["collect again", "submit a new job"])
