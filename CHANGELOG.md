@@ -242,6 +242,10 @@ This file lists all notable changes to NoiseVault. Versions follow
   measurement and no herald in a time that does not grow with the repeat count. Before, a
   profile with a heralded effect made the export process the body one time for each pass.
   The output is the same.
+- `Profile.save()` and `MeasuredCounts.save()` replace a file on an exFAT drive on macOS.
+  Before, the second save to the same path stopped with "another file replaced the hidden
+  copy" and left a hidden `.tmp` file, because exFAT gives a file another inode number after
+  a change of its mode. `nv pull -o FILE` and `nv simulate -o FILE` had the same defect.
 
 ### Changed
 

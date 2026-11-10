@@ -480,6 +480,35 @@ def test_a_save_never_publishes_a_file_that_replaced_its_hidden_copy(
     assert sorted(tmp_path.iterdir()) == sorted([target, theirs[0]])
 
 
+def test_a_save_replaces_a_file_where_chmod_changes_the_inode_number(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """exFAT on macOS: after chmod, the path and the open descriptor both give a new number."""
+    target = Profile.model_validate(toy()).save(tmp_path / "p.json")
+    real = {"copymode": shutil.copymode, "lstat": os.lstat, "fstat": os.fstat}
+    renumbered: list[int] = []
+
+    def copymode_that_renumbers(src: Any, dst: Any) -> None:
+        real["copymode"](src, dst)
+        renumbered.append(real["lstat"](dst).st_ino)
+
+    def numbered(found: os.stat_result) -> os.stat_result:
+        if found.st_ino not in renumbered:
+            return found
+        return os.stat_result((found.st_mode, found.st_ino + 1, *tuple(found)[2:]))
+
+    monkeypatch.setattr(shutil, "copymode", copymode_that_renumbers)
+    monkeypatch.setattr(
+        os, "lstat", lambda *args, **kwargs: numbered(real["lstat"](*args, **kwargs))
+    )
+    monkeypatch.setattr(os, "fstat", lambda fd: numbered(real["fstat"](fd)))
+    newer = Profile.model_validate(toy(readout={"error": 0.05}))
+    newer.save(target)
+    monkeypatch.undo()
+    assert renumbered and nv.load(target) == newer
+    assert list(tmp_path.iterdir()) == [target]
+
+
 @pytest.fixture
 def umask(request: pytest.FixtureRequest) -> Iterator[int]:
     caller = os.umask(request.param)

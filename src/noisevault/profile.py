@@ -1393,6 +1393,9 @@ def write_atomically(path: Path, data: bytes) -> None:
         try:
             if path.exists():
                 shutil.copymode(path, hidden.path)
+                # exFAT on macOS gives a file another inode number after chmod. The open
+                # descriptor still is the hidden copy, so it gives the identity again.
+                hidden = hidden._replace(identity=os.fstat(fd))
             ours = os.path.samestat(os.lstat(hidden.path), hidden.identity)
         finally:
             os.close(fd)
