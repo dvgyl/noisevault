@@ -512,7 +512,9 @@ def _parameters(
 ) -> dict[str, Mapping[str, Any]]:
     values: dict[str, Mapping[str, Any]] = {}
     for param in params:
-        name, value, unit = param["name"], param.get("value"), param.get("unit")
+        name, value, unit = param.get("name"), param.get("value"), param.get("unit")
+        if not isinstance(name, str):
+            raise origin.refuse(f"a parameter of {owner} has the name {name!r}, not a string")
         if value is not None and (isinstance(value, bool) or not isinstance(value, int | float)):
             raise origin.refuse(f"{name} of {owner} is {value!r}, not a number")
         if unit is not None and not isinstance(unit, str):

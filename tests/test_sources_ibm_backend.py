@@ -357,6 +357,18 @@ def test_an_error_in_an_unknown_unit_is_refused() -> None:
     )
 
 
+def test_a_parameter_with_no_name_is_refused() -> None:
+    from noisevault.sources.qiskit_backend import calibration_from_properties
+
+    props = json.loads((FIXTURES / "manila_properties.json").read_bytes())
+    del props["qubits"][0][0]["name"]
+    with pytest.raises(nv.SourceDataError) as info:
+        calibration_from_properties(props, origin=Origin("manila_properties.json"))
+    assert info.value.message == (
+        "manila_properties.json: a parameter of qubit 0 has the name None, not a string"
+    )
+
+
 def test_aer_simulator_from_a_fake_models_that_device() -> None:
     aer = require("qiskit_aer")
     profile = nv.from_qiskit_backend(aer.AerSimulator.from_backend(_backend("FakeManilaV2")))

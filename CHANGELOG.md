@@ -231,6 +231,8 @@ This file lists all notable changes to NoiseVault. Versions follow
   times in sequence now give the same noise as one idle time of their sum. Before, the
   probability was rate x t with a limit of 1/2, so one long `delay` and many short ones gave
   different noise. For a small rate x t the two rules agree. No bundled profile sets the field.
+- The IBM properties importer refuses a parameter with no `name`, with the qubit or the gate in
+  the message. Before, the import stopped with a `KeyError`.
 
 ### Changed
 
