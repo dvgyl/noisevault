@@ -1065,14 +1065,23 @@ def _lock(monkeypatch: pytest.MonkeyPatch, path: Path) -> None:
         assert time.monotonic() < deadline, "chmod never moved the change time"
         time.sleep(0.01)
         path.chmod(path.stat().st_mode)
-    real_read = Path.read_bytes
+    real_read, real_open = Path.read_bytes, Path.open
 
-    def denied(self: Path) -> bytes:
+    def refuse(self: Path) -> None:
         if self == path:
             raise PermissionError(errno.EACCES, os.strerror(errno.EACCES), str(self))
+
+    def denied_read(self: Path) -> bytes:
+        refuse(self)
         return real_read(self)
 
-    monkeypatch.setattr(Path, "read_bytes", denied)
+    def denied_open(self: Path, *args: Any, **kwargs: Any) -> Any:
+        refuse(self)
+        return real_open(self, *args, **kwargs)
+
+    # The loaders read a file through one of these two methods.
+    monkeypatch.setattr(Path, "read_bytes", denied_read)
+    monkeypatch.setattr(Path, "open", denied_open)
 
 
 def test_an_indexed_file_made_unreadable_is_skipped_and_the_rest_still_list(
