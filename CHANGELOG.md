@@ -3,7 +3,7 @@
 This file lists all notable changes to NoiseVault. Versions follow
 [Semantic Versioning](https://semver.org).
 
-## Unreleased
+## 0.4.0 (2026-11-10)
 
 ### Added
 
@@ -240,8 +240,8 @@ This file lists all notable changes to NoiseVault. Versions follow
   `Website` workflow can write to GitHub Pages.
 - `Profile.to_stim()` exports a `REPEAT` block whose body has `rec[-k]` targets, no
   measurement and no herald in a time that does not grow with the repeat count. Before, a
-  profile with a heralded effect made the export process the body one time for each pass,
-  which took 29 s for 20000 passes. The output is the same.
+  profile with a heralded effect made the export process the body one time for each pass.
+  The output is the same.
 
 ### Changed
 

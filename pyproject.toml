@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "noisevault"
-version = "0.3.0"
+version = "0.4.0"
 description = "Pins the calibrated noise of a real quantum device, on a date, as one small file, and turns it into a noise model for Qiskit, Cirq, PennyLane or Stim, with a report of what each simulator reproduced or approximated."
 dynamic = ["readme"]
 requires-python = ">=3.11"

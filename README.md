@@ -75,7 +75,7 @@ counts = sim.run(compiled, seed_simulator=1).result().get_counts()
 print(counts)
 # {'111': 510, '011': 8, '101': 6, '100': 4, '001': 1, '110': 6, '010': 2, '000': 487}
 print(sim.report.summary())
-# NoiseVault 0.3.0 -> qiskit 2.5.2 (qiskit-aer 0.17.2): ibm_fez (nv:06404cefa54f)
+# NoiseVault 0.4.0 -> qiskit 2.5.2 (qiskit-aer 0.17.2): ibm_fez (nv:06404cefa54f)
 # options: unknown_gates='typical', readout=True
 # exact: gate noise: channels per exported native and physical locus (Aer QuantumError), ...
 # approximated: cz error: the stated error already includes single-qubit gate error ...
