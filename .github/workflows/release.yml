@@ -2,7 +2,8 @@ name: Release
 
 # A v* tag builds the wheel and sdist and creates a GitHub release with them. Nothing goes to
 # PyPI on a tag. Running the workflow by hand on a tag publishes that build to PyPI, once a
-# trusted publisher and the "pypi" environment exist (see CONTRIBUTING.md).
+# trusted publisher and the "pypi" environment exist (see CONTRIBUTING.md). A run on a branch
+# does nothing, also when the branch has the name of a version.
 
 on:
   push:
@@ -14,6 +15,7 @@ permissions:
 
 jobs:
   build:
+    if: github.ref_type == 'tag'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -78,8 +80,8 @@ jobs:
     permissions:
       id-token: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: dist
           path: dist/
-      - uses: pypa/gh-action-pypi-publish@release/v1
+      - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3

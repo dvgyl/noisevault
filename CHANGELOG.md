@@ -235,6 +235,9 @@ This file lists all notable changes to NoiseVault. Versions follow
   the message. Before, the import stopped with a `KeyError`.
 - `scripts/build_site.py` builds the website from the bundled profiles only. Before, a newer
   profile in the local vault changed the numbers of the page but not its dates.
+- The `Release` workflow does nothing on a branch, also on a branch with the name of a version.
+  The publish and deploy jobs use actions at a fixed commit, and only the deploy job of the
+  `Website` workflow can write to GitHub Pages.
 
 ### Changed
 
