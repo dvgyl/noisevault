@@ -238,6 +238,10 @@ This file lists all notable changes to NoiseVault. Versions follow
 - The `Release` workflow does nothing on a branch, also on a branch with the name of a version.
   The publish and deploy jobs use actions at a fixed commit, and only the deploy job of the
   `Website` workflow can write to GitHub Pages.
+- `Profile.to_stim()` exports a `REPEAT` block whose body has `rec[-k]` targets, no
+  measurement and no herald in a time that does not grow with the repeat count. Before, a
+  profile with a heralded effect made the export process the body one time for each pass,
+  which took 29 s for 20000 passes. The output is the same.
 
 ### Changed
 

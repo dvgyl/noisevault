@@ -364,6 +364,30 @@ def test_a_target_after_a_loop_reads_a_record_of_an_early_pass(program, effect, 
     assert noisy.flattened() == _atoms(effect).to_stim(stim.Circuit(program).flattened())
 
 
+@pytest.mark.parametrize("tick_ns", [None, 100.0], ids=["no_ticks", "ticks"])
+def test_a_loop_with_no_records_is_walked_a_few_times_at_any_count(tick_ns, monkeypatch):
+    from noisevault.frameworks import stim as export
+
+    effects = [
+        {"type": "atom_loss", "on": "readout", "prob": 0.1, "heralded": True},
+        {"type": "erasure", "on": "idle", "rate_per_s": 1e3},
+    ]
+    body = "    CX rec[-1] 1\n    H 2\n    TICK\n"
+    walks = []
+    walk = export._Exporter.block
+    monkeypatch.setattr(
+        export._Exporter, "block", lambda self, *args: walks.append(1) or walk(self, *args)
+    )
+    noisy = _atoms(*effects).to_stim(f"M 0\nREPEAT 1000 {{\n{body}}}", tick_ns=tick_ns)
+    assert len(walks) <= 5  # the circuit, and at most 4 passes of the body
+    assert len(str(noisy).splitlines()) < 40
+    monkeypatch.undo()
+    small = f"M 0\nREPEAT 5 {{\n{body}}}"
+    looped = _atoms(*effects).to_stim(small, tick_ns=tick_ns)
+    unrolled = _atoms(*effects).to_stim(stim.Circuit(small).flattened(), tick_ns=tick_ns)
+    assert looped.flattened() == unrolled
+
+
 def test_kept_heralds_in_a_loop_keep_a_later_target_on_its_record():
     program = "REPEAT 6 {\n    HERALDED_ERASE(0.2) 0\n    M 0\n}\nDETECTOR rec[-7]"
     effect = {"type": "erasure", "on": "idle", "rate_per_s": 1e3, "heralded": True}

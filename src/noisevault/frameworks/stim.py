@@ -464,9 +464,15 @@ class _Exporter:
         # heralds before the block. The exporter writes these passes once each.
         self._passes = outer
         peeled: list[list[str]] = []
+        settled = 1 if self.tick_ns is None else 2  # the first pass whose start state repeats
         for _ in range(self._peel(body, count)):
+            before = self._written
             walked, busy = self.block(body, set(busy))
             peeled.append(walked)
+            # A body with no records in or out leaves the record map as it was, so every later
+            # pass is equal to this one. Without this stop, the export has one copy per pass.
+            if not body.num_measurements and self._written == before and len(peeled) >= settled:
+                break
         rest = count - len(peeled)
         self._passes = outer * rest  # one walk counts the events of every remaining pass
         written = self._written
