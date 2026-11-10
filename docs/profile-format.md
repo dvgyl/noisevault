@@ -304,7 +304,8 @@ Device-wide defaults:
   symmetric `error`. `duration_ns` is optional.
 - `prep.error` is the probability that a reset leaves the qubit in |1>.
 - `idle` holds `t1_us`, `t2_us`, `t2_kind` (`echo`, `ramsey` or `cpmg`) and
-  `dephasing_rate_per_s`, an extra Z error with probability rate x time.
+  `dephasing_rate_per_s`, extra Z errors at that rate. The Z error probability after a time t
+  is (1 - exp(-2 rate t)) / 2.
 
 A record in `qubits` overrides these defaults for one qubit:
 

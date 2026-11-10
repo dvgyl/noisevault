@@ -293,7 +293,7 @@ def _relaxation_factors(
     """Closed form: the excited population decays by exp(-t/T1), the coherence by exp(-t/T2).
 
     T2 is at most 2 T1, a missing T2 is 2 T1, and a dephasing rate multiplies the coherence by
-    1 - 2 p, with p = rate * t capped at 1/2.
+    exp(-2 rate t).
     """
     if t2 is None:
         t2 = None if t1 is None else 2.0 * t1
@@ -301,8 +301,7 @@ def _relaxation_factors(
         t2 = min(t2, 2.0 * t1)
     population = 1.0 if t1 is None else math.exp(-duration / t1)
     coherence = 1.0 if t2 is None else math.exp(-duration / t2)
-    flip = min((rate or 0.0) * duration * 1e-9, 0.5)
-    return population, coherence * (1.0 - 2.0 * flip)
+    return population, coherence * math.exp(-2.0 * (rate or 0.0) * duration * 1e-9)
 
 
 @st.composite

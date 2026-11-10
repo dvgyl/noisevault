@@ -282,7 +282,7 @@ def test_a_delay_relaxes_and_dephases_its_physical_qubit() -> None:
     assert probabilities(profile, ops, 2, layout=[1, 0]) == pytest.approx(
         [0, 1 - excited, 0, excited], abs=1e-12
     )
-    coherence = exp(-_NS / 40_000) * (1 - 2 * 2000 * _NS * 1e-9)
+    coherence = exp(-_NS / 40_000) * exp(-2 * 2000 * _NS * 1e-9)
     assert probabilities(profile, _RAMSEY, 1) == pytest.approx(
         [(1 + coherence) / 2, (1 - coherence) / 2], abs=1e-12
     )

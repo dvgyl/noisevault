@@ -1032,7 +1032,7 @@ def test_delays_relax_and_dephase() -> None:
     excited = rho("x", ns)[1, 1] / rho("x", 0)[1, 1]
     assert excited == pytest.approx(np.exp(-ns / q1.t1_ns), rel=1e-9)
     coherence = abs(rho("sx", ns)[0, 1]) / abs(rho("sx", 0)[0, 1])
-    dephasing = 1 - 2 * q1.dephasing_rate_per_s * ns * 1e-9
+    dephasing = np.exp(-2 * q1.dephasing_rate_per_s * ns * 1e-9)
     assert coherence == pytest.approx(np.exp(-ns / q1.t2_ns) * dephasing, rel=1e-9)
 
 
@@ -1157,7 +1157,7 @@ def test_delays_report_each_qubit_without_relaxation_data_as_unknown() -> None:
     [
         ({"t1_us": 50}, np.exp(-10_000 / (2 * 50_000))),
         ({"t2_us": 40}, np.exp(-10_000 / 40_000)),
-        ({"dephasing_rate_per_s": 2000}, 1 - 2 * 2000 * 10_000e-9),
+        ({"dephasing_rate_per_s": 2000}, np.exp(-2 * 2000 * 10_000e-9)),
     ],
     ids=["t1-only", "t2-only", "dephasing-only"],
 )

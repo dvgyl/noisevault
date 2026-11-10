@@ -69,9 +69,9 @@ channels, applied after the ideal gate:
 2. Thermal relaxation on each qubit for time t.
 
 Thermal relaxation is zero-temperature amplitude damping with gamma = 1 - exp(-t / T1), then
-pure dephasing at rate 1/T2 - 1/(2 T1). A `dephasing_rate_per_s` adds a Z error with
-probability rate x t, capped at 1/2. With no T1, there is no amplitude damping. With no T2,
-T2 = 2 T1 (no pure dephasing).
+pure dephasing at rate 1/T2 - 1/(2 T1). A `dephasing_rate_per_s` adds Z errors at that
+rate, so the Z error probability is (1 - exp(-2 rate t)) / 2. With no T1, there is no amplitude
+damping. With no T2, T2 = 2 T1 (no pure dephasing).
 
 NoiseVault solves for the depolarizing part so that the composed channel has the stated error.
 Qiskit Aer uses the same rule for device noise. With F_relax the average gate fidelity of

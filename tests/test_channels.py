@@ -87,15 +87,14 @@ def test_thermal_relaxation_matches_aer(t1: float, t2: float | None, duration: f
     ("t1", "t2", "duration", "rate"),
     [(100.0, 80.0, 10_000.0, 1_000.0), (60.0, None, 500.0, 300.0), (None, None, 1e6, 0.3)],
 )
-def test_dephasing_rate_adds_linear_z_error_like_a_shorter_t2_in_aer(
+def test_dephasing_rate_adds_z_errors_like_a_shorter_t2_in_aer(
     t1: float | None, t2: float | None, duration: float, rate: float
 ) -> None:
     noise = require("qiskit_aer.noise")
     qi = require("qiskit.quantum_info")
-    z_error = rate * duration * 1e-9
     base_t2 = (2 * t1 if t2 is None else t2) * 1e3 if t1 is not None else np.inf
-    # A Z error of probability p scales coherence by 1 - 2p, as if 1/T2 grew by -ln(1 - 2p)/t.
-    aer_t2 = 1 / (1 / base_t2 - np.log(1 - 2 * z_error) / duration)
+    # Z errors at a rate scale coherence by exp(-2 rate t), as if 1/T2 grew by 2 rate.
+    aer_t2 = 1 / (1 / base_t2 + 2 * rate * 1e-9)
     aer_t1 = np.inf if t1 is None else t1 * 1e3
     expected = qi.SuperOp(noise.thermal_relaxation_error(aer_t1, aer_t2, duration)).data
     kraus = thermal_relaxation_kraus(
@@ -105,10 +104,23 @@ def test_dephasing_rate_adds_linear_z_error_like_a_shorter_t2_in_aer(
     assert np.allclose(actual, expected, atol=1e-12)
 
 
+def test_two_idle_times_with_a_dephasing_rate_compose_to_one_idle_time() -> None:
+    def superop(duration: float) -> np.ndarray:
+        kraus = thermal_relaxation_kraus(50e3, 40e3, duration, 1e5)
+        return sum(np.kron(k.conj(), k) for k in kraus)
+
+    assert np.allclose(superop(3000.0) @ superop(3000.0), superop(6000.0), atol=1e-12)
+    # H, idle, H: P(1) = (1 - coherence) / 2. The old linear rule gave 0.5 for this idle time.
+    only_rate = thermal_relaxation_kraus(None, None, 6000.0, 1e5)
+    plus = np.full((2, 2), 0.5)
+    coherence = 2 * sum(k @ plus @ k.conj().T for k in only_rate)[0, 1].real
+    assert (1 - coherence) / 2 == pytest.approx(0.349403, abs=1e-6)
+
+
 def test_gate_channels_include_the_dephasing_rate() -> None:
     profile = _profile(idle={"dephasing_rate_per_s": 50.0})
     built = _built(profile, "cz", (0, 1))
-    p = 50.0 * 300e-9  # Z error on each operand over the 300 ns gate
+    p = -np.expm1(-2 * 50.0 * 300e-9) / 2  # Z error on each operand over the 300 ns gate
     process_fidelity = (1 - p) ** 2
     assert built.relaxation == pytest.approx(1 - (4 * process_fidelity + 1) / 5, abs=1e-15)
     measured = _avg_infidelity(superoperator(built.channels, (0, 1)))

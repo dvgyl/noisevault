@@ -104,7 +104,9 @@ def thermal_relaxation_kraus(
 ) -> list[np.ndarray]:
     """Amplitude damping then pure dephasing at rate 1/T2 - 1/(2 T1), zero temperature.
 
-    A ``dephasing_rate_per_s`` adds a Z error with probability rate * duration (capped at 1/2).
+    A ``dephasing_rate_per_s`` adds Z errors at that rate, so the Z error probability is
+    (1 - exp(-2 rate duration)) / 2. Two idle times in sequence then give the same channel as
+    one idle time of their sum.
     """
     rate = dephasing_rate_per_s or 0.0
     if duration_ns <= 0 or (t1_ns is None and t2_ns is None and rate == 0):
@@ -129,7 +131,7 @@ def thermal_relaxation_kraus(
     inverse_t1 = 0.0 if not np.isfinite(t1) else 1.0 / t1
     inverse_t2 = 0.0 if not np.isfinite(t2) else 1.0 / t2
     pure_rate = max(0.0, inverse_t2 - inverse_t1 / 2.0)
-    z_error = min(rate * duration * 1e-9, 0.5)
+    z_error = -float(np.expm1(-2.0 * rate * duration * 1e-9)) / 2.0
     coherence = float(np.exp(-duration * pure_rate)) * (1.0 - 2.0 * z_error)
     flip = float(np.clip((1.0 - coherence) / 2.0, 0.0, 0.5))
     phase = [np.sqrt(1.0 - flip) * _I2, np.sqrt(flip) * _PAULIS["Z"]]

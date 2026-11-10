@@ -32,7 +32,7 @@ class QubitNoise:
     index: int
     t1_ns: float | None
     t2_ns: float | None
-    dephasing_rate_per_s: float | None  # extra Z error with probability rate * time
+    dephasing_rate_per_s: float | None  # extra Z errors at this rate
     readout: tuple[float, float] | None  # (P(1|0), P(0|1)); None means unknown
     prep_error: float | None  # None means unknown
     disabled: bool

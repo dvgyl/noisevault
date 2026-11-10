@@ -227,6 +227,10 @@ This file lists all notable changes to NoiseVault. Versions follow
   not installed still gets its install line and does not change the exit code.
 - `check(shots=...)` refuses a value that is not an integer, such as `True`, and a value below
   100. Before, `shots=5` or fewer accepted any result, because no sampled circuit could fail.
+- A `dephasing_rate_per_s` gives the Z error probability (1 - exp(-2 rate t)) / 2. Two idle
+  times in sequence now give the same noise as one idle time of their sum. Before, the
+  probability was rate x t with a limit of 1/2, so one long `delay` and many short ones gave
+  different noise. For a small rate x t the two rules agree. No bundled profile sets the field.
 
 ### Changed
 
