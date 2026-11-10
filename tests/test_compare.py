@@ -1088,6 +1088,16 @@ def test_a_ruled_out_fit_names_the_qubit_of_a_profile_with_no_readout() -> None:
     assert result.ruled_out == ("qubit 0 has P(1|0) = 0, and 10 readout shots read it as 1",)
 
 
+def test_an_outcome_with_a_very_small_probability_stays_in_the_fit() -> None:
+    profile = Profile.uniform(
+        "tiny", technology="trapped_ion", num_qubits=1, one_qubit_error=0, readout_error=1e-14
+    )
+    result = compare(profile, written(profile, [("idle", (), {"0": 99999, "1": 1})]))
+    assert (result.impossible_shots, result.ruled_out) == (0, ())
+    assert math.isfinite(result.deviance)
+    assert result.p_value is not None and result.p_value > 0
+
+
 def test_shots_that_leave_the_fit_carry_no_information() -> None:
     profile = Profile.model_validate(
         {

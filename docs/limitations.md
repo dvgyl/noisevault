@@ -323,7 +323,8 @@ An outcome can have probability 0 at every factor, as when the profile states a 
 exactly 0, or no readout error, for a measured qubit. No pair of factors explains a shot on such an outcome, so those
 shots leave the likelihood, and the fit uses the other shots. The shots still count in the TVDs,
 and they set p to 0, so the fit reads `ruled out`. When the profile rules out every shot, the
-counts identify neither factor.
+counts identify neither factor. An outcome with a very small probability above 0, such as 1e-14,
+stays in the likelihood.
 
 ### What the tests show, and what they do not
 

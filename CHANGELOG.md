@@ -120,6 +120,10 @@ This file lists all notable changes to NoiseVault. Versions follow
   probabilities.
 - A `ruled out` fit of `nv compare` names the qubit and the outcome also when the profile states
   no readout error for that qubit. Before, it named them only for a stated readout error of 0.
+- `nv compare` counts a shot as impossible only when the profile gives its outcome probability 0.
+  The limit is the rounding error of the reference simulator, near 1e-15. Before, the limit was
+  1e-12, so a shot on an outcome with probability 1e-14 set p to 0. Now such a shot stays in the
+  likelihood.
 - `nv diff` and `ProfileDiff.summary()` show "from 0" for a value that changes from 0. Before,
   they showed "-", the same symbol as for no data. The JSON keeps `relative: null`.
 - The noise report says "Pauli noise" for leakage in the stated error of a gate with a `pauli`

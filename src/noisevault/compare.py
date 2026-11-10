@@ -44,7 +44,6 @@ RESAMPLES = 400
 EXACT_OUTCOMES = 4096
 WINDOW_POINTS = 33
 END_TOL = 0.02
-IMPOSSIBLE = 1e-12
 MIN_INFORMATIVE_SHOTS = 100
 EPS = float(np.finfo(float).eps)
 SEPARABLE = 2 * EPS
@@ -465,7 +464,7 @@ class _Surface:
         self.floors = floors
         reads = _grid(readout)
         peaks = [self.probs_at(np.full(len(reads), x), reads).max(axis=0) for x in gate_nodes]
-        self.supported = np.max(peaks, axis=0) > IMPOSSIBLE
+        self.supported = np.max(peaks, axis=0) > rounding
 
     @classmethod
     def cached(cls, base: Profile, circuits: Sequence[PlannedCircuit]) -> _Surface:
@@ -1330,7 +1329,8 @@ def _fisher(
     step = math.exp(FD_STEP)
     sizes = [2 ** len(c.qubits) for c in circuits]
     ends = np.cumsum(sizes)[:-1]
-    rounding = np.split(_rounding(circuits), ends)
+    bound = _rounding(circuits)
+    rounding = np.split(bound, ends)
     slopes = []
     for i, value in enumerate((gate, readout)):
         if value is None:
@@ -1346,7 +1346,7 @@ def _fisher(
         slopes.append(np.repeat(moves, sizes) * (rows[0] - rows[1]) / (2 * FD_STEP))
     jacobian = np.stack(slopes)
     weights = np.repeat(shots, sizes)
-    keep = center > IMPOSSIBLE
+    keep = center > bound
     return (jacobian[:, keep] * (weights[keep] / center[keep])) @ jacobian[:, keep].T
 
 
@@ -1405,7 +1405,7 @@ def _ruled_out(
             p01, p10 = pair or (0.0, 0.0)
             marginal = unread.sum(axis=tuple(a for a in range(1, width + 1) if a != i + 1))
             for bit, stated in ((1, p01), (0, p10)):
-                if stated or marginal[:, bit].max() > IMPOSSIBLE:
+                if stated or marginal[:, bit].max() > surface.rounding[part].sum():
                     continue
                 cells = [k for k in np.flatnonzero(shots) if outcome_bits(k, width)[i] == str(bit)]
                 if cells:
