@@ -1418,8 +1418,12 @@ def write_new(path: Path, data: bytes) -> bool:
     try:
         return publish(hidden, path)
     finally:
-        os.close(fd)
-        drop(hidden)
+        try:
+            # exFAT on macOS gives the hidden copy another inode number when its descriptor
+            # closes, so the open descriptor gives the identity for the removal.
+            drop(hidden._replace(identity=os.fstat(fd)))
+        finally:
+            os.close(fd)
 
 
 def take(path: Path) -> Held | None:

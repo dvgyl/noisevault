@@ -11,6 +11,8 @@ This file lists all notable changes to NoiseVault. Versions follow
   other than `sampler`. The client-side `SamplerV2` of qiskit-ibm-runtime 0.52 runs the
   `executor` program, and the options in the counts file are then not proved. Before, the
   script saved such counts with no message.
+- A vault on an exFAT drive on macOS keeps no hidden `.tmp` copy after `nv pull`. Before, each
+  new file in the vault left one hidden copy of the profile beside it.
 
 ## 0.4.0 (2026-11-10)
 

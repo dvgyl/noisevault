@@ -509,6 +509,32 @@ def test_a_save_replaces_a_file_where_chmod_changes_the_inode_number(
     assert list(tmp_path.iterdir()) == [target]
 
 
+def test_a_new_file_leaves_no_hidden_copy_where_close_changes_the_inode_number(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """exFAT on macOS: after the descriptor closes, the path gives a new number."""
+    from noisevault.profile import write_new
+
+    real = {"close": os.close, "lstat": os.lstat, "fstat": os.fstat}
+    renumbered: list[int] = []
+
+    def close_that_renumbers(fd: int) -> None:
+        renumbered.append(real["fstat"](fd).st_ino)
+        real["close"](fd)
+
+    def lstat(*args: Any, **kwargs: Any) -> os.stat_result:
+        found = real["lstat"](*args, **kwargs)
+        if found.st_ino not in renumbered:
+            return found
+        return os.stat_result((found.st_mode, found.st_ino + 1, *tuple(found)[2:]))
+
+    monkeypatch.setattr(os, "close", close_that_renumbers)
+    monkeypatch.setattr(os, "lstat", lstat)
+    assert write_new(tmp_path / "new.json", b"{}") is True
+    monkeypatch.undo()
+    assert [p.name for p in tmp_path.iterdir()] == ["new.json"]
+
+
 @pytest.fixture
 def umask(request: pytest.FixtureRequest) -> Iterator[int]:
     caller = os.umask(request.param)
