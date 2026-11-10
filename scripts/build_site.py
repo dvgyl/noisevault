@@ -13,6 +13,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 from datetime import date
 from pathlib import Path
 
@@ -218,15 +219,19 @@ def main() -> None:
     )
     args = parser.parse_args()
     cite = citation()
-    data = {
-        "version": cite["version"],
-        "bibtex": cite["bibtex"],
-        "fez": chip(),
-        "mismatch": fingerprint_change(),
-        "fleet": fleet(),
-        "cli": {"show": cli("show", "ibm_fez"), "cite": cli("cite", "ibm_fez", "--bibtex")},
-        **readme_results(),
-    }
+    with tempfile.TemporaryDirectory() as empty:
+        # The page shows the bundled profiles. A profile in the vault of the builder must not
+        # replace a bundled profile, also not in the nv commands that the build runs.
+        os.environ["NOISEVAULT_HOME"] = empty
+        data = {
+            "version": cite["version"],
+            "bibtex": cite["bibtex"],
+            "fez": chip(),
+            "mismatch": fingerprint_change(),
+            "fleet": fleet(),
+            "cli": {"show": cli("show", "ibm_fez"), "cite": cli("cite", "ibm_fez", "--bibtex")},
+            **readme_results(),
+        }
     template = (ROOT / "site" / "index.html").read_text()
     verify(template, data)
     page = (

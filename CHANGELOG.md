@@ -233,6 +233,8 @@ This file lists all notable changes to NoiseVault. Versions follow
   different noise. For a small rate x t the two rules agree. No bundled profile sets the field.
 - The IBM properties importer refuses a parameter with no `name`, with the qubit or the gate in
   the message. Before, the import stopped with a `KeyError`.
+- `scripts/build_site.py` builds the website from the bundled profiles only. Before, a newer
+  profile in the local vault changed the numbers of the page but not its dates.
 
 ### Changed
 
