@@ -833,7 +833,9 @@ def pull(
     ] = None,
     output: Annotated[
         Path | None,
-        typer.Option("--output", "-o", metavar="FILE", help="Save here instead of the vault."),
+        typer.Option(
+            "--output", "-o", metavar="FILE", help="Save here instead of the vault. Replaces FILE."
+        ),
     ] = None,
 ) -> None:
     """Download a live calibration and save it as a profile (network)."""

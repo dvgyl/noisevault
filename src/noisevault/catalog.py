@@ -429,7 +429,8 @@ def pull(
     Pulling a calibration that the vault already holds (same id and fingerprint) writes nothing,
     so repeated pulls leave one file per calibration. A pull that imports the same calibration
     differently (for example, after a NoiseVault upgrade) replaces the older file and warns. A
-    pull never replaces a file of another calibration.
+    pull to the vault never replaces a file of another calibration. A pull to ``output``
+    replaces the file that you name, whichever calibration the file holds.
     """
     return pull_and_save(device, at=at, source=source, output=output).profile
 
