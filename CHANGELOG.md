@@ -3,6 +3,15 @@
 This file lists all notable changes to NoiseVault. Versions follow
 [Semantic Versioning](https://semver.org).
 
+## Unreleased
+
+### Fixed
+
+- `scripts/run_on_ibm.py` refuses to save the counts of a hardware job that ran an IBM program
+  other than `sampler`. The client-side `SamplerV2` of qiskit-ibm-runtime 0.52 runs the
+  `executor` program, and the options in the counts file are then not proved. Before, the
+  script saved such counts with no message.
+
 ## 0.4.0 (2026-11-10)
 
 ### Added

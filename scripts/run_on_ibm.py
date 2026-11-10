@@ -79,6 +79,7 @@ ACCOUNT_SETUP = (
     " QiskitRuntimeService.save_account(token=...)"
 )
 LABEL = 16
+PROGRAM = "sampler"  # the program id of the server-side SamplerV2
 SUB_JOB_OVERHEAD_S = 2.0
 
 Calibration = Callable[[datetime | None], Profile]
@@ -124,6 +125,7 @@ class Ran:
     counts: tuple[dict[str, int], ...]
     timing: dict[str, Any]
     device: str | None = None
+    program: str | None = None  # the IBM program that ran the job; None for a local job
 
 
 def prepare(
@@ -285,6 +287,7 @@ def collect(job: Any, submitted: Submitted) -> Ran:
         counts=tuple(getattr(pub.data, CLBITS).get_counts() for pub in result),
         timing=timing,
         device=job.backend().name if hardware else None,
+        program=job.primitive_id if hardware else None,
     )
 
 
@@ -504,6 +507,15 @@ def run(
                 f"job {submitted.job_id} ran on {ran.device}, but {pending} records a job for"
                 f" {device}",
                 hint=f"find the job for {device} in your IBM Quantum account. {_new_job(pending)}",
+            )
+        if ran.program not in (None, PROGRAM):
+            # The options that the counts file records are options of the sampler program.
+            # The client-side SamplerV2 of qiskit-ibm-runtime 0.52 runs the executor program.
+            raise NoiseVaultError(
+                f"job {submitted.job_id} ran the IBM program {ran.program!r}, not {PROGRAM!r},"
+                " so the options of the run are not proved",
+                hint="look at the options and the circuits of the job in your IBM Quantum"
+                f" account. {_new_job(pending)}",
             )
         binding = bind(submitted, ran, calibration)
         bound = binding.profile

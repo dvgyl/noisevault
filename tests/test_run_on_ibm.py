@@ -1114,10 +1114,12 @@ def test_a_command_for_another_device_stops_before_it_opens_the_job(
     assert pending.read_bytes() == record
 
 
-def _on_hardware(job: Any, device: str) -> Any:
+def _on_hardware(job: Any, device: str, program: str = "sampler") -> Any:
     runtime = require("qiskit_ibm_runtime")
 
     class HardwareJob(runtime.RuntimeJobV2):
+        primitive_id = program
+
         def __init__(self) -> None:
             pass
 
@@ -1157,6 +1159,38 @@ def test_a_job_that_ran_on_another_device_gives_no_counts(
     )
     assert sorted(folder.iterdir()) == [pending]
     assert pending.read_bytes() == record
+
+
+def test_a_job_that_ran_another_ibm_program_gives_no_counts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    folder = tmp_path / "counts"
+    output, pending = folder / "fez.counts.json", folder / "fez.job.json"
+    _, submission = _job_to_collect_on_fez(monkeypatch, capsys, output)
+    job_id = submission.job.job_id()
+    record = pending.read_bytes()
+    service = require("qiskit_ibm_runtime").QiskitRuntimeService
+    monkeypatch.setattr(
+        service, "job", lambda self, job_id: _on_hardware(submission.job, "ibm_fez", "executor")
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        assert script.main(["ibm_fez", "--yes", "-o", str(output)]) == 1
+    assert capsys.readouterr().err == (
+        f"error: job {job_id} ran the IBM program 'executor', not 'sampler', so the options of"
+        " the run are not proved\n"
+        "hint: look at the options and the circuits of the job in your IBM Quantum account."
+        f" {_new_job(pending)}\n"
+    )
+    assert sorted(folder.iterdir()) == [pending]
+    assert pending.read_bytes() == record
+    monkeypatch.setattr(
+        service, "job", lambda self, job_id: _on_hardware(submission.job, "ibm_fez")
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        assert script.main(["ibm_fez", "--yes", "-o", str(output)]) == 0
+    assert output.exists()
 
 
 @pytest.mark.parametrize("step", ["collect again", "submit a new job"])
