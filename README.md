@@ -193,8 +193,8 @@ ibm_fez@2025-02-26T20:16:25Z nv:06404cefa54f on qubits 136-143-142-141
 5 circuits: ghz_chain, chain_mirror, mirror, single_qubit, readout
 framework  result  deviation  tolerance  circuits  method
 qiskit     pass      3.6e-03    8.8e-03  5 of 5    exact + 20000 shots
-cirq       pass      1.1e-15    1.0e-09  5 of 5    exact
-pennylane  pass      6.1e-16    1.0e-09  5 of 5    exact
+cirq       pass      8.6e-16    1.0e-09  5 of 5    exact
+pennylane  pass      5.9e-16    1.0e-09  5 of 5    exact
 stim       pass      5.8e-04    1.3e-03  5 of 5    20000 shots, 5 sigma
 ```
 
@@ -226,18 +226,18 @@ curl -O https://raw.githubusercontent.com/dvgyl/noisevault/main/examples/kingsto
 ```text
 $ nv compare ibm_kingston@2026-04-15 kingston-simulated.counts.json
 ibm_kingston@2026-04-15 nv:609c845ed934 on qubits 148-149-150-151
-counts kingston-simulated.counts.json, simulated, sha256:0f8013a17151
+counts kingston-simulated.counts.json, simulated, sha256:efeaf3d1f923
 run 2026-04-16 09:30Z, 26 h after calibration
 
 circuit       shots  profile TVD  fitted TVD  noise TVD 95%
-ghz_chain      4000       0.0217      0.0215         0.0321
-mirror         4000       0.0237      0.0050         0.0066
-single_qubit   4000       0.0067      0.0011         0.0041
-readout        4000       0.0096      0.0036         0.0047
+ghz_chain      4000       0.0217      0.0215         0.0322
+mirror         4000       0.0237      0.0050         0.0070
+single_qubit   4000       0.0067      0.0011         0.0042
+readout        4000       0.0096      0.0036         0.0048
 
-gate errors     x2.16 (95% interval 1.76 to 2.58)
+gate errors     x2.16 (95% interval 1.77 to 2.59)
 readout errors  x1.34 (95% interval 1.16 to 1.53)
-fit             within shot noise on every circuit (p = 0.7)
+fit             within shot noise on every circuit (p = 0.69)
 
 Factors multiply the profile's error rates, so x2 means about twice the errors.
 On these qubits, the factors absorb crosstalk, leakage, coherent error and idle

@@ -113,8 +113,20 @@ nv schema > docs/schema/profile-1.0.json
 1. Update `version` in `pyproject.toml` and `__version__` in `src/noisevault/__init__.py`.
 2. Add the release to `CHANGELOG.md` under a heading `## X.Y.Z (YYYY-MM-DD)`. Update `version`
    and `date-released` in `CITATION.cff`.
-3. Merge to `main` when CI passes.
-4. Tag the release and push the tag, as in `git tag v0.4.0 && git push origin v0.4.0`.
+3. Regenerate the files that record the version. The bundled profiles and the pinned counts
+   files name the NoiseVault version that made them, and tests compare them with a new build:
+
+   ```bash
+   python scripts/build_catalog.py    # with the qiskit-ibm-runtime release that the bundle names
+   python tests/test_compare.py
+   python tests/test_cli.py
+   python tests/test_readme.py
+   ```
+
+   The fingerprints do not change. Only the `tool` text, the `client` text and the file
+   hashes do.
+4. Merge to `main` when CI passes.
+5. Tag the release and push the tag, as in `git tag v0.4.0 && git push origin v0.4.0`.
 
 The tag starts `.github/workflows/release.yml`. The workflow checks that the tag matches the
 version, builds the wheel and sdist, and creates a GitHub release with the notes of that version
