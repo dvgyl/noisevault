@@ -18,7 +18,9 @@ The set has three roles, which ``role`` gives for each circuit name:
   circuits.
 
 A Clifford circuit has more qubits than the reference simulator holds, so the stabilizer forecast
-of ``noisevault.wide`` gives its depth. It uses only the gates and angles of
+of ``noisevault.wide`` gives its depth. On many qubits, readout error alone makes the ideal
+result rare, so the depth comes from the mean probability of a wrong bit, not from the ideal
+result (see ``CLIFFORD_WRONG``). A Clifford circuit uses only the gates and angles of
 ``noisevault.wide.CLIFFORD``. Without Stim, ``suite`` makes no Clifford circuit.
 
 Each layer starts at the same time on every qubit of the circuit, and an explicit delay holds
@@ -28,7 +30,7 @@ shorter than its time grid allows.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -62,9 +64,12 @@ WIDE_QUBITS = 8
 WIDE_TARGETS = (0.6, 0.35)
 # The Clifford circuits test a model on more qubits than the reference simulator holds.
 CLIFFORD_QUBITS = (20, 40, 80)
-CLIFFORD_TARGETS = (0.3,)
-# The depth search samples the stabilizer forecast. This many samples give the probability of
-# the ideal result to about 0.003 near the target.
+# The depth of a Clifford circuit is the first whole depth at which the profile with
+# ASSUMED_GATE_FACTOR predicts a wrong bit with this mean probability over the qubits, or more.
+# Each layer adds about 0.015 on IBM Heron devices, so whole depths keep the depth near the target.
+CLIFFORD_WRONG = 0.15
+# The depth search samples the stabilizer forecast. This many samples give the mean probability
+# of a wrong bit to better than 0.003.
 CLIFFORD_SAMPLES = 20_000
 TRAIN_SEEDS = (0, 1)
 TEST_SEED = 2
@@ -198,13 +203,40 @@ def _clifford_circuits(base: Profile, assumed: Profile, seed: int) -> list[Plann
             natives = _natives(base, chain, clifford=True)
             if not natives.ones or not all(natives.pairs):
                 continue
-            family = _family(
-                assumed, chain, natives, CLIFFORD_TARGETS, (seed, _CLIFFORD, n), _stabilizer_ideal
-            )
+            stream = (seed, _CLIFFORD, n)
+            depth = _clifford_depth(assumed, chain, natives, stream)
+            layers = _layers(natives, n, depth, stream)
+            circuit = _mirror(base, f"clifford_n{n}_d{depth}", chain, natives, layers, stream)
         except LayoutError:
             continue
-        built += [c.model_copy(update={"name": f"clifford_n{n}_d{d}"}) for d, c in family]
+        built.append(circuit)
     return built
+
+
+def _clifford_depth(
+    profile: Profile, qubits: Sequence[int], natives: _Natives, stream: Sequence[int]
+) -> int:
+    """The first whole depth from 1 to the last of ``DEPTHS`` at which ``profile`` predicts a
+    wrong bit with a mean probability of ``CLIFFORD_WRONG`` or more, or the last of ``DEPTHS``.
+
+    The search tries the depths of ``DEPTHS`` and then each whole depth in the step where the
+    prediction first reaches the target. This is the first whole depth when the prediction grows
+    with the depth.
+    """
+    bits = np.asarray(_ideal_bits(natives, len(qubits), stream), dtype=bool)
+
+    def reaches(depth: int) -> bool:
+        layers = _layers(natives, len(qubits), depth, stream)
+        built = _mirror(profile, "deep", qubits, natives, layers, stream)
+        sampled = wide.sample(profile, built, CLIFFORD_SAMPLES, seed=0)
+        return float(np.mean(sampled != bits)) >= CLIFFORD_WRONG
+
+    previous = 0
+    for depth in DEPTHS:
+        if reaches(depth):
+            return next((d for d in range(previous + 1, depth) if reaches(d)), depth)
+        previous = depth
+    return DEPTHS[-1]
 
 
 def _clifford_pair(profile: Profile, a: int, b: int) -> bool:
@@ -351,20 +383,11 @@ def _synchronous(profile: Profile, qubits: tuple[int, ...], layers: Sequence[Lay
     return ops
 
 
-Predict = Callable[[PlannedCircuit, "Profile", Sequence[int]], float]
-
-
 def _ideal(circuit: PlannedCircuit, profile: Profile, bits: Sequence[int]) -> float:
     """The probability that ``profile`` gives the ideal result ``bits`` of ``circuit``."""
     n = len(circuit.qubits)
     index = int("".join(str(bit) for bit in bits), 2)
     return float(probabilities(profile, circuit.ops, n, layout=circuit.qubits)[index])
-
-
-def _stabilizer_ideal(circuit: PlannedCircuit, profile: Profile, bits: Sequence[int]) -> float:
-    """The share of ``CLIFFORD_SAMPLES`` stabilizer samples that give the ideal result."""
-    sampled = wide.sample(profile, circuit, CLIFFORD_SAMPLES, seed=0)
-    return float(np.mean(np.all(sampled == np.asarray(bits, dtype=bool), axis=1)))
 
 
 def _depths(
@@ -373,7 +396,6 @@ def _depths(
     natives: _Natives,
     targets: Sequence[float],
     stream: Sequence[int],
-    predict: Predict = _ideal,
 ) -> list[int]:
     """For each target, the first depth at which the predicted ideal result is that rare."""
     found: list[int] = []
@@ -382,7 +404,7 @@ def _depths(
     for depth in DEPTHS:
         layers = _layers(natives, len(qubits), depth, stream)
         built = _mirror(profile, "deep", qubits, natives, layers, stream)
-        predicted = predict(built, profile, bits)
+        predicted = _ideal(built, profile, bits)
         while remaining and predicted <= remaining[0]:
             remaining.pop(0)
             if depth not in found:
@@ -400,12 +422,11 @@ def _family(
     natives: _Natives,
     targets: Sequence[float],
     stream: Sequence[int],
-    predict: Predict = _ideal,
 ) -> list[tuple[int, PlannedCircuit]]:
     if not natives.ones:
         return []
     built = []
-    for depth in _depths(profile, qubits, natives, targets, stream, predict):
+    for depth in _depths(profile, qubits, natives, targets, stream):
         layers = _layers(natives, len(qubits), depth, stream)
         built.append((depth, _mirror(profile, "deep", qubits, natives, layers, stream)))
     return built

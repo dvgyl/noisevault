@@ -15,7 +15,8 @@ from noisevault.reference import Op, probabilities
 from noisevault.suite import (
     ASSUMED_GATE_FACTOR,
     CHAIN_TARGETS,
-    CLIFFORD_TARGETS,
+    CLIFFORD_SAMPLES,
+    CLIFFORD_WRONG,
     DEPTHS,
     MIN_WAIT_NS,
     TEST_SEED,
@@ -24,7 +25,6 @@ from noisevault.suite import (
     _layers,
     _mirror,
     _natives,
-    _stabilizer_ideal,
     describe,
     role,
     suite,
@@ -319,13 +319,15 @@ def test_each_clifford_circuit_gives_one_bit_string_in_stim_without_noise(cliffo
             assert set(bits) == {"0", "1"}
 
 
-def test_the_clifford_depth_is_the_first_that_reaches_the_target(line_24, clifford_suite) -> None:
+def test_the_clifford_depth_is_the_first_whole_depth_that_reaches_the_target(
+    line_24, clifford_suite
+) -> None:
     (circuit,) = [c for c in clifford_suite if c.name.startswith("clifford_")]
     depth = int(circuit.name.rsplit("_d", 1)[1])
     assumed = line_24.model_copy(
         update={"unmodeled_error": {"gates": {"factor": ASSUMED_GATE_FACTOR}}}
     )
-    bits = [int(b) for b in wide.ideal_bits(circuit)]
+    bits = np.array([b == "1" for b in wide.ideal_bits(circuit)])
     natives = _natives(line_24, circuit.qubits, clifford=True)
     stream = (0, 6, 20)
 
@@ -333,13 +335,11 @@ def test_the_clifford_depth_is_the_first_that_reaches_the_target(line_24, cliffo
         layers = _layers(natives, 20, at, stream)
         return _mirror(line_24, "deep", circuit.qubits, natives, layers, stream)
 
-    def predicted(at: int) -> float:
-        return _stabilizer_ideal(built(at), assumed, bits)
+    def wrong(at: int) -> float:
+        return float(np.mean(wide.sample(assumed, built(at), CLIFFORD_SAMPLES, seed=0) != bits))
 
     assert built(depth).ops == circuit.ops
-    assert predicted(depth) <= CLIFFORD_TARGETS[0]
-    earlier = [d for d in DEPTHS if d < depth]
-    assert not earlier or predicted(earlier[-1]) > CLIFFORD_TARGETS[0]
+    assert wrong(depth) >= CLIFFORD_WRONG > wrong(depth - 1)
 
 
 def test_the_clifford_circuits_are_far_tests_that_no_fit_sees(clifford_suite) -> None:
