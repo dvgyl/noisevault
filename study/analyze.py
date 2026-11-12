@@ -9,11 +9,14 @@ For each run, it builds the models of ``PLAN.md``, scores each model on the ``te
 ``analysis.json`` and ``analysis.md`` to the output folder.
 
 The exact simulator scores only the circuits of 10 qubits or fewer, so each group holds only
-such circuits. The group ``all`` is all circuits of 10 qubits or fewer. The block ``clifford``
-of a row scores the Clifford circuits on 20 to 80 qubits with the stabilizer forecast of
+such circuits. The group ``all4`` is each circuit on the qubits of the chain of the run, and
+``test4`` is each test circuit among them (see :func:`groups`). No group holds a ``probe``
+circuit. The block ``probes`` gives the probe circuits alone. The block ``clifford`` of a row
+scores the Clifford circuits on 20 to 80 qubits with the stabilizer forecast of
 ``study/wide.py``. The block ``twirl_check`` compares the exact forecast and the stabilizer
-forecast of the ``calibration`` model on each 8-qubit ``wide_*`` circuit. The stabilizer
-samples take a seed from the SHA-256 of the counts and the model name, so a row repeats.
+forecast of each model of the Clifford comparisons on each 8-qubit ``wide_*`` circuit. The
+stabilizer samples take a seed from the SHA-256 of the counts and the model name, so a row
+repeats.
 
 A fitted model fits only on the ``train`` circuits. A model from a calibration is scored in the
 floored form of the plan. The row of a run also gives the ruled-out shots of the calibration as
