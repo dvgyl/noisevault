@@ -125,8 +125,24 @@ gate and readout error rates must scale to match the device.
 [How nv compare fits the factors](#how-nv-compare-fits-the-factors) explains the fit and the tests
 of its intervals.
 
-NoiseVault has not yet been validated against hardware runs. No counts from a real device have
-been compared, so treat its predictions as estimates whose error against the device is unknown.
+### Comparison with hardware
+
+A study that compares NoiseVault profiles with hardware runs is in progress.
+[The realism table](realism/table.md) holds the fit of each run, and
+[study/PLAN.md](../study/PLAN.md) gives the plan. The first runs, on three IBM devices in
+November 2026, showed these limits of a noise model from a calibration:
+
+- A calibration can state a readout error of exactly 0. In 3 of 6 runs on 2026-11-12, the device
+  gave results that the profile as stated calls impossible.
+- A profile cannot forecast a circuit in which each gate turns about one axis, because a small
+  systematic rotation error of each gate adds up. On `ibm_fez`, 256 `sx` gates on each of 4
+  qubits gave the ideal result in about 1% of the shots. The profile predicted 68% and 77%.
+- On circuits of random gates, the forecast was close in some runs and far off in others. On
+  `ibm_fez`, the fitted gate factor was x0.94 and x1.04. In one run on `ibm_marrakesh`, deep
+  circuits gave their ideal result up to 29 points less often than the profile predicted.
+
+Treat a prediction as an estimate. To know its error for your device on your day, score the
+profile on counts from the device with [`nv score`](scoring.md).
 
 ## How nv compare fits the factors
 

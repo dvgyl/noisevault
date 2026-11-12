@@ -374,7 +374,9 @@ the details, such as how the script treats delays.
 `scripts/build_realism_table.py` puts many runs in one table. Give it a folder of counts
 files. It fits the factors of each file and writes a JSON file and a Markdown page, with one row
 for each device and date. [The demo table](realism/demo.md) shows the result for simulated
-counts, and every one of its rows says so:
+counts, and every one of its rows says so. [The realism table](realism/table.md) holds the runs
+of the weekly IBM campaign. Its rows of 2026-11-09 and 2026-11-10 use the short `nv compare`
+circuits, and its later rows use the deep circuit set:
 
 ```bash
 python scripts/build_realism_table.py runs/ -o docs/realism/table

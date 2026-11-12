@@ -215,9 +215,18 @@ uvx --from "noisevault[qiskit,cirq,pennylane,stim] @ git+https://github.com/dvgy
 reference is from the device. It scores a profile on counts measured on the device. Then it fits
 how far the profile's gate errors and readout errors must scale to match the counts.
 
-NoiseVault has not yet been compared with counts from a real device. To see the output, score the
-bundled Kingston profile on example counts. A simulation with gate errors x1.8 and readout errors
-x1.3 made these counts. First, download the counts file:
+A weekly study makes this comparison on three IBM devices.
+[The realism table](docs/realism/table.md) gives the fitted factors of each run, and
+[study/PLAN.md](study/PLAN.md) gives the plan of the study. In the first runs with the deep
+circuit set, on `ibm_fez` on 2026-11-12, the fitted gate factors were x0.94 and x1.04. Thus the
+stated gate errors were right within 7% on that day and on those qubits. The short `nv compare`
+circuits of the same week gave intervals from x0.95 to x6.0, which are too wide to tell.
+[Limitations](docs/limitations.md#comparison-with-hardware) says what these runs showed that a
+profile cannot forecast.
+
+To see the output without a device, score the bundled Kingston profile on example counts. A
+simulation with gate errors x1.8 and readout errors x1.3 made these counts. First, download the
+counts file:
 
 ```bash
 curl -O https://raw.githubusercontent.com/dvgyl/noisevault/main/examples/kingston-simulated.counts.json

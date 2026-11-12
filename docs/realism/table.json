@@ -1,0 +1,326 @@
+{
+ "realism_table": "1",
+ "note": "Factors multiply the profile's error rates, so x2 means about twice the errors. On these qubits, the factors absorb crosstalk, leakage, coherent error and idle error beyond T1 and T2. The profile from -o applies the factors to every qubit.",
+ "rows": [
+  {
+   "device": "ibm_fez",
+   "vendor": "ibm",
+   "technology": "superconducting",
+   "date": "2026-11-09",
+   "run_at": "2026-11-09T21:06:21.566513Z",
+   "source": "hardware",
+   "simulated_with": null,
+   "calibration": {
+    "id": "ibm_fez",
+    "fingerprint": "1f7826d80af6c2e11d36cd6e867d7e2d4b341cee5bc12e4717a5c670e2c74f8d",
+    "calibrated_at": "2026-11-09T20:22:17Z"
+   },
+   "qubits": [
+    142,
+    143,
+    144,
+    145
+   ],
+   "shots": 20000,
+   "gates": {
+    "factor": 1.74555,
+    "low": 1.3631,
+    "high": 2.18582,
+    "bound": null
+   },
+   "readout": {
+    "factor": 0.859089,
+    "low": 0.515006,
+    "high": 1.30441,
+    "bound": null
+   },
+   "p_value": 0.0,
+   "dispersion": 2.61887,
+   "deviance": 75.9474,
+   "dof": 29,
+   "counts": "sha256:1cf320f02abc86c95c98d14fcb899df5e4b2156a3e1dd541948a9ef02738b751",
+   "fit_on": "all",
+   "run_counts": "sha256:1cf320f02abc86c95c98d14fcb899df5e4b2156a3e1dd541948a9ef02738b751"
+  },
+  {
+   "device": "ibm_fez",
+   "vendor": "ibm",
+   "technology": "superconducting",
+   "date": "2026-11-09",
+   "run_at": "2026-11-09T21:06:23.051369Z",
+   "source": "hardware",
+   "simulated_with": null,
+   "calibration": {
+    "id": "ibm_fez",
+    "fingerprint": "1f7826d80af6c2e11d36cd6e867d7e2d4b341cee5bc12e4717a5c670e2c74f8d",
+    "calibrated_at": "2026-11-09T20:22:17Z"
+   },
+   "qubits": [
+    92,
+    93,
+    94,
+    95
+   ],
+   "shots": 20000,
+   "gates": {
+    "factor": 2.76855,
+    "low": 1.78064,
+    "high": 3.93371,
+    "bound": null
+   },
+   "readout": {
+    "factor": 0.792681,
+    "low": 0.583323,
+    "high": 1.03562,
+    "bound": null
+   },
+   "p_value": 0.00249377,
+   "dispersion": 8.71023,
+   "deviance": 357.119,
+   "dof": 41,
+   "counts": "sha256:7e8d5c7db67d3461912174bed7f44a2bdfe59df71aa89c841cf6de37f264ef3c",
+   "fit_on": "all",
+   "run_counts": "sha256:7e8d5c7db67d3461912174bed7f44a2bdfe59df71aa89c841cf6de37f264ef3c"
+  },
+  {
+   "device": "ibm_fez",
+   "vendor": "ibm",
+   "technology": "superconducting",
+   "date": "2026-11-12",
+   "run_at": "2026-11-12T11:23:55.863860Z",
+   "source": "hardware",
+   "simulated_with": null,
+   "calibration": {
+    "id": "ibm_fez",
+    "fingerprint": "d696eaadfae8546b80ef117f83bc7294c2dd6eabe878089f845fcaa58aff3cb2",
+    "calibrated_at": "2026-11-12T09:58:24Z"
+   },
+   "qubits": [
+    142,
+    143,
+    144,
+    145
+   ],
+   "shots": 22500,
+   "gates": {
+    "factor": 0.936067,
+    "low": 0.882721,
+    "high": 0.993807,
+    "bound": null
+   },
+   "readout": {
+    "factor": 0.967152,
+    "low": 0.616388,
+    "high": 1.41164,
+    "bound": null
+   },
+   "p_value": 0.00249377,
+   "dispersion": 3.61682,
+   "deviance": 506.355,
+   "dof": 140,
+   "counts": "sha256:869c04e132d26da2c85a434beacedf42e7011906a8f3e586f3b7895e1f4aa4cc",
+   "fit_on": "train",
+   "run_counts": "sha256:f66051bfe2e9b5c5af007b3617bcb2c454c47a227929810ba759a97d70d85200"
+  },
+  {
+   "device": "ibm_fez",
+   "vendor": "ibm",
+   "technology": "superconducting",
+   "date": "2026-11-12",
+   "run_at": "2026-11-12T11:25:24.871152Z",
+   "source": "hardware",
+   "simulated_with": null,
+   "calibration": {
+    "id": "ibm_fez",
+    "fingerprint": "d696eaadfae8546b80ef117f83bc7294c2dd6eabe878089f845fcaa58aff3cb2",
+    "calibrated_at": "2026-11-12T09:58:24Z"
+   },
+   "qubits": [
+    92,
+    93,
+    94,
+    95
+   ],
+   "shots": 22500,
+   "gates": {
+    "factor": 1.04257,
+    "low": 0.981023,
+    "high": 1.1032,
+    "bound": null
+   },
+   "readout": {
+    "factor": 0.901575,
+    "low": 0.679923,
+    "high": 1.1603,
+    "bound": null
+   },
+   "p_value": 0.0,
+   "dispersion": 3.1369,
+   "deviance": 414.071,
+   "dof": 132,
+   "counts": "sha256:cf7ab08d00f958a03f9ee46f2f88c8c2029267bfb6ee9d6bd5b2e75f418a97e4",
+   "fit_on": "train",
+   "run_counts": "sha256:739f8aeb99e8c4bb4c11c971e58af0940bd47bd372aa5012212316fc0210866d"
+  },
+  {
+   "device": "ibm_kingston",
+   "vendor": "ibm",
+   "technology": "superconducting",
+   "date": "2026-11-09",
+   "run_at": "2026-11-09T21:26:08.475029Z",
+   "source": "hardware",
+   "simulated_with": null,
+   "calibration": {
+    "id": "ibm_kingston",
+    "fingerprint": "283788ff6a74d990b81ee865b787728aa7f765737959d45cd5db0442665462ec",
+    "calibrated_at": "2026-11-09T20:40:53Z"
+   },
+   "qubits": [
+    137,
+    147,
+    148,
+    149
+   ],
+   "shots": 20000,
+   "gates": {
+    "factor": 1.78427,
+    "low": 1.31922,
+    "high": 2.3633,
+    "bound": null
+   },
+   "readout": {
+    "factor": 1.4359,
+    "low": 0.637337,
+    "high": 2.59355,
+    "bound": null
+   },
+   "p_value": 0.0,
+   "dispersion": 8.70204,
+   "deviance": 252.359,
+   "dof": 29,
+   "counts": "sha256:6d3375ad01749d5d14356b8c663b6668f32ba3b354cc07401b366002541670f9",
+   "fit_on": "all",
+   "run_counts": "sha256:6d3375ad01749d5d14356b8c663b6668f32ba3b354cc07401b366002541670f9"
+  },
+  {
+   "device": "ibm_kingston",
+   "vendor": "ibm",
+   "technology": "superconducting",
+   "date": "2026-11-09",
+   "run_at": "2026-11-09T21:26:09.374040Z",
+   "source": "hardware",
+   "simulated_with": null,
+   "calibration": {
+    "id": "ibm_kingston",
+    "fingerprint": "283788ff6a74d990b81ee865b787728aa7f765737959d45cd5db0442665462ec",
+    "calibrated_at": "2026-11-09T20:40:53Z"
+   },
+   "qubits": [
+    53,
+    54,
+    55,
+    59
+   ],
+   "shots": 20000,
+   "gates": {
+    "factor": 3.23999,
+    "low": 1.23056,
+    "high": 6.01162,
+    "bound": null
+   },
+   "readout": {
+    "factor": 0.829655,
+    "low": 0.455986,
+    "high": 1.33017,
+    "bound": null
+   },
+   "p_value": 0.0,
+   "dispersion": 21.3658,
+   "deviance": 705.072,
+   "dof": 33,
+   "counts": "sha256:e53fa6bdd2c18fc8ade7bbafa15c7effa2688ddc87c95f22f908d761fa68dff9",
+   "fit_on": "all",
+   "run_counts": "sha256:e53fa6bdd2c18fc8ade7bbafa15c7effa2688ddc87c95f22f908d761fa68dff9"
+  },
+  {
+   "device": "ibm_marrakesh",
+   "vendor": "ibm",
+   "technology": "superconducting",
+   "date": "2026-11-10",
+   "run_at": "2026-11-10T09:43:13.343245Z",
+   "source": "hardware",
+   "simulated_with": null,
+   "calibration": {
+    "id": "ibm_marrakesh",
+    "fingerprint": "89deba20045f4ca27dc87f31d0dc04359a379568f352ca4f3f3141c9572178e2",
+    "calibrated_at": "2026-11-10T09:16:20Z"
+   },
+   "qubits": [
+    137,
+    147,
+    148,
+    149
+   ],
+   "shots": 20000,
+   "gates": {
+    "factor": 1.6641,
+    "low": 1.34666,
+    "high": 2.01572,
+    "bound": null
+   },
+   "readout": {
+    "factor": 1.45954,
+    "low": 1.06679,
+    "high": 1.92303,
+    "bound": null
+   },
+   "p_value": 0.0,
+   "dispersion": 2.58823,
+   "deviance": 75.0587,
+   "dof": 29,
+   "counts": "sha256:27f2a0a2e3ccace54e4e5db8517eb2486b70657f1a94d57c152087689d54778b",
+   "fit_on": "all",
+   "run_counts": "sha256:27f2a0a2e3ccace54e4e5db8517eb2486b70657f1a94d57c152087689d54778b"
+  },
+  {
+   "device": "ibm_marrakesh",
+   "vendor": "ibm",
+   "technology": "superconducting",
+   "date": "2026-11-10",
+   "run_at": "2026-11-10T09:43:15.262128Z",
+   "source": "hardware",
+   "simulated_with": null,
+   "calibration": {
+    "id": "ibm_marrakesh",
+    "fingerprint": "89deba20045f4ca27dc87f31d0dc04359a379568f352ca4f3f3141c9572178e2",
+    "calibrated_at": "2026-11-10T09:16:20Z"
+   },
+   "qubits": [
+    8,
+    9,
+    10,
+    11
+   ],
+   "shots": 20000,
+   "gates": {
+    "factor": 2.12456,
+    "low": 0.948883,
+    "high": 3.97609,
+    "bound": null
+   },
+   "readout": {
+    "factor": 0.897846,
+    "low": 0.525206,
+    "high": 1.3968,
+    "bound": null
+   },
+   "p_value": 0.0,
+   "dispersion": 24.1356,
+   "deviance": 796.476,
+   "dof": 33,
+   "counts": "sha256:2bdf8523deede69e59cfaafce2f3aeef1e03eb1072f1d8c558d5d4748299446f",
+   "fit_on": "all",
+   "run_counts": "sha256:2bdf8523deede69e59cfaafce2f3aeef1e03eb1072f1d8c558d5d4748299446f"
+  }
+ ]
+}

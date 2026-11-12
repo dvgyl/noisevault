@@ -25,6 +25,12 @@ This file lists all notable changes to NoiseVault. Versions follow
   Python, use `Profile.score(counts)`, `noisevault.score.paired(a, b)`, and
   `MeasuredCounts.select(names)` and `MeasuredCounts.split(fraction, seed)` for held-out data.
   [docs/scoring.md](docs/scoring.md)
+- **Realism table with hardware runs.** [docs/realism/table.md](docs/realism/table.md) holds the
+  fitted factors of runs on `ibm_kingston`, `ibm_fez` and `ibm_marrakesh`, from the weekly
+  campaign. With the deep circuit set, the gate factors of `ibm_fez` on 2026-11-12 were x0.94
+  (0.88 to 0.99) and x1.04 (0.98 to 1.10). The README and
+  [docs/limitations.md](docs/limitations.md#comparison-with-hardware) no longer say that no
+  hardware comparison exists.
 - **Deep circuit set.** `noisevault.suite.suite(profile)` gives the `nv compare` circuits and
   deep mirror circuits on the same chain. A mirror circuit applies layers of random native
   gates, one random Pauli gate on each qubit, and the layers undone in the opposite order. This
