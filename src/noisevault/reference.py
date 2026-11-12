@@ -49,9 +49,15 @@ def probabilities(
     ops = list(ops)
     physical = normalize_layout(range(num_qubits), layout, profile)
     circuit_of = {p: c for c, p in physical.items()}
+    # A caller that gives a report gets one event for each op. Without a report, each gate on
+    # each locus is resolved one time, which is much faster for a deep circuit.
+    reuse = report is None
     report = report or Report.start(profile, "reference", None, unknown_gates=unknown_gates)
     report.record_effects(profile.effects)
     table = profile.table
+    unitaries: dict[tuple[str, tuple[float, ...]], tuple[np.ndarray, str]] = {}
+    resolved: dict[tuple[str, tuple[int, ...]], Any] = {}
+    idles: dict[tuple[int, float], Any] = {}
 
     rho = np.zeros((2,) * (2 * num_qubits), dtype=complex)
     rho[(0,) * (2 * num_qubits)] = 1.0
@@ -63,25 +69,30 @@ def probabilities(
                     f"the delay on circuit qubit {q} needs a finite duration of 0 ns or more, "
                     f"not {duration_ns} ns"
                 )
-            refuse_disabled(table.gate("delay", (physical[q],)))
-            channel = idle_channel(table, physical[q], duration_ns, report)
+            wait = (physical[q], duration_ns)
+            if not reuse or wait not in idles:
+                refuse_disabled(table.gate("delay", (physical[q],)))
+                idles[wait] = idle_channel(table, physical[q], duration_ns, report)
+            channel = idles[wait]
             if channel is not None:
                 rho = _apply(rho, channel.kraus, (q,), num_qubits)
             continue
-        info = gates.lookup(op.name)
-        if info is None or info.unitary is None:
-            raise ValueError(f"the reference simulator has no unitary for {op.name!r}")
-        unitary = info.unitary(*op.params)
+        key = (op.name, tuple(op.params))
+        if key not in unitaries:
+            info = gates.lookup(op.name)
+            if info is None or info.unitary is None:
+                raise ValueError(f"the reference simulator has no unitary for {op.name!r}")
+            unitary = info.unitary(*op.params)
+            unitaries[key] = (unitary, charged_as(profile, op.name, unitary))
+        unitary, charged = unitaries[key]
         rho = _apply(rho, [unitary], op.qubits, num_qubits)
         targets = tuple(physical[q] for q in op.qubits)
-        built = resolve_op(
-            table,
-            charged_as(profile, op.name, unitary),
-            targets,
-            unknown_gates=unknown_gates,
-            report=report,
-        )
-        for channel in built.channels:
+        locus = (charged, targets)
+        if not reuse or locus not in resolved:
+            resolved[locus] = resolve_op(
+                table, charged, targets, unknown_gates=unknown_gates, report=report
+            )
+        for channel in resolved[locus].channels:
             wires = tuple(circuit_of[w] for w in channel.wires)
             rho = _apply(rho, channel.kraus, wires, num_qubits)
     for c in range(num_qubits):
