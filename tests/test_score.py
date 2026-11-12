@@ -345,8 +345,10 @@ def test_score_of_named_circuits_only() -> None:
 
 def test_a_profile_that_cannot_simulate_a_circuit_is_refused() -> None:
     counts = kingston_counts()
-    with pytest.raises(CountsError, match="circuit ghz_chain"):
+    with pytest.raises(CountsError, match="circuit ghz_chain") as info:
         score(one_qubit(0.1), counts)
+    # The error keeps its first cause, so a caller can give both classes.
+    assert type(info.value.__cause__).__name__ == "LayoutError"
 
 
 def test_select_keeps_the_named_circuits_in_run_order() -> None:
