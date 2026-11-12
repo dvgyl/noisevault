@@ -59,7 +59,14 @@ neighboring operations, the time since the last calibration) are not in the numb
 - **Double counting of single-qubit noise.** IBM and Quantinuum two-qubit errors come from
   benchmarks that include single-qubit gates. When a circuit's single-qubit gates also get their
   own noise, part of that error counts twice. The extra error is roughly that of the
-  single-qubit gates inside the benchmark's two-qubit layer.
+  single-qubit gates inside the benchmark's two-qubit layer. Quantinuum divides the decay of one
+  two-qubit Clifford by 1.5 ZZ gates and takes no single-qubit error out. In the published
+  sequences behind the bundled profiles, each qubit gets 1.25 to 1.31 U1q gates for each ZZ
+  gate. Thus the extra error of one ZZ gate is about 3 times the stated single-qubit error, as
+  average infidelities. On those sequences, the reference simulator with a bundled Quantinuum
+  profile gives a decay that the Quantinuum analysis reads as 1.05 to 1.09 times the stated ZZ
+  error. No export takes this error out. The published shots do not resolve an error of this
+  size: a bootstrap of the shots gives each stated ZZ error a standard error of 4 to 8 percent.
 - **Stim** applies the Pauli twirl of each channel. The twirl keeps the average fidelity but drops
   relaxation's bias toward |0>. `detector_error_model()` treats Pauli channel components as
   independent, an O(p^2) change. The Stim export symmetrizes readout by default.

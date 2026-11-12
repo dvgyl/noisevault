@@ -43,6 +43,7 @@ import hashlib
 import json
 import math
 import re
+import statistics
 import sys
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
@@ -50,10 +51,11 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any, Literal
 
-from noisevault import catalog, gates
+from noisevault import catalog, gates, metrics
 from noisevault.counts import COUNTS_FORMAT, MeasuredCounts
 from noisevault.profile import Profile
 from noisevault.reference import Op
+from noisevault.table import GateNoise
 
 REPOSITORY = "https://github.com/Quantinuum/quantinuum-hardware-specifications"
 CLIENT = "Quantinuum hardware specifications, published vendor data"
@@ -620,8 +622,148 @@ def without_one_qubit_gate_error(profile: Profile) -> Profile:
         data["calibrations"] = [
             cleared(r) if len(r["qubits"]) == 1 else r for r in data["calibrations"]
         ]
+    return _noted(
+        data, "every 1-qubit gate error is set to 0 (study.quantinuum.without_one_qubit_gate_error)"
+    )
+
+
+def dressing_gates(doc: Mapping[str, Any], *, where: str = "") -> float:
+    """k of a 2-qubit RB file: the mean number of charged 1-qubit gates on each qubit for each
+    2-qubit gate of the sequences.
+
+    The vendor fits the decay over the sequence length. Thus k is a growth with the length: the
+    slope of the 1-qubit gates on one qubit, divided by the slope of the 2-qubit gates on the
+    pair. The gates that a circuit has at each length do not count. An ``rz`` op does not
+    count, because it is virtual in the bundled profiles.
+    """
+    lengths, ones, twos = [], [], []
+    for circuit in circuits(doc, "TQ_RB", leakage="postselect", where=where):
+        ops = circuit["ops"]
+        lengths.append(float(circuit["name"].rsplit("_m", 1)[1].split("_s")[0]))
+        charged = sum(len(op.qubits) == 1 and op.name != "rz" for op in ops)
+        ones.append(charged / len(circuit["qubits"]))
+        twos.append(float(sum(len(op.qubits) == 2 for op in ops)))
+    if len(set(lengths)) < 2:
+        raise QasmError(f"{where}: the gate count needs two sequence lengths")
+    growth = statistics.linear_regression(lengths, twos).slope
+    if growth <= 0:
+        raise QasmError(f"{where}: the 2-qubit gates do not grow with the sequence length")
+    return statistics.linear_regression(lengths, ones).slope / growth
+
+
+def net_of_one_qubit_dressing(profile: Profile, gates_per_qubit: float) -> Profile:
+    """``profile`` with the 1-qubit gates of the benchmark taken out of each 2-qubit gate error.
+
+    A 2-qubit error with ``1q_dressing`` in ``includes`` holds the error of the 1-qubit gates
+    in the benchmark. ``gates_per_qubit`` is k, the mean number of those gates on each qubit for
+    each 2-qubit gate, as ``dressing_gates`` counts it. Process infidelities add to first order.
+    Thus the net process infidelity is e - 2 k e_1, where e_1 is the process infidelity of the
+    typical 1-qubit native gate. As average infidelities, r_net = r - (6 / 5) 2 k r_1. A net
+    error below 0 becomes 0. A ``pauli`` vector keeps its shape: each entry gets the factor
+    e_net / e. The 1-qubit gates and the readout do not change, so a circuit with no 2-qubit
+    gate gets the same noise. A k below 0 adds error. Only a fit of k uses such a value.
+
+    The profile must give each gate one error for the whole device. A calibration record with
+    an error raises ValueError.
+    """
+    if not math.isfinite(gates_per_qubit):
+        raise ValueError(f"gates_per_qubit must be a finite number, not {gates_per_qubit!r}")
+    data = _uniform(profile, "net_of_one_qubit_dressing")
+    stated = profile.uncorrected().table
+    working = [q for q in range(stated.num_qubits) if not stated.qubit(q).disabled]
+    one = stated.typical(1, working[:1])
+    if not isinstance(one, GateNoise) or one.avg_infidelity is None:
+        raise ValueError("the profile has no calibrated 1-qubit native gate")
+    dressing = gates_per_qubit * 2 * metrics.process_from_avg(one.avg_infidelity, 1)
+    for name, spec in data["gates"].items():
+        metric = profile.gates[name].metric
+        if stated.arity(name) != 2 or "1q_dressing" not in spec.get("includes", ()) or not metric:
+            continue
+        kind, value = metric
+        stated_error = metrics.process_from_avg(metrics.to_avg_infidelity(kind, value, 2), 2)
+        net = max(stated_error - dressing, 0.0)
+        if kind == "pauli":
+            factor = net / stated_error if stated_error > 0 else 1.0
+            data["gates"][name] = _changed(spec, "1q_dressing", pauli=[p * factor for p in value])
+        else:
+            error = metrics.avg_from_process(net, 2)
+            data["gates"][name] = _changed(spec, "1q_dressing", avg_infidelity=error)
+    return _noted(
+        data,
+        f"each 2-qubit error with 1q_dressing is net of {gates_per_qubit:.6g} gates of {one.gate}"
+        " on each qubit (study.quantinuum.net_of_one_qubit_dressing)",
+    )
+
+
+def without_leakage(profile: Profile) -> Profile:
+    """``profile`` with the leakage taken out of each gate error that holds it.
+
+    The counts of ``--leakage postselect`` hold no shot with a leakage flag. Thus their gates
+    show the error without the leakage. A gate error with ``leakage`` in ``includes`` holds the
+    leakage. Quantinuum states r = r_all + L / d, where r_all comes from the decay of all shots
+    and L is the leakage of one gate, the probability of its ``leakage`` effect. If a leaked
+    shot gives a random result, r_all holds L (d - 1) / d. Thus the average infidelity without
+    the leakage is r - L, and 0 when L is more than r. In the datasets of the five bundled
+    profiles, the decay of the kept shots gives r minus 0.9 L to 1.1 L. The ``leakage`` effect
+    of the gate goes out of the profile. A gate with a ``pauli`` vector does not change.
+
+    The profile must give each gate one error for the whole device. A calibration record with
+    an error raises ValueError.
+    """
+    data = _uniform(profile, "without_leakage")
+    specs = data["gates"]
+    net: dict[str, float] = {}
+    kept = []
+    for effect in data.get("effects", ()):
+        name = effect.get("gate")
+        whole = effect["type"] == "leakage" and "prob" in effect and "qubits" not in effect
+        stated = _default_error(profile, name) if whole and name in specs else None
+        if stated is not None and "leakage" in specs[name].get("includes", ()):
+            net[name] = net.get(name, stated) - effect["prob"]
+        else:
+            kept.append(effect)
+    for name, error in net.items():
+        specs[name] = _changed(specs[name], "leakage", avg_infidelity=max(error, 0.0))
+    data.pop("effects", None)
+    if kept:
+        data["effects"] = kept
+    return _noted(
+        data,
+        "each gate error with leakage is net of the leakage of its effect"
+        " (study.quantinuum.without_leakage)",
+    )
+
+
+def _default_error(profile: Profile, name: str) -> float | None:
+    """The average infidelity of the device-wide error of gate ``name``. None for a gate with
+    no error or with a ``pauli`` vector."""
+    metric, arity = profile.gates[name].metric, profile.table.arity(name)
+    if metric is None or arity is None or metric[0] == "pauli":
+        return None
+    return metrics.to_avg_infidelity(*metric, arity)
+
+
+def _uniform(profile: Profile, caller: str) -> dict[str, Any]:
+    """The dict of ``profile``, which must have no calibration record with an error."""
+    data = profile.to_dict()
+    if any(key in record for record in data.get("calibrations", ()) for key in _ERROR_METRICS):
+        raise ValueError(
+            f"{caller} needs one error for each gate on the whole device, but the profile has a"
+            " calibration record with an error"
+        )
+    return data
+
+
+def _changed(spec: Mapping[str, Any], included: str, **metric: Any) -> dict[str, Any]:
+    """``spec`` with a new error that no longer holds ``included``. The stderr of the stated
+    error does not describe the new error, so it goes out."""
+    kept = {k: v for k, v in spec.items() if k not in (*_ERROR_METRICS, "stderr", "includes")}
+    includes = [item for item in spec.get("includes", ()) if item != included]
+    return kept | metric | ({"includes": includes} if includes else {})
+
+
+def _noted(data: dict[str, Any], note: str) -> Profile:
     provenance = data["provenance"]
-    note = "every 1-qubit gate error is set to 0 (study.quantinuum.without_one_qubit_gate_error)"
     provenance["notes"] = [*provenance.get("notes", []), note]
     return Profile.from_dict(data)
 
