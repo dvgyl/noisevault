@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
+from functools import cache
 from itertools import product
 from typing import Literal
 
@@ -240,8 +241,13 @@ def _kron_all(ops: Iterable[np.ndarray]) -> np.ndarray:
     return result
 
 
-def _pauli_basis(num_qubits: int) -> list[np.ndarray]:
-    return [_kron_all(_PAULIS[c] for c in labels) for labels in product("IXYZ", repeat=num_qubits)]
+@cache
+def _pauli_basis(num_qubits: int) -> tuple[np.ndarray, ...]:
+    # Each gate resolution needs the basis, so the basis is built one time. The arrays are shared.
+    basis = [_kron_all(_PAULIS[c] for c in labels) for labels in product("IXYZ", repeat=num_qubits)]
+    for op in basis:
+        op.setflags(write=False)
+    return tuple(basis)
 
 
 def _embed(op: np.ndarray, places: list[int], n: int) -> np.ndarray:
