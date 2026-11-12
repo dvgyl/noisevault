@@ -66,7 +66,7 @@ https on the same host.
 | --- | --- |
 | Access | `https://quantum.cloud.ibm.com/api/v1/public/backends/<name>/properties` |
 | Account | None |
-| History | Yes. `--at 2026-06-01` returns the newest calibration before that time. |
+| History | Yes. `--at 2026-06-01` returns the newest calibration that the endpoint showed at that time. The endpoint shows a calibration some minutes after the time of the calibration: 5 to 15 minutes in one test on 2026-11-12. A time just after the time of a calibration thus returns the calibration before it. |
 | License | Not an open license. Profiles are `redistributable: "unknown"` and stay local. |
 | Stored | Per-qubit T1, T2 and readout, per-gate errors and durations of every native, disabled gates and qubits, the raw response's SHA-256. |
 
