@@ -13,7 +13,7 @@ from __future__ import annotations
 import json
 import math
 from collections import Counter
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from fractions import Fraction
@@ -65,6 +65,12 @@ from .reference import MAX_QUBITS, Op, charged_as, outcome_bits, probabilities
 from .table import GateNoise
 
 COUNTS_FORMAT = "1.0"
+# A circuit can be wider than the exact simulator holds. Only the stabilizer forecast scores it.
+MAX_CIRCUIT_QUBITS = 256
+WIDE_HINT = (
+    f"select the circuits of {MAX_QUBITS} qubits or fewer, or score the wider circuits with the"
+    " stabilizer score of study/wide.py"
+)
 _MAX_OUTCOMES = 4096
 _MAX_SHOTS = 10_000_000_000
 # numpy's multivariate hypergeometric sampler takes fewer than 10**9 items.
@@ -296,7 +302,7 @@ class PlannedCircuit(_Model):
     """
 
     name: Text
-    qubits: Annotated[tuple[QubitIndex, ...], Field(min_length=1, max_length=MAX_QUBITS)]
+    qubits: Annotated[tuple[QubitIndex, ...], Field(min_length=1, max_length=MAX_CIRCUIT_QUBITS)]
     ops: tuple[WireOp, ...]
 
     @model_validator(mode="after")
@@ -367,8 +373,10 @@ class MeasuredCircuit(PlannedCircuit):
         """A new int64 array of 2**n counts, big-endian, as in the reference model.
 
         Circuit qubit 0 is the most significant bit. Each call makes a new array, so the model
-        stays immutable and its ``sha256`` stays correct.
+        stays immutable and its ``sha256`` stays correct. Raises CountsError for a circuit on more
+        than ``MAX_QUBITS`` qubits, whose counts stay a dict of bit strings.
         """
+        refuse_wide([self], "a vector of all outcomes can hold")
         width = len(self.qubits)
         keys = (outcome_bits(index, width) for index in range(2**width))
         return np.array([self.counts.get(key, 0) for key in keys], dtype=np.int64)
@@ -422,7 +430,7 @@ class MeasuredCounts(_Model):
                     hint="give each circuit its own name",
                 )
             names.add(circuit.name)
-        outcomes = sum(2 ** len(c.qubits) for c in self.circuits)
+        outcomes = sum(2 ** len(c.qubits) for c in self.circuits if len(c.qubits) <= MAX_QUBITS)
         if outcomes > _MAX_OUTCOMES:
             raise CountsError(
                 f"the circuits have {outcomes} outcomes in all, more than the {_MAX_OUTCOMES}"
@@ -652,6 +660,7 @@ def simulate(
     counts and the same ``sha256``.
     """
     check.validate_shots(shots)
+    refuse_wide(circuits, "simulate can sample")
     if shots > _MAX_SHOTS:
         raise ValueError(
             f"shots={shots!r}: give at most {_MAX_SHOTS} shots, the most that a counts file"
@@ -698,6 +707,20 @@ def simulate(
             "circuits": measured,
         }
     )
+
+
+def refuse_wide(circuits: Iterable[PlannedCircuit], task: str) -> None:
+    """Raise CountsError for the first circuit on more qubits than the exact simulator holds.
+
+    ``task`` completes the message "more than the 10 that ...", such as "score can simulate".
+    """
+    wide = next((c for c in circuits if len(c.qubits) > MAX_QUBITS), None)
+    if wide is not None:
+        raise CountsError(
+            f"circuit {wide.name} has {len(wide.qubits)} qubits, more than the {MAX_QUBITS}"
+            f" that {task}",
+            hint=WIDE_HINT,
+        )
 
 
 def _is_key(key: Any, width: int | None) -> bool:

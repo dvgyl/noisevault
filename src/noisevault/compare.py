@@ -15,6 +15,7 @@ import numpy as np
 from . import gates, metrics
 from .channels import gate_channels
 from .conversion import resolve_op
+from .counts import refuse_wide
 from .errors import (
     CountsError,
     DisabledGateError,
@@ -361,9 +362,11 @@ def compare(profile: Profile, counts: MeasuredCounts) -> Comparison:
 
     Raises CountsError when the counts come from a plan for a different calibration or ran
     before the calibration. Raises CountsError also when the counts contain an op that the
-    profile does not calibrate on its qubits.
+    profile does not calibrate on its qubits, or a circuit on more qubits than the reference
+    simulator holds.
     """
     base = _bind(profile, counts)
+    refuse_wide(counts.circuits, "nv compare can simulate")
     circuits = counts.circuits
     surface = _Surface.cached(base, circuits)
     measured = np.concatenate([c.vector() for c in circuits]).astype(float)

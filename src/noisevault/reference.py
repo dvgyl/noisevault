@@ -10,6 +10,7 @@ import numpy as np
 from . import gates
 from .channels import readout_matrix
 from .conversion import UnknownGates, idle_channel, native_name, resolve_op
+from .errors import TooWideError
 from .layout import normalize_layout
 from .profile import Profile
 from .report import Report
@@ -43,8 +44,18 @@ def probabilities(
     readout: bool = True,
     report: Report | None = None,
 ) -> np.ndarray:
-    """Outcome probabilities of the noisy circuit, all qubits measured at the end."""
-    if not 1 <= num_qubits <= MAX_QUBITS:
+    """Outcome probabilities of the noisy circuit, all qubits measured at the end.
+
+    Raises TooWideError for more than ``MAX_QUBITS`` qubits, because the density matrix has
+    4**n entries.
+    """
+    if num_qubits > MAX_QUBITS:
+        raise TooWideError(
+            f"the reference simulator holds 1 to {MAX_QUBITS} qubits, not {num_qubits}",
+            hint="give a circuit on fewer qubits, or use the stabilizer forecast of"
+            " noisevault.wide for a Clifford circuit",
+        )
+    if num_qubits < 1:
         raise ValueError(f"the reference simulator handles 1..{MAX_QUBITS} qubits")
     ops = list(ops)
     physical = normalize_layout(range(num_qubits), layout, profile)
