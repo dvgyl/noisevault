@@ -321,7 +321,7 @@ def build(
     attempt(
         "bundled",
         lambda: _floored(models.bundled(calibration)),
-        "NoiseVault bundles no other calibration of this device",
+        "NoiseVault bundles no calibration of this device",
     )
     attempt("symmetric", lambda: models.floored(models.symmetric(calibration)))
     if offline:
@@ -762,7 +762,7 @@ def _floored(profile: Profile | None) -> Profile | None:
 def _no_stale(calibration: Profile) -> str:
     if calibration.device.vendor != "ibm":
         return "the device is not an IBM device"
-    return "the source has no other calibration in effect at that time"
+    return "the source has no calibration in effect at that time"
 
 
 def _marked(

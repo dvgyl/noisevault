@@ -201,8 +201,13 @@ def test_each_model_has_a_score_or_a_reason(result: dict[str, Any]) -> None:
     assert set(row["scores"]) | set(row["failures"]) == set(analyze.MODELS)
     assert not set(row["scores"]) & set(row["failures"])
     assert set(row["scores"]) >= {"ideal", "generic", "medians", "stale(7)", "locus"}
-    assert row["failures"]["stale(1)"].startswith("the source has no other calibration")
-    assert row["failures"]["stale(180)"].startswith("the source has no other calibration")
+    assert row["failures"]["stale(180)"] == "the source has no calibration in effect at that time"
+    # One day before the run, C is in effect: stale(1) is C, with the difference 0.
+    assert "stale(1)" in row["scores"]
+    test = _test(row, "calibration", "stale(1)", "all4")
+    assert test["log"]["outcome"] == "identical" and test["log"]["difference"] == 0.0
+    assert summarize.delta(row, "calibration", "stale(1)", "all4") == 0.0
+    assert summarize.stale_slope(row) is not None
     # The reason gives the class of the error and the class of its first cause.
     assert row["failures"]["stale(30)"] == "CountsError from MissingCalibrationError"
     assert row["scores"]["ideal"]["all4"]["ruled_out"] > 0

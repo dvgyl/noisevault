@@ -239,15 +239,16 @@ def stale(
     """The calibration of the device that was in effect ``days`` days before ``run_at``.
 
     The calibration comes from IBM's public endpoint, or from ``cache`` when an earlier call
-    saved it there. The result is None when the device is not an IBM device, when the endpoint
-    has no calibration before that time, or when that calibration is C. Any other failure of
-    the endpoint raises SourceUnavailable.
+    saved it there. When that calibration is C, the result is C itself, so the model gives the
+    same forecast as C. The result is None when the device is not an IBM device, or when the
+    endpoint has no calibration before that time. Any other failure of the endpoint raises
+    SourceUnavailable.
     """
     if profile.device.vendor != "ibm":
         return None
     found = pulled(profile.device.name, run_at - timedelta(days=days), cache, pull)
-    if found is None or same_calibration(found, profile):
-        return None
+    if found is not None and same_calibration(found, profile):
+        return profile
     return found
 
 
@@ -292,14 +293,14 @@ def pulled(
 
 
 def bundled(profile: Profile) -> Profile | None:
-    """The newest bundled profile of the device, or None when NoiseVault bundles none or when
-    the bundled profile is C."""
+    """The newest bundled profile of the device, or None when NoiseVault bundles none. When the
+    bundled profile is C, the result is C itself."""
     found = [info for info in catalog.bundled_profiles() if info.id == profile.id]
     if not found:
         return None
     newest = max(found, key=lambda info: (info.calibrated_at is not None, info.calibrated_at))
     loaded = newest.load()
-    return None if same_calibration(loaded, profile) else loaded
+    return profile if same_calibration(loaded, profile) else loaded
 
 
 def same_calibration(a: Profile, b: Profile) -> bool:
