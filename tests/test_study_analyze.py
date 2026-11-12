@@ -856,6 +856,29 @@ def test_the_check_of_independent_shots_uses_only_the_same_circuits(tmp_path: Pa
     assert analyze._shot_checks([*rows, trial], paths) == [check]
 
 
+def test_the_check_of_independent_shots_skips_a_clifford_circuit_without_stim(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    require("stim")
+    from noisevault.suite import _clifford_circuits
+
+    calibration = _line_24()
+    circuits = _clifford_circuits(calibration, calibration, 0)
+    first = wide.simulate(calibration, circuits, shots=200, seed=1, run_at=RUN_AT)
+    second = wide.simulate(calibration, circuits, shots=200, seed=2, run_at=RUN_AT)
+
+    def missing(circuit: Any) -> str:
+        raise ImportError("the stabilizer forecast needs stim")
+
+    monkeypatch.setattr(analyze.stabilizer, "has_stim", lambda: False)
+    monkeypatch.setattr(analyze.stabilizer, "ideal_bits", missing)
+
+    found = analyze.shot_check(first, second)
+
+    assert found["circuits"] == []
+    assert found["skipped"] == {c.name: "ImportError" for c in circuits}
+
+
 def test_a_trial_run_is_named_by_its_file_and_is_never_the_earlier_run() -> None:
     assert analyze.is_trial(Path("best-trial.counts.json"))
     assert analyze.is_trial(Path("median-trial.counts.json.gz"))

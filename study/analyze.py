@@ -617,10 +617,12 @@ def shot_check(first: MeasuredCounts, second: MeasuredCounts) -> dict[str, Any]:
     outcome. The cells with fewer than ``CHECK_MIN_EXPECTED`` expected shots in a run, from the
     pooled counts, become one cell. The result gives the statistic, its degrees of freedom K - 1
     and their ratio for each circuit, and the number of circuits with one name in both runs that
-    are not the same.
+    are not the same. Without Stim, a Clifford circuit has no ideal bit string, so ``skipped``
+    gives it with the reason ``ImportError``.
     """
     others = {c.name: c for c in second.circuits}
     circuits, different = [], 0
+    skipped: dict[str, str] = {}
     for a in first.circuits:
         b = others.get(a.name)
         if b is None:
@@ -629,6 +631,9 @@ def shot_check(first: MeasuredCounts, second: MeasuredCounts) -> dict[str, Any]:
             different += 1
             continue
         if a.name.startswith(CLIFFORD_PREFIX):
+            if not stabilizer.has_stim():
+                skipped[a.name] = "ImportError"
+                continue
             ideal = stabilizer.ideal_bits(a)
             table = np.array([_wrong_cells(c, ideal) for c in (a, b)])
         else:
@@ -643,7 +648,7 @@ def shot_check(first: MeasuredCounts, second: MeasuredCounts) -> dict[str, Any]:
                 "ratio": None if df == 0 else statistic / df,
             }
         )
-    return {"circuits": circuits, "not_the_same": different}
+    return {"circuits": circuits, "not_the_same": different, "skipped": skipped}
 
 
 def chi_square(table: np.ndarray) -> tuple[float, int]:
