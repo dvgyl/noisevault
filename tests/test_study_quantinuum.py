@@ -281,6 +281,12 @@ def test_the_2022_form_with_one_list_of_shots_is_read() -> None:
     assert circuit["counts"] == {"1": 2, "0": 1}
 
 
+def test_shots_must_name_the_same_circuits_as_the_programs() -> None:
+    doc = {**SQ_DOC, "raw_data": {"SQ_RB (2, 2)": SQ_DOC["raw_data"]["SQ_RB (2, 1)"]}}
+    with pytest.raises(qt.QasmError, match="do not name the same circuits"):
+        qt.circuits(doc, "SQ_RB")
+
+
 def test_a_file_with_only_summary_counts_is_refused() -> None:
     with pytest.raises(qt.QasmError, match="only summary counts"):
         qt.circuits({"shots": 100, "survival": {}}, "SQ_RB")

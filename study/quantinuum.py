@@ -438,6 +438,12 @@ def label(key: str) -> tuple[str, str]:
     return first, second
 
 
+def _same_circuit(key: str) -> str:
+    """A qasm key and a raw_data key of one circuit give the same text: ``SQ_RB: (2, 0) [17]``
+    and ``SQ_RB (2, 0)`` both give ``SQ_RB (2, 0)``."""
+    return " ".join(re.sub(r"\s*\[\d+\]\s*$", "", key).replace(":", " ").split())
+
+
 def circuit_name(benchmark: str, data_bits: Sequence[int], length: str, index: str) -> str:
     """Such as ``TQ_RB_q2-3_m64_s5``: the benchmark, the qubits of the counts, the sequence
     length and the sequence index."""
@@ -467,19 +473,14 @@ def circuits(
     raw = doc.get("raw_data", doc.get("raw data"))
     if not isinstance(qasm, Mapping) or not isinstance(raw, Mapping):
         raise QasmError(f"{where}: the file has no qasm and raw_data, only summary counts")
-    shots_by_label = {}
-    for key, value in raw.items():
-        found = label(key)
-        if found in shots_by_label:
-            raise QasmError(f"{where}: two raw_data keys have the label {found}")
-        shots_by_label[found] = value
+    shots_by_key = {_same_circuit(key): value for key, value in raw.items()}
+    if len(shots_by_key) != len(raw) or set(shots_by_key) != {_same_circuit(k) for k in qasm}:
+        raise QasmError(f"{where}: the keys of qasm and raw_data do not name the same circuits")
     result = []
     for key in sorted(qasm, key=lambda k: tuple(int(x) if x.isdigit() else x for x in label(k))):
         length, index = label(key)
-        if (length, index) not in shots_by_label:
-            raise QasmError(f"{where}: raw_data has no shots for {key!r}")
         program = parse_qasm(qasm[key])
-        shots = _shot_strings(shots_by_label[(length, index)], program.cregs, f"{where}: {key}")
+        shots = _shot_strings(shots_by_key[_same_circuit(key)], program.cregs, f"{where}: {key}")
         for group in groups(program):
             data = [b for b in group.bits if b[0] != HERALD]
             heralds = [b for b in group.bits if b[0] == HERALD]
@@ -527,6 +528,9 @@ def counts_files(
     found = circuits(doc, benchmark, leakage=leakage, where=file)
     if not found:
         raise QasmError(f"{file}: the file has no measured circuit")
+    names = [c["name"] for c in found]
+    if len(set(names)) != len(names):
+        raise QasmError(f"{file}: two circuits get the same name, so the keys hold another label")
     widest = max(q for c in found for q in c["qubits"])
     if widest >= profile.device.num_qubits:
         raise QasmError(
