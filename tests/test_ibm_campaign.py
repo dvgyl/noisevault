@@ -12,9 +12,11 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from conftest import require
 from fake_ibm import FakeIBM, load_script, noisy_fake
 
 import noisevault as nv
+from noisevault import wide
 from noisevault.compare import compare
 from noisevault.counts import load_counts, plan
 from noisevault.errors import NoiseVaultError
@@ -410,6 +412,7 @@ def test_a_backend_that_cannot_open_stops_the_chain_choice_at_once(
 
 
 def test_a_suite_run_saves_the_deep_circuits_beside_the_compare_circuits(tmp_path: Path) -> None:
+    require("stim")
     with _fake_ibm(tmp_path / "nv_home") as ibm:
         root = tmp_path / "campaign"
         _run(root, ibm, MONDAY)
@@ -443,3 +446,12 @@ def test_a_suite_run_saves_the_deep_circuits_beside_the_compare_circuits(tmp_pat
         assert any(len(c.qubits) == 8 for c in counts.circuits if c.name.startswith("wide_"))
         assert counts.profile.fingerprint == profile.calibration_fingerprint
         assert all(c.shots == 200 for c in counts.circuits)
+        clifford = {
+            c.name.rsplit("_d", 1)[0]: c for c in counts.circuits if c.name.startswith("clifford_")
+        }
+        assert sorted(clifford) == ["clifford_n20", "clifford_n40", "clifford_n80"]
+        for size, circuit in clifford.items():
+            assert len(circuit.qubits) == int(size.removeprefix("clifford_n"))
+            assert role(circuit.name) == "test_far"
+            assert sum(circuit.counts.values()) == 200
+            assert wide.ideal_bits(circuit) in circuit.counts
