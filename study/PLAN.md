@@ -174,6 +174,19 @@ The adequacy test uses the `locus` model, which has the most fitted parameters: 
   The adequacy test uses the `locus` model. The relation of the age of a value to its fitted
   factor is a Spearman rank correlation. The summary gives each result also without the marked
   runs. No score of a deep run was read before this entry.
+- 2026-11-12: Clifford circuits on 20, 40 and 80 qubits. From the first week in which a run
+  holds them, a run has one mirror circuit of Clifford gates on a chain of each of these sizes.
+  The exact simulator cannot run them, so a stabilizer simulator gives the forecast of a model,
+  with each noise channel replaced by its Pauli twirl. The depth of a circuit is the first depth
+  at which the calibration with a gate factor of 2 predicts a wrong bit with a mean probability
+  of 0.15 or more over the qubits. These circuits are test circuits. Three scores apply: the
+  ideal bit string (right or wrong), the number of wrong bits, and each qubit alone (the sum over
+  the qubits of the log probability of its bit). The verdict of a comparison on these circuits
+  is the verdict of the third score. The comparisons are secondary: `calibration` against
+  `medians`, `two_factor` against `calibration`, and `averaged(7)` against `calibration`. The
+  fitted factors come from the `train` circuits on 4 qubits of the same run. The size of the
+  twirl approximation is measured on the 8-qubit circuits, where both forecasts exist. No run
+  with these circuits existed when this entry was written.
 - 2026-11-12: more clarifications. The `two_factor` model takes the factors that `nv compare`
   fits on C as stated, and the zero floor applies after the fit. Each other model starts from C
   as stated too, and the zero floor applies to the result. A run that is in the data two times
