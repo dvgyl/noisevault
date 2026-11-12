@@ -64,6 +64,10 @@ CHAINS = ("best", "median")
 # nv compare circuits: best-deep.counts.json runs on the chain of best.counts.json.
 DEEP = "-deep"
 SUITE_CHAINS = tuple(kind + DEEP for kind in CHAINS)
+# A trial job is one more job with the deep circuit set in a week that has its jobs:
+# best-trial.counts.json. It tests a change of the circuits on a device before the weekly run.
+TRIAL = "-trial"
+TRIAL_CHAINS = tuple(kind + TRIAL for kind in CHAINS)
 DEFAULT_ROOT = Path("campaign")
 DEFAULT_RESERVE_S = 20.0
 CALIBRATION = "calibration.json"
@@ -193,7 +197,7 @@ class Campaign:
 
         submitted = []
         for kind in todo:
-            chain = chains[kind.removesuffix(DEEP)]
+            chain = chains[kind.split("-")[0]]
             _section(f"{device}: submit the {kind} chain {_loci(chain.qubits)}")
             try:
                 runner.run(
@@ -209,7 +213,7 @@ class Campaign:
                     approve=functools.partial(self._approve, folder, kind),
                     wait=False,
                     keep_profile=True,
-                    planner=week_suite(folder.name) if kind.endswith(DEEP) else plan,
+                    planner=week_suite(folder.name) if kind.endswith((DEEP, TRIAL)) else plan,
                 )
             except NoiseVaultError as exc:
                 self.statuses.append(Status(device, folder.name, kind, "error", _message(exc)))
@@ -294,7 +298,7 @@ class Campaign:
         if not folder.is_dir():
             return
         for week in sorted(p for p in folder.iterdir() if _is_week(p)):
-            for kind in (*CHAINS, *SUITE_CHAINS):
+            for kind in (*CHAINS, *SUITE_CHAINS, *TRIAL_CHAINS):
                 yield from _job_files(week, kind)
 
     def _collect(self, device: str, job: Path) -> None:
@@ -632,7 +636,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         budget=Budget(None if args.no_budget_check else account.remaining_s, args.reserve),
         shots=args.shots,
         wait=not args.no_wait,
-        kinds=SUITE_CHAINS if args.suite else CHAINS,
+        kinds=TRIAL_CHAINS if args.trial else SUITE_CHAINS if args.suite else CHAINS,
     )
     signal.signal(signal.SIGTERM, _interrupt)
     try:
@@ -687,6 +691,13 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="run the deep circuit set of noisevault.suite on the two chains. The files are"
         " best-deep.* and median-deep.*, beside the files of the nv compare circuits",
+    )
+    parser.add_argument(
+        "--trial",
+        action="store_true",
+        help="run the deep circuit set one more time in this week, on the chains of the week."
+        " The files are best-trial.* and median-trial.*. Use it to test a change of the"
+        " circuits on a device before the weekly run",
     )
     return parser
 

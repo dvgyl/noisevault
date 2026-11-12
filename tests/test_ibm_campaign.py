@@ -411,6 +411,37 @@ def test_a_backend_that_cannot_open_stops_the_chain_choice_at_once(
         assert not (tmp_path / "campaign" / "ibm_fez" / "2026-11-02" / "chains.json").exists()
 
 
+def test_a_trial_run_is_one_more_run_on_the_chains_of_the_week(tmp_path: Path, monkeypatch) -> None:
+    # The planner of the deep circuit set takes minutes, and this test is about the files.
+    monkeypatch.setattr(campaign, "week_suite", lambda week: plan)
+    with _fake_ibm(tmp_path / "nv_home") as ibm:
+        root = tmp_path / "campaign"
+        _run(root, ibm, MONDAY)
+        account = ibm.account(campaign)
+        trial = campaign.Campaign(
+            root=root,
+            account=account,
+            budget=campaign.Budget(account.remaining_s, 0.0),
+            shots=200,
+            kinds=campaign.TRIAL_CHAINS,
+        )
+        with contextlib.redirect_stdout(io.StringIO()), warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            statuses = trial.run(["ibm_fez"], THURSDAY)
+
+    week = root / "ibm_fez" / "2026-11-02"
+    assert _states(statuses) == [
+        ("2026-11-02", "best-trial", "collected"),
+        ("2026-11-02", "median-trial", "collected"),
+    ]
+    chains = json.loads((week / "chains.json").read_text())
+    for kind in campaign.CHAINS:
+        first = load_counts(week / f"{kind}.counts.json")
+        again = load_counts(week / f"{kind}-trial.counts.json")
+        assert again.qubits == first.qubits == tuple(chains[kind]["qubits"])
+        assert again.sha256 != first.sha256
+
+
 def test_a_suite_run_saves_the_deep_circuits_beside_the_compare_circuits(tmp_path: Path) -> None:
     require("stim")
     with _fake_ibm(tmp_path / "nv_home") as ibm:

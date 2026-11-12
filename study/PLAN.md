@@ -1,39 +1,83 @@
 # Analysis plan of the realism study
 
-This file fixes the analysis before the test data is scored. The commit date of each version of
-this file is the record. A later change gets a dated entry in [Changes](#changes).
+This file fixes the analysis before a test circuit of a run that counts is scored. The commit
+date of each version of this file is the record. The sections from [Question](#question) to
+[Rules](#rules) state the plan in force. [Changes](#changes) lists each change with its date and
+with what was known at that time. [Freeze](#freeze) names the frozen versions.
 
 ## Question
 
-A calibration is a forecast of the results of a circuit. The study measures three things:
+A calibration is a forecast of the results of a circuit. The study measures four things:
 
 1. How well a noise model from the calibration of a device forecasts counts from that device.
 2. How fast the forecast gets worse as the calibration gets older.
 3. How much a small number of shots on the device improves the forecast.
+4. How large the systematic rotation error of a gate is. A calibration does not state this
+   error, and a noise model from a calibration cannot forecast a circuit in which it adds up.
 
-## Data
+## Runs
 
-A run is one job on one chain of qubits of one device. The job holds the circuits of
-`noisevault.suite.suite` for the calibration that the device had when the job was planned. The
+A run is one job on one chain of 4 qubits of one device. The job holds the circuits of
+`noisevault.suite.suite` (circuit set version 2) for the calibration that the device had when
+the job was planned, with `fresh` set to the ISO year times 100 plus the ISO week. The circuits
+of a job run in a random order that the week and the chain fix. Each circuit has 1500 shots. The
 counts bind to the calibration in effect when the job ran.
 
-- IBM devices: `ibm_kingston`, `ibm_fez` and `ibm_marrakesh`, one run each week on the best chain
-  and on the median chain, with 2000 shots for each circuit.
-- Other vendors: runs through Amazon Braket, with the circuits and shots that the budget allows.
+- The devices are `ibm_kingston`, `ibm_fez` and `ibm_marrakesh`. Each device has two runs each
+  week. The best chain is the chain of 4 connected qubits with the lowest sum of the stated
+  errors of its 1-qubit gates, readout and 2-qubit gates. The median chain is the chain at the
+  median of this sum.
+- The runs that count are the runs of the weeks of 2026-11-16 to 2027-01-04. These are 8 weeks,
+  and there is no earlier stop.
+- A run before the week of 2026-11-16 is a pilot run. A run after the week of 2027-01-04 is a
+  late run. A trial run is one more run in a week that has its runs (files `best-trial.*` and
+  `median-trial.*`). Pilot runs, late runs and trial runs are in no estimate, and their results
+  are exploratory.
+- A run of another vendor is secondary.
+- A run whose counts bind to the planned calibration because the device was recalibrated before
+  the job ran is marked. Results are given with and without the marked runs.
+
+The pilot runs were six runs with the `nv compare` circuits (2026-11-09 and 2026-11-10) and six
+runs with version 1 of the deep circuits (2026-11-12). They showed that IBM calibrations can
+state a readout error of exactly 0, that two factors do not fit the counts of the short
+circuits, and that the 1-qubit circuits of version 1 let a systematic over-rotation add up. The
+fits and the test scores of the pilot runs were read before the entries of 2026-11-12 from "the
+scores of the pilot runs" on were written.
+
+## Circuits
 
 `noisevault.suite.role` gives each circuit one role:
 
-- `train`: a model can fit its parameters on these circuits.
-- `test_near`: deep circuits of the same kind as the `train` circuits, from another random seed.
-- `test_far`: circuits of another kind. These are the `nv compare` circuits other than `readout`,
-  a periodic circuit, a circuit with 1-qubit gates on all qubits at the same time, and wide
-  circuits on 8 qubits. The `readout` circuit is a `train` circuit.
+- `train`: a model can fit its parameters on these circuits. They are the two readout circuits,
+  and mirror circuits on the chain, on each pair and on each qubit of the chain.
+- `test_near`: mirror circuits on the chain from two other random streams. One stream is the
+  same in each week. The other stream is new in each week.
+- `test_far`: circuits of another kind. These are the `nv compare` circuits other than
+  `readout`, a periodic circuit, a circuit with 1-qubit gates on all qubits at the same time,
+  mirror circuits on a chain of 8 qubits, and one mirror circuit on a chain of 20, 40 and 80
+  qubits.
+- `probe`: `axis_d64` and `axis_d256`, one gate 64 and 256 times on each qubit of the chain.
 
-No model sees a test circuit before its score is computed.
+No model sees a test circuit or a probe circuit before its score is computed.
 
-The runs of the week of 2026-11-09 with the `nv compare` circuits only are exploratory. Their fits
-were read before this plan was written. They showed that IBM calibrations can state a readout
-error of exactly 0, and that two factors do not fit the counts.
+A mirror circuit has layers of random gates, then one random Pauli gate or no gate on each
+qubit, then the layers undone in the opposite order. On a device whose 1-qubit gates turn about
+one axis, a random virtual Z rotation by a multiple of 90 degrees, or none, comes before each
+1-qubit gate. This is the design of randomized mirror circuits (Proctor et al., Nature Physics
+18, 75, 2022). The depth of a circuit comes from the calibration with its stated errors: the
+first depth at which the predicted polarization is at or below a target. The polarization of a
+circuit on n qubits with the probability p of its ideal result is (p - 1/2^n) / (1 - 1/2^n). The
+targets are 0.8, 0.6 and 0.4 on the chain, 0.75 and 0.4 on a pair, 0.7 on a qubit, and 0.6 and
+0.35 on 8 qubits. The depth of a circuit on 20, 40 or 80 qubits is the first depth at which the
+calibration predicts a wrong bit with a mean probability of 0.15 or more over the qubits.
+
+The comparisons use these groups of circuits:
+
+- `all4`: each circuit whose qubits are all qubits of the `readout` circuit of the run, without
+  the probe circuits.
+- `test4`: the test circuits in `all4`. `test_near` and `test_far` are its two parts.
+- `wide`: the circuits on 8 qubits.
+- The circuits on 20, 40 and 80 qubits, which only the stabilizer simulator scores.
 
 ## Models
 
@@ -43,7 +87,7 @@ the counts bind to.
 | Name | Model |
 | --- | --- |
 | `ideal` | No noise |
-| `generic` | One fixed model for every device: depolarizing error 0.001 for 1-qubit gates and 0.01 for 2-qubit gates, readout error 0.01, no relaxation |
+| `generic` | One fixed model for every device: depolarizing parameter 0.001 for 1-qubit gates and 0.01 for 2-qubit gates (average infidelities of 0.0005 and 0.0075), readout error 0.01, no relaxation |
 | `medians` | Each value of C replaced by the median of that value over the device |
 | `stale(d)` | The calibration of the same device that was in effect d days before the run, for d = 1, 7, 30, 90, 180 and 365 |
 | `bundled` | The bundled profile of the device |
@@ -51,17 +95,23 @@ the counts bind to.
 | `calibration` | C as stated |
 | `averaged(7)` | Each value of C replaced by the median of that value over the 7 calibrations in effect at the run time and 1 to 6 days before |
 | `two_factor` | C with one gate factor and one readout factor from `nv compare` on the `train` circuits |
+| `two_factor_before` | C with the two factors that `two_factor` fitted in the run of the same device and the same chain kind 5 to 9 days before |
 | `readout_measured` | C with the readout errors of each qubit measured on `readout` and `readout_1`, and one gate factor fitted on the other `train` circuits |
 | `locus` | `readout_measured` with one factor for each qubit fitted on its `qubit*` circuit, and one factor for each pair fitted on its `pair*` circuits, in place of the one gate factor |
 
 Zero floor: a calibration can state a probability of exactly 0, and a device then gives the
 outcome that the model calls impossible. Each model from a calibration is therefore scored in
 its floored form: each readout probability of exactly 0 is replaced by half of the smallest
-readout probability above 0 in the same calibration. The floored form is the form in each
-comparison. The calibration C is also scored as stated. The number of runs in which C as stated
-is ruled out is a result of its own.
+readout probability above 0 in the same calibration. Each model starts from C as stated, and the
+floor applies to the result. The `two_factor` model takes the factors that `nv compare` fits on
+C as stated, and the floor applies after the fit. The floored form is the form in each
+comparison. Only the calibration C is also scored as stated. The number of runs in which C as
+stated is ruled out is a result of its own.
 
 A measured readout probability is (k + 1/2) / (n + 1) for k wrong results in n shots.
+
+A model that cannot simulate a circuit of a group has no score for that group, and the reason
+is recorded. A comparison needs the scores of both of its models on its group.
 
 ## Scores
 
@@ -69,67 +119,137 @@ A measured readout probability is (k + 1/2) / (n + 1) for k wrong results in n s
   that the model gave to the measured outcome. A model that gives a measured outcome probability
   0 is ruled out.
 - The second score is the quadratic score: the mean over shots of 2 p(x) - sum of p(y)^2.
-- The excess is the log score of the measured frequencies minus the log score of the model. Its
-  reference is the excess of counts drawn from the model itself.
+- The excess is the log score of the measured frequencies minus the log score of the model. The
+  misfit is the excess minus the mean excess of counts drawn from the model itself, for each
+  shot. A fitted model has an error from the shots of its fit that this reference does not hold,
+  so its misfit is a little too high, and the plan gives no p-value for it.
 
-`nv score` computes these scores. `test_near` and `test_far` are scored separately.
+`nv score` computes these scores. `noisevault.score.paired` gives the test of two models on one
+run, at the 5% level. Its verdict is the verdict of the log score. This test is a description.
 
-## Comparisons
-
-Each comparison is the paired test of `noisevault.score.paired` on one run, at the 5% level, with
-the log score. A comparison with a fitted model uses the test circuits of the run, `test_near` and
-`test_far` together. A comparison of two models with no fitted parameter uses every circuit of
-the run.
+## Primary comparisons
 
 The five primary comparisons are:
 
-1. `calibration` against `medians`: do the values of each qubit forecast better than device
-   medians?
-2. `calibration` against `stale(30)`: does the calibration of the run forecast better than the
-   calibration from 30 days before?
-3. `calibration` against `symmetric`: do two readout errors for each qubit forecast better than
-   their mean?
-4. `two_factor` against `calibration`: do two fitted factors forecast better?
-5. `locus` against `two_factor`: do measured readout errors and one factor for each qubit and
-   each pair forecast better than two factors?
+1. `calibration` against `medians` on `all4`: do the values of each qubit forecast better than
+   device medians?
+2. `calibration` against `stale(30)` on `all4`: does the calibration of the run forecast better
+   than the calibration from 30 days before?
+3. `calibration` against `symmetric` on `all4`: do two readout errors for each qubit forecast
+   better than their mean?
+4. `two_factor` against `calibration` on `test4`: do two fitted factors forecast better?
+5. `locus` against `two_factor` on `test4`: do measured readout errors and one factor for each
+   qubit and each pair forecast better than two factors?
 
-For each primary comparison, the result over all runs is the number of runs in which the first
-model is better, the second model is better, or neither, for each device. The verdict of a run is
-the verdict of the log score. A run in which the log score gives no test counts as neither. The
-test of a primary comparison is the two-sided sign test over the runs with a verdict, against
-equal chances. The
-five sign tests form one family, with the Holm correction at the 5% level. Runs of one device in
-different weeks are not independent draws of devices, so the result is also given for each
-device.
+The unit is the device-week: the set of runs of one device in one ISO week. For a comparison and
+a run, delta is the log score of the first model minus the log score of the second model, for
+each shot, on the circuits of the comparison. It is the difference that
+`noisevault.score.paired` gives for the log score. Y is the mean of delta over the two runs of a
+device-week. A device-week is complete when it has its run on the best chain and its run on the
+median chain, and each run has a finite delta. Only complete device-weeks are in the estimate,
+and the summary gives the number of the others.
 
-The secondary comparisons are not in the family, and their results are descriptive:
+For a device with n complete device-weeks, n at least 4, m is the mean of Y and s^2 is its
+sample variance. The estimate is the mean of m over the devices. Its standard error is the
+square root of the sum over the devices of f s^2 / n, divided by the number of devices. The
+factor f corrects for weeks that are correlated. rho is the pooled correlation of Y - m between
+weeks that are 7 days apart, plus (1 + 3 rho) / n with the mean n of the devices, limited to the
+range from 0 to 0.9. g is the sum for k from 1 to n - 1 of (1 - k / n) rho^k, and
+f = (1 + 2 g) / (1 - 2 g / (n - 1)). The test is the two-sided t-test with the sum of n - 1 over
+the devices as degrees of freedom.
 
-- `calibration` against `stale(d)` for each other d, and against `bundled`. The difference in log
-  score as a function of the age of the values is the staleness curve.
+The five tests form one family with the Holm correction at the 5% level. A comparison with no
+test counts with a p-value of 1. A confirmed comparison holds for these devices in the weeks of
+the study. It is not a result for devices in general. A confirmed difference below 0.001 nats
+for each shot is called small.
+
+The primary result of a comparison uses all runs that count and the log score.
+
+## Strata
+
+Two properties of a run are strata: the chain kind (best or median), and whether the
+calibration states a readout probability of exactly 0 on a qubit of the chain. The summary gives
+each primary estimate for each chain kind, and for the runs with and without such a zero. For
+one chain kind, Y is the delta of the one run. The difference of delta between the best chain
+and the median chain of a device-week is a secondary estimate with the same rule for the
+standard error. A confirmed comparison 5 is read with its two parts: `readout_measured` against
+`two_factor`, and `locus` against `readout_measured`.
+
+## Secondary results
+
+Each result of this section is descriptive. None is in the family of tests.
+
+- For each primary comparison: the estimate with f = 1, the values m and s of each device, the
+  interval in which Y of a new week of the same device is expected, the median standard error
+  of delta of a run, the sign test of Y over the device-weeks, the verdict counts of the runs,
+  and the estimate without the marked runs, for `test_near` and `test_far`, and with the
+  quadratic score.
+- `calibration` against `stale(d)` for each other d, and against `bundled`. The staleness curve
+  uses the nominal age d as its x value. A point of the curve is the estimate for delta of
+  `stale(d)` against `calibration` on `all4`, with its 95% interval and the number of
+  device-weeks. The trend is the least-squares slope of delta against log10(d) of each run,
+  with the same estimate. Each result is given for each chain kind. The median ages of the
+  values of each model are a note.
 - `readout_measured` against `two_factor`, and `locus` against `readout_measured`.
-- `averaged(7)` against `calibration`, on every circuit of the run: does the median of a week of
-  values forecast better than the newest value?
-- Each primary comparison on `test_near` and on `test_far` separately, and with the quadratic
-  score.
+- `averaged(7)` against `calibration` on `all4`, with the number of different calibrations in
+  each median.
+- `two_factor_before` against `calibration` and against `two_factor` on `test4`.
+- On the 8-qubit circuits alone: `two_factor` against `calibration`, `locus` against
+  `two_factor`, and `calibration` against `medians`, with the number of qubits of the 8-qubit
+  chain that are in the chain of the run.
+- The misfit of `locus`, `two_factor` and `calibration` on the `test_far` circuits of the chain:
+  its median for each device, and the part of the excess that comes from outcomes with fewer
+  than 1 expected shot.
+- The age of a value against its fitted factor: the Spearman rank correlation between the age
+  of the value of each qubit and each pair and the absolute value of ln f of the `locus` model,
+  with no p-value, with the number of factors at a limit of the search, and also without them.
+- The number of runs with a fitted factor that the fit does not identify.
+- The probe circuits. For each qubit and each probe, the measured fraction of wrong bits and
+  the forecasts of `calibration` and of `two_factor`. The fraction of wrong bits of the
+  `readout` circuit is the baseline. The growth ratio of a qubit is the fraction above the
+  baseline at 256 gates, divided by the fraction above the baseline at 64 gates. A systematic
+  rotation error gives a ratio near 16 when the fractions are small. An error with no direction
+  gives a ratio near 4.
+- A check of independent shots. For each circuit that both runs of a device-week hold, the two
+  sets of counts are compared. On 8 qubits, the outcomes with fewer than 5 expected shots become
+  one cell, and the statistic is the Pearson chi-square statistic of the 2 by K table. On a
+  circuit of 20, 40 or 80 qubits, the same statistic uses the number of wrong bits. The summary
+  gives the ratio of the statistic to its degrees of freedom for each device-week.
 
-- The age of a value against its error. The `locus` model gives a fitted factor f for each qubit
-  and each pair, and IBM gives the age of the value of each qubit and each pair. The measure is
-  the Spearman rank correlation between the age and the absolute value of ln f, for the qubits
-  and for the pairs of each device.
+## Circuits on 20, 40 and 80 qubits
 
-The adequacy test uses the `locus` model, which has the most fitted parameters: its excess on
-`test_far`, with the p-value of `nv score`.
+The exact simulator cannot run these circuits. A stabilizer simulator gives the forecast of a
+model, with each noise channel replaced by its Pauli twirl. Three scores apply: the ideal bit
+string (right or wrong), the number of wrong bits, and each qubit alone (the sum over the qubits
+of the log probability of its bit). The score of each qubit judges each qubit alone, so it does
+not judge the correlations between qubits. The verdict of a comparison on these circuits is the
+verdict of the score of each qubit. The comparisons are `calibration` against `medians`,
+`two_factor` against `calibration`, and `averaged(7)` against `calibration`. The fitted factors
+come from the `train` circuits on 4 qubits of the same run.
+
+Each marginal of the forecast uses 4,000,000 samples, or its exact value. The variance of a
+test holds the sampling variance of both forecasts. For the score of each qubit, the sampling
+variance of one model and one circuit is a^T C a / S. C is the covariance matrix of the
+wrong-bit values of the qubits over the S samples, and a holds N (f - q) / (q (1 - q)) for each
+qubit, with N shots, the measured fraction f and the forecast q of a wrong bit. The score of the
+number of wrong bits uses (N^2 / S) (sum over the cells of f^2 / p - 1). A test gives no verdict
+when the sampling variance is larger than the shot variance. The score of the ideal bit string
+gives no verdict on 40 and 80 qubits. Both runs of a device-week hold the same circuits on 8,
+20, 40 and 80 qubits, so a summary over these circuits uses the mean of the two runs of a
+device-week as one value. The size of the twirl approximation is measured on the 8-qubit
+circuits, where both forecasts exist, for each model that these comparisons use.
 
 ## Rules
 
-- Every collected run is in the analysis. A run whose counts bind to the planned calibration
-  because the device was recalibrated before the job ran is marked, and results are given with
-  and without the marked runs.
-- A model that cannot simulate a circuit of a run has no score for that run, and the reason is
-  recorded.
-- The analysis of IBM runs stops with the run of the week of 2027-02-01, or earlier when at least
-  8 weeks of runs exist for each device.
+- Every run of the weeks that count is in the analysis.
+- A run that is in the data two times counts one time.
 - Results that are not in this plan are labelled exploratory.
+- From the first run that counts, each change of this plan and each change of the analysis code
+  that changes a result is marked in [Changes](#changes) as made after test scores were read.
+
+## Freeze
+
+To be written before the first run that counts.
 
 ## Changes
 
@@ -330,3 +450,13 @@ The adequacy test uses the `locus` model, which has the most fitted parameters: 
   comparisons on `test4` use it: against `calibration` and against `two_factor`. A fitted model
   knows the state of the device in the seconds of its job. This model shows how much of the gain
   of a fit is left after one week.
+- 2026-11-12: the sampling variance of the score of each qubit, corrected. The marginals of one
+  set of samples are correlated between qubits. The sampling variance of one model and one
+  circuit is therefore a^T C a / S. C is the covariance matrix of the wrong-bit values of the
+  qubits over the samples, and a holds N (f - q) / (q (1 - q)) for each qubit. This form
+  replaces the sum over the qubits in the entry on the tests on the Clifford circuits.
+- 2026-11-12: a model with no score. In the first version, a model that could not simulate one
+  circuit of a run had no score for that run. A stale calibration that has no gate on one qubit
+  of the 8-qubit chain then left primary comparison 2, which uses only the circuits of the
+  4-qubit chain. From now on, a model that cannot simulate a circuit of a group has no score for
+  that group only.

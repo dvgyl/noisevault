@@ -8,6 +8,11 @@ each file and writes ``fits.json`` and ``fits.md`` to the output folder. It also
 fits as ``table.json`` and ``table.md``, in the format of ``scripts/build_realism_table.py``. For
 a run of the deep circuit set, the fit uses only the ``train`` circuits (see ``PLAN.md``).
 
+The realism table leaves out each run of version 1 of the deep circuit set. The 1-qubit circuits
+of that version held only gates about one axis, so a small systematic rotation error added up
+in them, and the fitted factors do not give the size of the errors in other circuits. The fits
+of these runs stay in ``fits.json``, with ``circuit_set`` 1.
+
 The output holds derived numbers only: fitted factors, intervals, distances and tests. A row holds
 no counts, no calibration value, no file name and no job id. The SHA-256 of each counts file and
 the fingerprint of each calibration identify the data. A file that cannot be fitted gives a
@@ -23,6 +28,7 @@ import importlib.util
 import json
 import sys
 from collections.abc import Iterator, Sequence
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -33,6 +39,10 @@ from noisevault.suite import train_names
 from study import kept
 
 FORMAT = "1"
+# Version 2 of the deep circuit set has the probe circuits axis_*. A run with a design for a
+# budget can leave them out, so the date decides for such a run. No version 1 run exists from
+# this date.
+VERSION_2_FROM = datetime(2026, 11, 16, tzinfo=UTC)
 COUNTS_SUFFIXES = (".counts.json", ".counts.json.gz")
 TABLE_SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "build_realism_table.py"
 
@@ -60,6 +70,17 @@ def fit_counts(counts: MeasuredCounts) -> tuple[MeasuredCounts, str]:
     return (counts, "all") if train is None else (counts.select(train), "train")
 
 
+def circuit_set(counts: MeasuredCounts) -> int | None:
+    """The version of the deep circuit set of a run, or None for a run of the ``nv compare``
+    circuits alone."""
+    names = [c.name for c in counts.circuits]
+    if train_names(names) is None:
+        return None
+    if any(name.startswith("axis_") for name in names) or counts.run_at >= VERSION_2_FROM:
+        return 2
+    return 1
+
+
 def fit(path: Path) -> tuple[dict[str, Any], dict[str, Any]]:
     """The derived row of one counts file, and its row of the realism table."""
     run = load_counts(path)
@@ -72,6 +93,7 @@ def fit(path: Path) -> tuple[dict[str, Any], dict[str, Any]]:
         "technology": device.technology,
         "calibrated_at": None if device.calibrated_at is None else device.calibrated_at.isoformat(),
         "fit_on": fit_on,
+        "circuit_set": circuit_set(run),
         "run_counts": run.sha256,
         **result.to_dict(),
     }
@@ -98,7 +120,8 @@ def derive(root: Path, rows_folder: Path | None = None) -> tuple[dict[str, Any],
             failures.append({"error": type(exc).__name__, "file": f"sha256:{digest}"})
             continue
         rows.append(row)
-        table_rows.append(table_row)
+        if row["circuit_set"] != 1:
+            table_rows.append(table_row)
     rows.sort(key=lambda r: (r["profile_id"], r["run_at"], r["counts"]))
     table_rows.sort(key=lambda r: (r["device"], r["run_at"], r["counts"]))
     script = _table_script()
