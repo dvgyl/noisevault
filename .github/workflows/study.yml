@@ -74,7 +74,8 @@ jobs:
           cat results/fits.md >> "$GITHUB_STEP_SUMMARY"
           # The analysis pulls older calibrations of each device from IBM's public endpoint.
           python -m study.analyze campaign --out results --cache calibrations || status=$?
-          cat results/analysis.md >> "$GITHUB_STEP_SUMMARY"
+          python -m study.summarize results/analysis.json --out results || status=$?
+          cat results/summary.md results/analysis.md >> "$GITHUB_STEP_SUMMARY"
           exit "$status"
 
       - name: Remove the campaign folder
