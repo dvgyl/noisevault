@@ -1,21 +1,30 @@
 from __future__ import annotations
 
 from collections import Counter
+from math import pi
 
 import numpy as np
 import pytest
+from conftest import require
 
 import noisevault as nv
-from noisevault.counts import plan, simulate
+from noisevault import wide
+from noisevault.counts import PlannedCircuit, plan, simulate
 from noisevault.profile import Profile
 from noisevault.reference import Op, probabilities
 from noisevault.suite import (
     ASSUMED_GATE_FACTOR,
     CHAIN_TARGETS,
+    CLIFFORD_TARGETS,
     DEPTHS,
     MIN_WAIT_NS,
     TEST_SEED,
     _circuit,
+    _clifford_circuits,
+    _layers,
+    _mirror,
+    _natives,
+    _stabilizer_ideal,
     describe,
     role,
     suite,
@@ -246,3 +255,130 @@ def test_a_device_with_a_long_chain_gets_wide_test_circuits(long_line: Profile) 
 
 def test_a_device_with_fewer_qubits_than_the_wide_chain_gets_no_wide_circuit(circuits) -> None:
     assert not any(c.name.startswith("wide_") for c in circuits)
+
+
+def test_a_device_with_fewer_than_20_qubits_gets_no_clifford_circuit(circuits, long_line) -> None:
+    assert not any(c.name.startswith("clifford_") for c in circuits)
+    assert not _clifford_circuits(long_line, long_line, 0)
+
+
+def _ibm_line(num_qubits: int, natives: tuple[str, ...] = ("rz", "sx", "x", "cz")) -> Profile:
+    data = Profile.uniform(
+        "line",
+        technology="superconducting",
+        num_qubits=num_qubits,
+        connectivity=[(q, q + 1) for q in range(num_qubits - 1)],
+        one_qubit_error=1e-3,
+        two_qubit_error=1e-2,
+        readout_error=2e-2,
+        t1_us=200.0,
+        t2_us=150.0,
+        one_qubit_ns=32.0,
+        two_qubit_ns=68.0,
+    ).to_dict()
+    data["gates"] = {k: v for k, v in data["gates"].items() if k in natives}
+    return Profile.model_validate(data)
+
+
+@pytest.fixture(scope="module")
+def line_24() -> Profile:
+    """24 qubits in a line with the IBM gate set, so that a chain of 20 exists."""
+    require("stim")
+    return _ibm_line(24)
+
+
+@pytest.fixture(scope="module")
+def clifford_suite(line_24: Profile) -> tuple:
+    return suite(line_24)
+
+
+def test_a_device_with_a_chain_of_20_gets_one_clifford_circuit_of_20(clifford_suite) -> None:
+    found = [c for c in clifford_suite if c.name.startswith("clifford_")]
+
+    assert [c.name.rsplit("_d", 1)[0] for c in found] == ["clifford_n20"]
+    (circuit,) = found
+    assert len(circuit.qubits) == 20
+    assert all(abs(a - b) == 1 for a, b in zip(circuit.qubits, circuit.qubits[1:], strict=False))
+    assert {op.name for op in circuit.ops} <= {"sx", "x", "cz", "delay"}
+    assert all(wide.instruction(op) for op in circuit.ops if op.name != "delay")
+
+
+def test_each_clifford_circuit_gives_one_bit_string_in_stim_without_noise(clifford_suite) -> None:
+    noiseless = Profile.uniform(
+        "ideal",
+        technology="superconducting",
+        num_qubits=24,
+        connectivity=[(q, q + 1) for q in range(23)],
+        one_qubit_error=0.0,
+        two_qubit_error=0.0,
+    )
+    for circuit in clifford_suite:
+        if circuit.name.startswith("clifford_"):
+            bits = wide.ideal_bits(circuit)
+            assert wide.counts(wide.sample(noiseless, circuit, 1000, seed=0)) == {bits: 1000}
+            assert set(bits) == {"0", "1"}
+
+
+def test_the_clifford_depth_is_the_first_that_reaches_the_target(line_24, clifford_suite) -> None:
+    (circuit,) = [c for c in clifford_suite if c.name.startswith("clifford_")]
+    depth = int(circuit.name.rsplit("_d", 1)[1])
+    assumed = line_24.model_copy(
+        update={"unmodeled_error": {"gates": {"factor": ASSUMED_GATE_FACTOR}}}
+    )
+    bits = [int(b) for b in wide.ideal_bits(circuit)]
+    natives = _natives(line_24, circuit.qubits, clifford=True)
+    stream = (0, 6, 20)
+
+    def built(at: int) -> PlannedCircuit:
+        layers = _layers(natives, 20, at, stream)
+        return _mirror(line_24, "deep", circuit.qubits, natives, layers, stream)
+
+    def predicted(at: int) -> float:
+        return _stabilizer_ideal(built(at), assumed, bits)
+
+    assert built(depth).ops == circuit.ops
+    assert predicted(depth) <= CLIFFORD_TARGETS[0]
+    earlier = [d for d in DEPTHS if d < depth]
+    assert not earlier or predicted(earlier[-1]) > CLIFFORD_TARGETS[0]
+
+
+def test_the_clifford_circuits_are_far_tests_that_no_fit_sees(clifford_suite) -> None:
+    names = [c.name for c in clifford_suite]
+    clifford = [name for name in names if name.startswith("clifford_")]
+
+    assert clifford and all(role(name) == "test_far" for name in clifford)
+    assert not set(clifford) & set(train_names(names) or [])
+    assert train_names(["readout", *clifford]) == ["readout"]
+
+
+def test_without_stim_the_suite_holds_no_clifford_circuit(line_24, clifford_suite, monkeypatch):
+    monkeypatch.setattr(wide, "has_stim", lambda: False)
+
+    assert suite(line_24) == tuple(c for c in clifford_suite if not c.name.startswith("clifford_"))
+
+
+def test_a_chain_without_a_clifford_native_on_a_pair_gets_no_clifford_circuit() -> None:
+    require("stim")
+    no_clifford_pair = _ibm_line(20, ("rz", "sx", "x", "ecr"))
+
+    assert not _clifford_circuits(no_clifford_pair, no_clifford_pair, 0)
+
+
+def test_the_clifford_natives_take_each_clifford_angle_of_a_gate_with_parameters() -> None:
+    ions = Profile.uniform(
+        "ions",
+        technology="trapped_ion",
+        num_qubits=3,
+        connectivity="all_to_all",
+        one_qubit_error=1e-3,
+        two_qubit_error=1e-2,
+    ).to_dict()
+    ions["gates"] = {k: v for k, v in ions["gates"].items() if k in ("r", "ms")}
+
+    found = _natives(Profile.model_validate(ions), (0, 1, 2), clifford=True)
+
+    assert [(op.name, op.params) for op in found.ones] == [
+        ("r", (pi / 2, 0.0)),
+        ("r", (pi / 2, pi / 2)),
+    ]
+    assert [(op.name, op.params) for op in found.pairs] == [("ms", (0.0, 0.0))] * 2

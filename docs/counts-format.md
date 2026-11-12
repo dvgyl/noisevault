@@ -119,14 +119,26 @@ the job ids.
 | Field | Content |
 | --- | --- |
 | `name` | The circuit's name. Names are unique within a file. |
-| `qubits` | The physical qubits, 1 to 10 and distinct. Circuit qubit i is `qubits[i]`. |
+| `qubits` | The physical qubits, 1 to 256 and distinct. Circuit qubit i is `qubits[i]`. |
 | `ops` | The ops the device ran, in order, on circuit qubits. Can be empty. |
 | `shots` | The number of shots, at least 1 and at most 10^10 (10000000000). |
 | `counts` | The number of shots that gave each outcome. The counts add up to `shots`. |
 
 The device measures every circuit qubit once, after the last op, into the classical bit with the
-same index. A file holds at most 4096 outcomes over all its circuits, where a circuit on n qubits
-has 2^n. `simulate` also refuses `shots` above 10^10.
+same index. `simulate` also refuses `shots` above 10^10.
+
+A file has two qubit limits:
+
+| Limit | Applies to |
+| --- | --- |
+| 256 qubits | Each circuit in the file. A file with a wider circuit does not load. |
+| 10 qubits | Each circuit that `nv compare`, `nv score`, `simulate` or `circuit.vector()` reads. These use the exact reference simulator, which holds 2^n outcomes. |
+
+A circuit on 11 to 256 qubits loads, saves, and goes through `select` and `split`. Its counts stay
+a dict of bit strings. `nv compare`, `nv score` and `simulate` refuse such a circuit and name it.
+Select the circuits of 10 qubits or fewer first. For a wide Clifford circuit, use the stabilizer
+forecast of `noisevault.wide` instead. The circuits of 10 qubits or fewer in one file hold at most
+4096 outcomes in all, where a circuit on n qubits has 2^n.
 
 ### Ops
 
@@ -150,7 +162,7 @@ classical bit 0:
 
 `load_counts` stores keys as `clbit0_left`, sorted, with zero counts dropped. `circuit.vector()`
 gives the counts as an array in the order of the reference simulator's probabilities, with
-circuit qubit 0 as the most significant bit.
+circuit qubit 0 as the most significant bit. A circuit on more than 10 qubits has no such array.
 
 ## Planned circuits
 

@@ -774,3 +774,104 @@ def test_validating_a_run_leaves_the_given_dict_unchanged() -> None:
     MeasuredCounts.model_validate(data)
 
     assert data == kept
+
+
+WIDE = 20
+
+
+def _wide_run() -> dict[str, Any]:
+    """The run of ``_run`` with one more circuit on 20 qubits, wider than the reference holds."""
+    data = _run()
+    data["circuits"].append(
+        {
+            "name": "wide",
+            "qubits": list(range(WIDE)),
+            "ops": [["x", [0], []], ["x", [0], []]],
+            "shots": 100,
+            "counts": {"0" * WIDE: 70, "1" + "0" * (WIDE - 1): 20, "0" * (WIDE - 1) + "1": 10},
+        }
+    )
+    return data
+
+
+def test_a_wide_circuit_saves_loads_selects_and_splits(tmp_path: Path) -> None:
+    counts = load_counts(_write(tmp_path / "wide.counts.json", _wide_run()))
+    wide = counts.circuits[2]
+
+    again = load_counts(counts.save(tmp_path / "saved.counts.json.gz"))
+    first, second = counts.split(0.5, seed=1)
+
+    assert again == counts
+    assert counts.select(["wide"]).circuits[0].counts == wide.counts
+    assert first.circuits[2].shots == second.circuits[2].shots == 50
+    summed = {
+        key: first.circuits[2].counts.get(key, 0) + second.circuits[2].counts.get(key, 0)
+        for key in wide.counts
+    }
+    assert summed == dict(wide.counts)
+
+
+def test_a_circuit_on_more_than_256_qubits_is_refused() -> None:
+    data = _wide_run()
+    data["circuits"][2].update(qubits=list(range(257)), counts={"0" * 257: 100})
+
+    with pytest.raises(ValidationError, match="at most 256 items"):
+        MeasuredCounts.model_validate(data)
+
+
+def test_the_outcome_limit_counts_only_the_circuits_that_the_reference_holds() -> None:
+    data = _run()
+    _too_many_outcomes(data)
+    data["circuits"] = [*data["circuits"][:4], _wide_run()["circuits"][2]]
+
+    counts = MeasuredCounts.model_validate(data)
+
+    assert [len(c.qubits) for c in counts.circuits] == [10, 10, 10, 10, WIDE]
+
+
+@pytest.mark.parametrize("task", ["vector", "score", "compare", "simulate"])
+def test_each_function_that_needs_the_reference_refuses_a_wide_circuit_by_name(
+    tmp_path: Path, task: str
+) -> None:
+    counts = load_counts(_write(tmp_path / "wide.counts.json", _wide_run()))
+    calls: dict[str, Callable[[], Any]] = {
+        "vector": counts.circuits[2].vector,
+        "score": lambda: kingston().score(counts),
+        "compare": lambda: kingston().compare(counts),
+        "simulate": lambda: simulate(kingston(), counts.circuits, shots=10, seed=0),
+    }
+
+    with pytest.raises(CountsError, match="circuit wide has 20 qubits, more than the 10 that"):
+        calls[task]()
+
+
+def test_the_refusal_of_a_wide_circuit_says_what_to_do_instead(tmp_path: Path) -> None:
+    counts = load_counts(_write(tmp_path / "wide.counts.json", _wide_run()))
+
+    with pytest.raises(CountsError) as caught:
+        kingston().score(counts)
+
+    assert caught.value.hint == (
+        "select the circuits of 10 qubits or fewer, or score the wider circuits with the"
+        " stabilizer score of study/wide.py"
+    )
+
+
+def test_the_circuits_of_a_wide_run_that_the_reference_holds_still_score(tmp_path: Path) -> None:
+    counts = load_counts(_write(tmp_path / "wide.counts.json", _wide_run()))
+    names = ["bell", "readout"]
+    fitted = kingston().model_copy(update={"unmodeled_error": FITTED})
+
+    a, b = kingston().score(counts, circuits=names), fitted.score(counts, circuits=names)
+
+    assert [c.name for c in a.circuits] == names
+    assert nv.score.paired(a, b).quadratic.outcome == "tested"
+    assert kingston().compare(counts.select(names)).summary_lines()
+
+
+def test_the_reference_refuses_more_than_10_qubits_with_a_hint() -> None:
+    with pytest.raises(nv.errors.TooWideError, match="holds 1 to 10 qubits, not 11") as caught:
+        probabilities(kingston(), [], 11, layout=list(range(11)))
+
+    assert isinstance(caught.value, ValueError)
+    assert "noisevault.wide" in (caught.value.hint or "")

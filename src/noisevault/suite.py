@@ -13,8 +13,13 @@ The set has three roles, which ``role`` gives for each circuit name:
   A fit uses these circuits.
 - ``test_near``: deep circuits on the chain from another random seed.
 - ``test_far``: the ``nv check`` circuits, a periodic circuit, a circuit with 1-qubit gates on
-  all qubits at the same time, and deep circuits on a chain of ``WIDE_QUBITS`` qubits. No fit
-  sees these circuits.
+  all qubits at the same time, deep circuits on a chain of ``WIDE_QUBITS`` qubits, and one
+  Clifford mirror circuit on a chain of each size in ``CLIFFORD_QUBITS``. No fit sees these
+  circuits.
+
+A Clifford circuit has more qubits than the reference simulator holds, so the stabilizer forecast
+of ``noisevault.wide`` gives its depth. It uses only the gates and angles of
+``noisevault.wide.CLIFFORD``. Without Stim, ``suite`` makes no Clifford circuit.
 
 Each layer starts at the same time on every qubit of the circuit, and an explicit delay holds
 every wait. A wait is 0 ns or at least ``MIN_WAIT_NS``, because a device refuses a delay that is
@@ -23,13 +28,13 @@ shorter than its time grid allows.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 
-from . import check
+from . import check, wide
 from .counts import PlannedCircuit, _delay_disabled, _duration, plan
 from .errors import LayoutError
 from .layout import suggest_layout
@@ -55,19 +60,25 @@ QUBIT_TARGETS = (0.85,)
 # The wide circuits test a model on twice the qubits of the chain, most of them other qubits.
 WIDE_QUBITS = 8
 WIDE_TARGETS = (0.6, 0.35)
+# The Clifford circuits test a model on more qubits than the reference simulator holds.
+CLIFFORD_QUBITS = (20, 40, 80)
+CLIFFORD_TARGETS = (0.3,)
+# The depth search samples the stabilizer forecast. This many samples give the probability of
+# the ideal result to about 0.003 near the target.
+CLIFFORD_SAMPLES = 20_000
 TRAIN_SEEDS = (0, 1)
 TEST_SEED = 2
-_CHAIN, _PAIR, _QUBIT, _FLIP, _WIDE = 1, 2, 3, 4, 5
+_CHAIN, _PAIR, _QUBIT, _FLIP, _WIDE, _CLIFFORD = 1, 2, 3, 4, 5, 6
 _TRAIN_PREFIXES = ("readout", "pair", "qubit")
-_ONLY_IN_SUITE = ("readout_1", "deep_", "pair", "qubit", "periodic_", "wide_")
+_ONLY_IN_SUITE = ("readout_1", "deep_", "pair", "qubit", "periodic_", "wide_", "clifford_")
 _FLIPPED = 1 - 1e-9
 
 
 @dataclass(frozen=True)
 class _Natives:
-    """The gates that a deep circuit on one chain can use."""
+    """The gates that a deep circuit on one chain can use. Each op in ``ones`` is on qubit 0."""
 
-    ones: tuple[str, ...]
+    ones: tuple[Op, ...]
     pairs: tuple[Op | None, ...]
     flip: tuple[Op, ...] | None
 
@@ -126,12 +137,14 @@ def suite(
         period = _layers(natives, n, 2, (seed, _CHAIN, TEST_SEED + 1))
         layers = period * (middle // 2 or 1)
         circuits.append(_mirror(base, f"periodic_d{middle}", chain, natives, layers, (seed, 0)))
-    wide = _wide_chain(base) if middle is not None else None
-    if wide is not None:
-        found = _natives(base, wide)
+    eight = _wide_chain(base) if middle is not None else None
+    if eight is not None:
+        found = _natives(base, eight)
         if found.ones and all(found.pairs):
-            for depth, built in _family(assumed, wide, found, WIDE_TARGETS, (seed, _WIDE, 0)):
+            for depth, built in _family(assumed, eight, found, WIDE_TARGETS, (seed, _WIDE, 0)):
                 circuits.append(built.model_copy(update={"name": f"wide_d{depth}_s0"}))
+    if wide.has_stim():
+        circuits += _clifford_circuits(base, assumed, seed)
     return tuple(circuits)
 
 
@@ -139,7 +152,7 @@ def role(name: str) -> Role:
     """The role of the suite circuit ``name``. A name that ``suite`` does not make is a test."""
     if name.startswith("deep_"):
         return "test_near" if name.endswith(f"_s{TEST_SEED}") else "train"
-    if name.startswith(("qubits_", "wide_")):
+    if name.startswith(("qubits_", "wide_", "clifford_")):
         return "test_far"
     return "train" if name.startswith(_TRAIN_PREFIXES) else "test_far"
 
@@ -168,29 +181,72 @@ def _wide_chain(profile: Profile) -> tuple[int, ...] | None:
     return tuple(found.values())
 
 
-def _natives(profile: Profile, chain: Sequence[int]) -> _Natives:
+def _clifford_circuits(base: Profile, assumed: Profile, seed: int) -> list[PlannedCircuit]:
+    """One Clifford mirror circuit on a chain of each size in ``CLIFFORD_QUBITS`` that fits.
+
+    A size is left out when the device has no such chain with a Clifford native on each pair,
+    when a qubit of the chain has no Clifford 1-qubit native, or when a qubit of the chain must
+    wait but disables delay.
+    """
+    built: list[PlannedCircuit] = []
+    for n in CLIFFORD_QUBITS:
+        if base.device.num_qubits < n:
+            continue
+        try:
+            found = suggest_layout(base, n, usable_pair=lambda a, b: _clifford_pair(base, a, b))
+            chain = tuple(found.values())
+            natives = _natives(base, chain, clifford=True)
+            if not natives.ones or not all(natives.pairs):
+                continue
+            family = _family(
+                assumed, chain, natives, CLIFFORD_TARGETS, (seed, _CLIFFORD, n), _stabilizer_ideal
+            )
+        except LayoutError:
+            continue
+        built += [c.model_copy(update={"name": f"clifford_n{n}_d{d}"}) for d, c in family]
+    return built
+
+
+def _clifford_pair(profile: Profile, a: int, b: int) -> bool:
+    return bool(_clifford_twos(profile, (a, b), 0))
+
+
+def _clifford_twos(profile: Profile, chain: Sequence[int], i: int) -> list[Op]:
+    """The Clifford ops of each calibrated 2-qubit native on circuit pair (i, i+1)."""
+    return [
+        clifford
+        for op in check._two_qubit_ops(profile, chain, i)
+        for clifford in wide.clifford_ops(op.name, op.qubits)
+    ]
+
+
+def _natives(profile: Profile, chain: Sequence[int], *, clifford: bool = False) -> _Natives:
+    """The natives of ``chain``. With ``clifford``, only the ops of ``noisevault.wide.CLIFFORD``."""
     table = profile.table
     n = len(chain)
     ones = tuple(
-        name
+        op
         for name in check._unitary_natives(profile, 1)
         if all(check._calibrated(table.gate(name, (p,))) for p in chain)
-        and check._inverse(check._op(name, (0,))) is not None
+        for op in (wide.clifford_ops(name, (0,)) if clifford else [check._op(name, (0,))])
+        if check._inverse(op) is not None
     )
     pairs: list[Op | None] = []
     for i in range(n - 1):
-        usable = [
-            op for op in check._two_qubit_ops(profile, chain, i) if check._inverse(op) is not None
-        ]
+        found = (
+            _clifford_twos(profile, chain, i)
+            if clifford
+            else check._two_qubit_ops(profile, chain, i)
+        )
+        usable = [op for op in found if check._inverse(op) is not None]
         pairs.append(usable[0] if usable else None)
     return _Natives(ones, tuple(pairs), _flip(ones))
 
 
-def _flip(ones: Sequence[str]) -> tuple[Op, ...] | None:
+def _flip(ones: Sequence[Op]) -> tuple[Op, ...] | None:
     """The shortest run of one native gate that takes |0> to |1>, or None."""
     best: tuple[Op, ...] | None = None
-    for name in ones:
-        op = check._op(name, (0,))
+    for op in ones:
         unitary = check._unitary(op)
         power = np.eye(2, dtype=complex)
         for k in range(1, 5):
@@ -212,12 +268,16 @@ def _layers(natives: _Natives, n: int, depth: int, stream: Sequence[int]) -> lis
     layers: list[Layer] = []
     for index in range(depth):
         picks = rng.integers(len(natives.ones), size=n)
-        layers.append(tuple(check._op(natives.ones[k], (q,)) for q, k in enumerate(picks)))
+        layers.append(tuple(_on(natives.ones[k], q) for q, k in enumerate(picks)))
         parity = 0 if n == 2 else index % 2
         twos = tuple(op for op in natives.pairs[parity::2] if op is not None)
         if twos:
             layers.append(twos)
     return layers
+
+
+def _on(op: Op, qubit: int) -> Op:
+    return Op(op.name, (qubit,), op.params)
 
 
 def _undone(layers: Sequence[Layer]) -> list[Layer]:
@@ -291,11 +351,20 @@ def _synchronous(profile: Profile, qubits: tuple[int, ...], layers: Sequence[Lay
     return ops
 
 
+Predict = Callable[[PlannedCircuit, "Profile", Sequence[int]], float]
+
+
 def _ideal(circuit: PlannedCircuit, profile: Profile, bits: Sequence[int]) -> float:
     """The probability that ``profile`` gives the ideal result ``bits`` of ``circuit``."""
     n = len(circuit.qubits)
     index = int("".join(str(bit) for bit in bits), 2)
     return float(probabilities(profile, circuit.ops, n, layout=circuit.qubits)[index])
+
+
+def _stabilizer_ideal(circuit: PlannedCircuit, profile: Profile, bits: Sequence[int]) -> float:
+    """The share of ``CLIFFORD_SAMPLES`` stabilizer samples that give the ideal result."""
+    sampled = wide.sample(profile, circuit, CLIFFORD_SAMPLES, seed=0)
+    return float(np.mean(np.all(sampled == np.asarray(bits, dtype=bool), axis=1)))
 
 
 def _depths(
@@ -304,6 +373,7 @@ def _depths(
     natives: _Natives,
     targets: Sequence[float],
     stream: Sequence[int],
+    predict: Predict = _ideal,
 ) -> list[int]:
     """For each target, the first depth at which the predicted ideal result is that rare."""
     found: list[int] = []
@@ -312,7 +382,7 @@ def _depths(
     for depth in DEPTHS:
         layers = _layers(natives, len(qubits), depth, stream)
         built = _mirror(profile, "deep", qubits, natives, layers, stream)
-        predicted = _ideal(built, profile, bits)
+        predicted = predict(built, profile, bits)
         while remaining and predicted <= remaining[0]:
             remaining.pop(0)
             if depth not in found:
@@ -330,11 +400,12 @@ def _family(
     natives: _Natives,
     targets: Sequence[float],
     stream: Sequence[int],
+    predict: Predict = _ideal,
 ) -> list[tuple[int, PlannedCircuit]]:
     if not natives.ones:
         return []
     built = []
-    for depth in _depths(profile, qubits, natives, targets, stream):
+    for depth in _depths(profile, qubits, natives, targets, stream, predict):
         layers = _layers(natives, len(qubits), depth, stream)
         built.append((depth, _mirror(profile, "deep", qubits, natives, layers, stream)))
     return built

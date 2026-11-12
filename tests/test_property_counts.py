@@ -340,7 +340,7 @@ def _bad_qubits(data: dict[str, Any], draw: st.DataObject) -> Any:
     circuit = _circuit(data, draw)
     qubits = circuit["qubits"]
     repeated = [*qubits[:-1], qubits[0]] if len(qubits) > 1 else [*qubits, qubits[0]]
-    choices = [[], repeated, list(range(11)), [-1], [True], [0.0], ["0"], None, 0]
+    choices = [[], repeated, list(range(257)), [-1], [True], [0.0], ["0"], None, 0]
     circuit["qubits"] = draw.draw(st.sampled_from(choices))
     return data
 

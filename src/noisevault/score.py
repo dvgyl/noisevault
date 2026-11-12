@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Any, Literal
 import numpy as np
 
 from .compare import _duration, _wrap
+from .counts import refuse_wide
 from .errors import CountsError, NoiseVaultError, did_you_mean, joined, plural, qubit_loci
 from .profile import iso_z, ref_on_day
 from .reference import probabilities
@@ -269,8 +270,10 @@ def score(
     The profile can be of any date or device, or written by hand, if the reference simulator
     can run the circuits with it. The profile's ``unmodeled_error`` factors apply. Raises
     CountsError for an unknown circuit name or for a circuit that the profile cannot simulate.
+    A circuit on more qubits than the reference simulator holds is one of these.
     """
     chosen = _chosen(counts, circuits)
+    refuse_wide(chosen, "score can simulate")
     forecasts = [_circuit(c, _probabilities(profile, c), c.vector()) for c in chosen]
     return _total(profile, counts, forecasts)
 
@@ -336,7 +339,7 @@ def paired(a: Forecast, b: Forecast) -> PairedTest:
             f"the forecasts score different circuits, {joined(names_a)} and {joined(names_b)}",
             hint="give both forecasts the same circuits=",
         )
-    measured = {c.name: c.vector() for c in a.counts.circuits}
+    measured = {c.name: c.vector() for c in a.counts.circuits if c.name in names_a}
     pairs = [
         (measured[x.name], x.probabilities, y.probabilities)
         for x, y in zip(a.circuits, b.circuits, strict=True)

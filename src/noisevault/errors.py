@@ -32,6 +32,10 @@ class LayoutError(NoiseVaultError, ValueError):
     """A circuit-to-device qubit mapping is incomplete, not injective, or uses a bad qubit."""
 
 
+class TooWideError(NoiseVaultError, ValueError):
+    """A circuit has more qubits than the exact reference simulator holds."""
+
+
 class DisabledGateError(NoiseVaultError):
     """The profile marks this gate on these qubits as disabled."""
 

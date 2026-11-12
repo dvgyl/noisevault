@@ -38,6 +38,19 @@ This file lists all notable changes to NoiseVault. Versions follow
   `scripts/ibm_campaign.py --suite` run the set. The weekly campaign workflow now runs it on
   `ibm_kingston`, `ibm_fez` and `ibm_marrakesh`.
   [Run the deep circuit set](docs/recipes.md#run-the-deep-circuit-set) tells how.
+- **Clifford circuits on 20, 40 and 80 qubits.** `noisevault.suite.suite(profile)` adds one
+  Clifford mirror circuit on a chain of each size that the device has, with the role
+  `test_far`. `noisevault.wide` gives the forecast of a profile for such a circuit from the
+  Stim stabilizer simulator, with the Pauli twirl of the noise that the reference simulator
+  applies and the asymmetric readout error of each qubit. Without Stim, `suite` makes no
+  Clifford circuit. `study/wide.py` scores two models on these circuits by the probability of
+  the ideal result, the number of wrong bits and the error of each qubit, with paired tests.
+  [Run the deep circuit set](docs/recipes.md#run-the-deep-circuit-set) tells how.
+- **Counts of circuits on up to 256 qubits.** A counts file now holds a circuit on up to 256
+  qubits. `nv compare`, `nv score`, `simulate`, `circuit.vector()` and the reference simulator
+  still hold at most 10 qubits. They refuse a wider circuit by name and say what to do.
+  `select` and `split` work on all circuits.
+  [docs/counts-format.md](docs/counts-format.md#circuits)
 - **Design for a budget.** `noisevault.design.design(profile, circuits, budget=..., price=...)`
   takes the circuits of the deep circuit set and the number of shots that give the smallest
   predicted error of the gate factor for a price for each task and each shot. The design keeps
