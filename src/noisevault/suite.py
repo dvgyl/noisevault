@@ -12,8 +12,9 @@ The set has three roles, which ``role`` gives for each circuit name:
 - ``train``: the readout circuits, deep circuits on the chain, on each pair and on each qubit.
   A fit uses these circuits.
 - ``test_near``: deep circuits on the chain from another random seed.
-- ``test_far``: the ``nv check`` circuits, a periodic circuit and a circuit with 1-qubit gates
-  on all qubits at the same time. No fit sees these circuits.
+- ``test_far``: the ``nv check`` circuits, a periodic circuit, a circuit with 1-qubit gates on
+  all qubits at the same time, and deep circuits on a chain of ``WIDE_QUBITS`` qubits. No fit
+  sees these circuits.
 
 Each layer starts at the same time on every qubit of the circuit, and an explicit delay holds
 every wait. A wait is 0 ns or at least ``MIN_WAIT_NS``, because a device refuses a delay that is
@@ -31,6 +32,7 @@ import numpy as np
 from . import check
 from .counts import PlannedCircuit, _delay_disabled, _duration, plan
 from .errors import LayoutError
+from .layout import suggest_layout
 from .reference import Op, probabilities
 
 if TYPE_CHECKING:
@@ -50,11 +52,14 @@ ASSUMED_GATE_FACTOR = 2.0
 CHAIN_TARGETS = (0.8, 0.6, 0.4)
 PAIR_TARGETS = (0.8, 0.55)
 QUBIT_TARGETS = (0.85,)
+# The wide circuits test a model on twice the qubits of the chain, most of them other qubits.
+WIDE_QUBITS = 8
+WIDE_TARGETS = (0.6, 0.35)
 TRAIN_SEEDS = (0, 1)
 TEST_SEED = 2
-_CHAIN, _PAIR, _QUBIT, _FLIP = 1, 2, 3, 4
+_CHAIN, _PAIR, _QUBIT, _FLIP, _WIDE = 1, 2, 3, 4, 5
 _TRAIN_PREFIXES = ("readout", "pair", "qubit")
-_ONLY_IN_SUITE = ("readout_1", "deep_", "pair", "qubit", "periodic_")
+_ONLY_IN_SUITE = ("readout_1", "deep_", "pair", "qubit", "periodic_", "wide_")
 _FLIPPED = 1 - 1e-9
 
 
@@ -121,6 +126,12 @@ def suite(
         period = _layers(natives, n, 2, (seed, _CHAIN, TEST_SEED + 1))
         layers = period * (middle // 2 or 1)
         circuits.append(_mirror(base, f"periodic_d{middle}", chain, natives, layers, (seed, 0)))
+    wide = _wide_chain(base) if middle is not None else None
+    if wide is not None:
+        found = _natives(base, wide)
+        if found.ones and all(found.pairs):
+            for depth, built in _family(assumed, wide, found, WIDE_TARGETS, (seed, _WIDE, 0)):
+                circuits.append(built.model_copy(update={"name": f"wide_d{depth}_s0"}))
     return tuple(circuits)
 
 
@@ -128,7 +139,7 @@ def role(name: str) -> Role:
     """The role of the suite circuit ``name``. A name that ``suite`` does not make is a test."""
     if name.startswith("deep_"):
         return "test_near" if name.endswith(f"_s{TEST_SEED}") else "train"
-    if name.startswith("qubits_"):
+    if name.startswith(("qubits_", "wide_")):
         return "test_far"
     return "train" if name.startswith(_TRAIN_PREFIXES) else "test_far"
 
@@ -142,6 +153,19 @@ def train_names(names: Sequence[str]) -> list[str] | None:
     if not any(name.startswith(_ONLY_IN_SUITE) for name in names):
         return None
     return [name for name in names if role(name) == "train"]
+
+
+def _wide_chain(profile: Profile) -> tuple[int, ...] | None:
+    """The suggested chain of ``WIDE_QUBITS`` qubits, or None when the device has none."""
+    if profile.device.num_qubits < WIDE_QUBITS:
+        return None
+    try:
+        found = suggest_layout(
+            profile, WIDE_QUBITS, usable_pair=lambda a, b: check._usable_pair(profile, a, b)
+        )
+    except LayoutError:
+        return None
+    return tuple(found.values())
 
 
 def _natives(profile: Profile, chain: Sequence[int]) -> _Natives:

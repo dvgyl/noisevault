@@ -25,8 +25,8 @@ counts bind to the calibration in effect when the job ran.
 
 - `train`: a model can fit its parameters on these circuits.
 - `test_near`: deep circuits of the same kind as the `train` circuits, from another random seed.
-- `test_far`: circuits of another kind. These are the `nv compare` circuits, a periodic circuit
-  and a circuit with 1-qubit gates on all qubits at the same time.
+- `test_far`: circuits of another kind. These are the `nv compare` circuits, a periodic circuit,
+  a circuit with 1-qubit gates on all qubits at the same time, and wide circuits on 8 qubits.
 
 No model sees a test circuit before its score is computed.
 
@@ -139,6 +139,11 @@ The adequacy of the best model is its excess on `test_far`, with the p-value of 
   its Holm correction counted. The plan now names five primary comparisons, one sign test for
   each, and the secondary comparisons that are descriptive. This entry was written before a test
   circuit of the deep circuit set was scored.
+- 2026-11-12: wide circuits. From the week of 2026-11-16, a run also holds deep circuits on a
+  chain of 8 qubits, most of them qubits that no `train` circuit uses. These circuits are in
+  `test_far`. Three secondary comparisons use the wide circuits alone: `two_factor` against
+  `calibration`, `locus` against `two_factor`, and `calibration` against `medians`. They test
+  whether a model that was fitted on 4 qubits forecasts 8 qubits.
 - 2026-11-12: the model `averaged(7)` and its secondary comparison. A public archive of IBM
   calibrations from February to November 2026 shows that a value changes about one time each
   day, and that the change does not grow much with the time between two measurements. It also

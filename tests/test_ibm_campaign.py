@@ -438,8 +438,8 @@ def test_a_suite_run_saves_the_deep_circuits_beside_the_compare_circuits(tmp_pat
         names = [c.name for c in counts.circuits]
         assert names[: len(short.circuits)] == [c.name for c in short.circuits]
         assert {role(name) for name in names} == {"train", "test_near", "test_far"}
-        assert max(counts.circuits, key=lambda c: len(c.qubits)).qubits == tuple(
-            chains[kind]["qubits"]
-        )
+        by_name = {c.name: c for c in counts.circuits}
+        assert by_name["readout_1"].qubits == tuple(chains[kind]["qubits"])
+        assert any(len(c.qubits) == 8 for c in counts.circuits if c.name.startswith("wide_"))
         assert counts.profile.fingerprint == profile.calibration_fingerprint
         assert all(c.shots == 200 for c in counts.circuits)

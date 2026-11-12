@@ -208,3 +208,41 @@ def test_simulated_counts_of_the_suite_load_as_a_counts_file(device, circuits, t
 def test_a_profile_with_factors_gives_the_circuits_of_its_calibration(device, circuits) -> None:
     scaled = device.model_copy(update={"unmodeled_error": {"gates": {"factor": 3.0}}})
     assert suite(scaled) == circuits
+
+
+@pytest.fixture(scope="module")
+def long_line() -> Profile:
+    """Ten qubits in a line with the IBM gate set, so that a wide chain exists."""
+    data = Profile.uniform(
+        "long",
+        technology="superconducting",
+        num_qubits=10,
+        connectivity=[(q, q + 1) for q in range(9)],
+        one_qubit_error=1e-3,
+        two_qubit_error=1e-2,
+        readout_error=2e-2,
+        t1_us=200.0,
+        t2_us=150.0,
+        one_qubit_ns=32.0,
+        two_qubit_ns=68.0,
+    ).to_dict()
+    data["gates"] = {k: v for k, v in data["gates"].items() if k in ("rz", "sx", "x", "cz")}
+    return Profile.model_validate(data)
+
+
+def test_a_device_with_a_long_chain_gets_wide_test_circuits(long_line: Profile) -> None:
+    circuits = suite(long_line)
+    wide = [c for c in circuits if c.name.startswith("wide_")]
+    assert wide and all(len(c.qubits) == 8 and role(c.name) == "test_far" for c in wide)
+    assert len({c.qubits for c in wide}) == 1
+    pairs = {
+        tuple(sorted((a, b))) for c in wide for a, b in zip(c.qubits, c.qubits[1:], strict=False)
+    }
+    assert all(b - a == 1 for a, b in pairs)
+    assert train_names([c.name for c in circuits]) == [
+        c.name for c in circuits if role(c.name) == "train"
+    ]
+
+
+def test_a_device_with_fewer_qubits_than_the_wide_chain_gets_no_wide_circuit(circuits) -> None:
+    assert not any(c.name.startswith("wide_") for c in circuits)

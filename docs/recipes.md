@@ -495,7 +495,7 @@ first runs on IBM devices gave gate errors about 2 times the stated errors, so `
 that factor. It takes the depths at which the profile with that factor predicts the ideal result
 with a probability of 0.8, 0.6 and 0.4. The set also has such circuits on each pair and each
 qubit of the chain, a second readout circuit that prepares each qubit in 1, and circuits that no
-fit uses.
+fit uses. Two of those circuits run on a chain of 8 qubits, when the device has one.
 
 To run the set, add `--suite` to `scripts/run_on_ibm.py` or to the campaign:
 
@@ -505,7 +505,7 @@ python scripts/ibm_campaign.py ibm_kingston ibm_fez --suite --shots 2000
 
 The campaign then writes `best-deep.*` and `median-deep.*` files beside the files of the
 `nv compare` circuits, for the same two chains. One job with 2000 shots for each circuit uses
-about 15 s of QPU time.
+about 17 s of QPU time.
 
 `noisevault.suite.role(name)` gives the role of each circuit:
 
@@ -513,7 +513,7 @@ about 15 s of QPU time.
 | --- | --- | --- |
 | `train` | `readout`, `readout_1`, `deep_d*_s0`, `deep_d*_s1`, `pair*`, `qubit*` | Fit a model on these circuits |
 | `test_near` | `deep_d*_s2` | Deep circuits from another random seed |
-| `test_far` | the `nv compare` circuits, `periodic_d*`, `qubits_d*` | Circuits of another kind |
+| `test_far` | the `nv compare` circuits, `periodic_d*`, `qubits_d*`, `wide_d*` | Circuits of another kind |
 
 Fit on the `train` circuits and score on the test circuits. A model that fits the `train`
 circuits and fails on the test circuits does not describe the device.

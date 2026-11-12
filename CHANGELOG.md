@@ -20,7 +20,8 @@ This file lists all notable changes to NoiseVault. Versions follow
   stated errors, at the predicted probabilities 0.8, 0.6 and 0.4 of the ideal result. On the
   bundled `ibm_kingston` profile, 18,000 shots of the fit circuits give the gate factor a
   relative standard error of 0.021. The `nv compare` circuits give 0.149 with 16,000 shots. Both
-  numbers come from the Fisher information of the profile, not from a device.
+  numbers come from the Fisher information of the profile, not from a device. The set also
+  holds two deep circuits on a chain of 8 qubits, to test a fitted model on more qubits.
   `noisevault.suite.role(name)` separates the circuits
   for a fit from the circuits for a test. `scripts/run_on_ibm.py --suite` and
   `scripts/ibm_campaign.py --suite` run the set. The weekly campaign workflow now runs it on

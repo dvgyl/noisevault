@@ -47,7 +47,7 @@ from study.derive import counts_files, profile_beside
 FORMAT = "1"
 STALE_DAYS = (1, 7, 30, 90, 180, 365)
 AVERAGED_DAYS = 7
-GROUPS = ("test", "test_near", "test_far", "all")
+GROUPS = ("test", "test_near", "test_far", "wide", "all")
 TEST_GROUPS = ("test_near", "test_far")
 DEEP_PREFIXES = ("deep_", "pair", "qubit", "periodic_")
 CHAIN_KINDS = ("best", "median")
@@ -79,6 +79,9 @@ SECONDARY: tuple[tuple[str, str, str], ...] = (
     ("readout_measured", "two_factor", "test"),
     ("locus", "readout_measured", "test"),
     ("averaged(7)", "calibration", "all"),
+    ("two_factor", "calibration", "wide"),
+    ("locus", "two_factor", "wide"),
+    ("calibration", "medians", "wide"),
     *((a, b, group) for a, b, _ in PRIMARY for group in TEST_GROUPS),
 )
 _READOUT = ("readout", "readout_1")
@@ -93,6 +96,7 @@ def groups(counts: MeasuredCounts) -> dict[str, list[str]]:
     names = [c.name for c in counts.circuits]
     found = {g: [n for n in names if role(n) == g] for g in TEST_GROUPS}
     found["test"] = [n for n in names if role(n) in TEST_GROUPS]
+    found["wide"] = [n for n in names if n.startswith("wide_")]
     found["all"] = names
     return {g: found[g] for g in GROUPS if found[g]}
 
