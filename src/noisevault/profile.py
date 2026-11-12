@@ -792,6 +792,57 @@ class Profile(_Model):
             return self
         return self.model_copy(update={"unmodeled_error": None})
 
+    def zero_readouts(self) -> tuple[int, ...]:
+        """The enabled qubits with a stated readout probability of exactly 0, in their order.
+
+        Such a profile says that the qubit never reads wrong in that direction. A device then
+        gives results that the profile calls impossible, and ``nv score`` rules the profile out.
+        ``floored`` gives a profile with these values replaced.
+        """
+        stated = self.uncorrected().table
+        return tuple(
+            q
+            for q in range(stated.num_qubits)
+            if not stated.qubit(q).disabled
+            and any(value == 0 for value in stated.qubit(q).readout or ())
+        )
+
+    def floored(self) -> Profile:
+        """This profile with each stated readout probability of exactly 0 replaced.
+
+        The new value is half of the smallest stated readout probability above 0 in the
+        profile. A vendor gets a readout probability from a count of wrong results in a fixed
+        number of shots, and a rare error can show 0 times. For k wrong results in n shots, the
+        estimate (k + 1/2) / (n + 1) is never 0. For k = 0 it is about half of the smallest
+        value that the count can show above 0.
+
+        The ``unmodeled_error`` factors stay, and a provenance note records the change. The
+        result is this profile itself when no value is 0, or when no value is above 0.
+        """
+        data = self.to_dict()
+        readouts = [data["readout"]] if "readout" in data else []
+        readouts += [q["readout"] for q in data.get("qubits", ()) if "readout" in q]
+        values = [value for readout in readouts for value in _readout_pair(readout)]
+        positive = [value for value in values if value > 0]
+        zeros = sum(value == 0 for value in values)
+        if not positive or not zeros:
+            return self
+        floor = min(positive) / 2
+        for readout in readouts:
+            low, high = (value if value > 0 else floor for value in _readout_pair(readout))
+            for key in ("error", "p1_given_0", "p0_given_1"):
+                readout.pop(key, None)
+            both = {"p1_given_0": low, "p0_given_1": high}
+            readout.update({"error": low} if low == high else both)
+        count = "1 readout probability" if zeros == 1 else f"{zeros} readout probabilities"
+        note = (
+            f"{count} of exactly 0 replaced by {floor:.3g}, half of the smallest stated value"
+            " above 0"
+        )
+        provenance = data.setdefault("provenance", {})
+        provenance["notes"] = [*provenance.get("notes", ()), note]
+        return type(self).model_validate(data)
+
     # serialization -------------------------------------------------------------------------
 
     def to_dict(self) -> dict[str, Any]:
@@ -1365,6 +1416,13 @@ def _readable_json(data: dict[str, Any]) -> str:
 
 def _sha256(data: Any) -> str:
     return hashlib.sha256(canonical_json(data).encode("utf-8")).hexdigest()
+
+
+def _readout_pair(readout: Mapping[str, Any]) -> tuple[float, float]:
+    """P(1|0) and P(0|1) of a readout entry in JSON form."""
+    if "error" in readout:
+        return readout["error"], readout["error"]
+    return readout["p1_given_0"], readout["p0_given_1"]
 
 
 def _median(values: Sequence[float]) -> float | None:

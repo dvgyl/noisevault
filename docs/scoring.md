@@ -46,6 +46,25 @@ profile is then `-inf`. The profile is ruled out: one shot is enough to prove th
 not follow this model. The quadratic score stays finite, so two ruled-out profiles can still be
 compared with the quadratic rule.
 
+A stated readout error of exactly 0 is usually a count of 0 wrong results in the vendor's test
+shots, not an error that cannot occur. `nv show` names the qubits with such a value, and
+`nv score` gives a hint when the counts measure one of them. `nv score --floor` scores each
+profile with these values replaced, and `Profile.floored()` gives that profile in Python:
+
+```python
+import noisevault as nv
+
+profile = nv.load("ibm_kingston")
+profile.zero_readouts()  # the qubits with a stated readout probability of exactly 0
+floored = profile.floored()  # each such value replaced; the same profile when there is none
+```
+
+The new value is half of the smallest stated readout probability above 0 in the profile. For k
+wrong results in n shots, the estimate (k + 1/2) / (n + 1) is never 0, and for k = 0 it is about
+half of the smallest value that such a count can show. The floored profile has another
+fingerprint, and a provenance note records the change. With the first choice you learn if the
+calibration as stated holds. With the second you learn how good the rest of the calibration is.
+
 ## The excess and its shot-noise reference
 
 The saturated log score of a circuit is `sum_x f(x) ln f(x)`. No model gets a higher log score on

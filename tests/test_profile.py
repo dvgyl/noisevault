@@ -1668,3 +1668,67 @@ def test_citation_of_a_hand_written_factor_states_the_factor() -> None:
     assert what_if.citation().endswith(
         f"sha256:{what_if.fingerprint}; unmodeled-error factors (gate error rates x2.3)."
     )
+
+
+def _with_zeros() -> Profile:
+    data = Profile.uniform(
+        "zeros",
+        technology="superconducting",
+        num_qubits=4,
+        one_qubit_error=1e-3,
+        two_qubit_error=1e-2,
+        readout_error=0.02,
+    ).to_dict()
+    data["qubits"] = [
+        {"index": 0, "readout": {"p1_given_0": 0.0, "p0_given_1": 0.01}},
+        {"index": 1, "readout": {"error": 0.0}},
+        {"index": 2, "readout": {"p1_given_0": 0.004, "p0_given_1": 0.03}},
+    ]
+    return Profile.model_validate(data)
+
+
+def test_zero_readouts_names_each_qubit_with_a_stated_probability_of_0() -> None:
+    assert _with_zeros().zero_readouts() == (0, 1)
+    assert not nv.load("ibm_kingston").zero_readouts()
+
+
+def test_floored_replaces_each_0_by_half_of_the_smallest_stated_value_above_0() -> None:
+    stated = _with_zeros()
+
+    floored = stated.floored()
+
+    assert floored.table.qubit(0).readout == (0.002, 0.01)
+    assert floored.table.qubit(1).readout == (0.002, 0.002)
+    assert floored.table.qubit(2).readout == stated.table.qubit(2).readout
+    assert floored.table.qubit(3).readout == stated.table.qubit(3).readout == (0.02, 0.02)
+    assert not floored.zero_readouts()
+    assert floored.fingerprint != stated.fingerprint
+    assert floored.provenance.notes[-1] == (
+        "3 readout probabilities of exactly 0 replaced by 0.002, half of the smallest stated"
+        " value above 0"
+    )
+
+
+def test_floored_keeps_the_factors_and_changes_nothing_else() -> None:
+    stated = _with_zeros().model_copy(update={"unmodeled_error": {"gates": {"factor": 2.0}}})
+
+    floored = stated.floored()
+
+    assert floored.unmodeled_error == stated.unmodeled_error
+    before, after = stated.to_dict(), floored.to_dict()
+    for key in before:
+        if key not in ("qubits", "provenance"):
+            assert after[key] == before[key], key
+
+
+def test_a_profile_with_no_stated_0_is_its_own_floored_profile() -> None:
+    profile = nv.load("ibm_kingston")
+    all_zero = Profile.uniform(
+        "none", technology="superconducting", num_qubits=1, one_qubit_error=1e-3, readout_error=0.0
+    )
+
+    assert profile.floored() is profile
+    floored = _with_zeros().floored()
+    assert floored.floored() is floored
+    # With no value above 0, the profile gives no scale for a replacement.
+    assert all_zero.floored() is all_zero

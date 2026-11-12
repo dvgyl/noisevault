@@ -25,6 +25,14 @@ This file lists all notable changes to NoiseVault. Versions follow
   Python, use `Profile.score(counts)`, `noisevault.score.paired(a, b)`, and
   `MeasuredCounts.select(names)` and `MeasuredCounts.split(fraction, seed)` for held-out data.
   [docs/scoring.md](docs/scoring.md)
+- **A stated readout error of exactly 0.** Some calibrations state a readout error of exactly 0,
+  and a device then gives results that the profile calls impossible: in 3 of 6 runs on IBM
+  devices on 2026-11-12. `Profile.zero_readouts()` gives the qubits with such a value, and
+  `nv show` names them. `Profile.floored()` gives the profile with each such value replaced by
+  half of the smallest stated readout probability above 0. `nv score --floor` scores the floored
+  profiles, and `nv score` gives a hint when the counts measure a qubit with a stated 0.
+  `nv show --json` has the new key `zero_readout_qubits`, and `nv score --json` has `floor` and
+  `zero_readout_qubits`. [docs/scoring.md](docs/scoring.md#ruled-out)
 - **Realism table with hardware runs.** [docs/realism/table.md](docs/realism/table.md) holds the
   fitted factors of runs on `ibm_kingston`, `ibm_fez` and `ibm_marrakesh`, from the weekly
   campaign. With the deep circuit set, the gate factors of `ibm_fez` on 2026-11-12 were x0.94

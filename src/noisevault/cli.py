@@ -531,6 +531,7 @@ def card(profile: Profile) -> dict[str, Any]:
         "median_readout_error": medians.readout_error,
         "median_p1_given_0": medians.p1_given_0,
         "median_p0_given_1": medians.p0_given_1,
+        "zero_readout_qubits": list(profile.zero_readouts()),
         "disabled_qubits": [i for i in range(dev.num_qubits) if table.qubit(i).disabled],
         "value_ages": profile.value_ages() if dev.calibrated_at else None,
         "provenance": prov.model_dump(mode="json", exclude_none=True, exclude={"notes", "extra"}),
@@ -644,6 +645,14 @@ def _print_card(
     grid.add_row("natives", _natives_table(data["natives"]))
     grid.add_row("coherence", _coherence(data))
     grid.add_row("readout", _readout(data))
+    if data["zero_readout_qubits"]:
+        zeros = data["zero_readout_qubits"]
+        shown = ", ".join(map(str, zeros[:8])) + (", ..." if len(zeros) > 8 else "")
+        grid.add_row(
+            "", f"an error of exactly 0 is stated on {plural(len(zeros), 'qubit')}: {shown}"
+        )
+        grid.add_row("", "a device gives results that such a profile calls impossible")
+        grid.add_row("", "Profile.floored() and nv score --floor replace these values")
     if data["disabled_qubits"]:
         grid.add_row("disabled", "qubits " + ", ".join(map(str, data["disabled_qubits"])))
     _add_lines(grid, "unmodeled", [line.short for line in data["unmodeled_note"]])
@@ -1211,6 +1220,13 @@ def score(
         list[str], _argument("REF...", "Profile ids (ibm_fez), id@date, or file paths.")
     ],
     counts: Annotated[str, _argument("COUNTS", "Counts file: .json or .json.gz, format 1.0.")],
+    floor: Annotated[
+        bool,
+        typer.Option(
+            "--floor",
+            help="Replace each stated readout error of exactly 0 before the score.",
+        ),
+    ] = False,
     as_json: Annotated[bool, typer.Option("--json", help="Print JSON.")] = False,
 ) -> None:
     """Score profiles as forecasts of counts from a device, with no fit."""
@@ -1219,6 +1235,14 @@ def score(
     with _friendly():
         profiles = [_load(ref, counts_hint=_SCORE_ORDER) for ref in refs]
         measured = _read_counts(Path(counts))
+        # Only a zero on a qubit that the counts measure can rule a profile out.
+        read = {q for circuit in measured.circuits for q in circuit.qubits}
+        zeros = {
+            ref: sorted(read.intersection(profile.zero_readouts()))
+            for ref, profile in zip(refs, profiles, strict=True)
+        }
+        if floor:
+            profiles = [profile.floored() for profile in profiles]
         with err.status("Scoring the profiles..."):
             ranking = rank(
                 [
@@ -1227,10 +1251,27 @@ def score(
                 ]
             )
         if as_json:
-            _echo_json(ranking.to_dict())
+            _echo_json(
+                ranking.to_dict()
+                | {"floor": floor, "zero_readout_qubits": {ref: zeros[ref] for ref in refs}}
+            )
         else:
             for line in ranking.summary(counts_file=counts, width=out.width).splitlines():
                 out.print(Text(line), soft_wrap=True)
+            stated = [ref for ref in refs if zeros[ref]]
+            if stated and not floor:
+                where = "; ".join(
+                    f"{ref} on {plural(len(zeros[ref]), 'qubit')} {', '.join(map(str, zeros[ref]))}"
+                    for ref in stated
+                )
+                err.print(
+                    Text(
+                        f"hint: a readout error of exactly 0 is stated by {where}. A device"
+                        " can give results that such a profile calls impossible. Add --floor"
+                        " to replace these values"
+                    ),
+                    soft_wrap=True,
+                )
 
 
 _SCORE_ORDER = "nv score takes the profiles first and the counts file last"

@@ -500,6 +500,61 @@ def test_nv_score_json_holds_every_number(tmp_path: Path) -> None:
     assert data["counts"] == load_counts(counts).sha256
 
 
+def _with_a_stated_zero(tmp_path: Path) -> tuple[Path, Path, int]:
+    """The Kingston profile with P(1|0) of exactly 0 on the first qubit of its chain, and counts
+    of a device that reads that qubit wrong."""
+    kingston = nv.load(KINGSTON)
+    chain = plan(kingston)[0].qubits
+    data = kingston.to_dict()
+    readout = data["qubits"][chain[0]]["readout"]
+    readout.pop("error", None)
+    readout.update({"p1_given_0": 0.0, "p0_given_1": 0.01})
+    stated = Profile.model_validate(data)
+    truth = scaled(stated.floored(), readout=30.0)
+    counts = simulate(truth, plan(stated, chain), shots=4000, seed=3, run_at=RUN_AT)
+    return (
+        stated.save(tmp_path / "stated.json"),
+        counts.save(tmp_path / "run.counts.json"),
+        chain[0],
+    )
+
+
+def test_nv_score_names_a_stated_zero_and_floor_replaces_it(tmp_path: Path) -> None:
+    stated, counts, qubit = _with_a_stated_zero(tmp_path)
+
+    plain = runner.invoke(app, ["score", str(stated), str(counts), "--json"])
+    floored = runner.invoke(app, ["score", str(stated), str(counts), "--floor", "--json"])
+    text = runner.invoke(app, ["score", str(stated), str(counts)], env={"COLUMNS": "200"})
+
+    assert plain.exit_code == floored.exit_code == text.exit_code == 0, plain.output
+    first, second = json.loads(plain.stdout), json.loads(floored.stdout)
+    assert first["floor"] is False and second["floor"] is True
+    assert first["zero_readout_qubits"] == {str(stated): [qubit]}
+    assert first["models"][0]["ruled_out"] > 0 and first["models"][0]["log_score"] is None
+    assert second["models"][0]["ruled_out"] == 0 and second["models"][0]["log_score"] < 0
+    assert f"hint: a readout error of exactly 0 is stated by {stated} on 1 qubit {qubit}" in (
+        " ".join(text.stderr.split())
+    )
+    assert "--floor" in text.stderr
+
+
+def test_nv_score_gives_no_hint_for_a_zero_on_a_qubit_that_the_counts_do_not_measure(
+    tmp_path: Path,
+) -> None:
+    kingston = nv.load(KINGSTON)
+    measured = set(plan(kingston)[0].qubits)
+    other = next(q for q in range(kingston.device.num_qubits) if q not in measured)
+    data = kingston.to_dict()
+    data["qubits"][other]["readout"] = {"error": 0.0}
+    profile = Profile.model_validate(data).save(tmp_path / "zero.json")
+    counts = kingston_counts().save(tmp_path / "run.counts.json")
+
+    result = runner.invoke(app, ["score", str(profile), str(counts)])
+
+    assert result.exit_code == 0, result.output
+    assert "hint" not in result.stderr
+
+
 def test_nv_score_wants_the_counts_file_last(tmp_path: Path) -> None:
     counts = kingston_counts().save(tmp_path / "run.counts.json")
     result = runner.invoke(app, ["score", str(counts), KINGSTON], env={"COLUMNS": "80"})
