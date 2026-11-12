@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import itertools
 import json
+import math
 from pathlib import Path
 from typing import Any
 
@@ -126,6 +127,38 @@ def test_the_summary_also_gives_the_comparisons_without_the_marked_runs() -> Non
     assert summary["primary"][0]["total"] == {"a": 4, "b": 1, "neither": 0}
     assert summary["primary_without_marked_runs"][0]["total"] == {"a": 4, "b": 0, "neither": 0}
     assert "p_holm" in summary["primary_without_marked_runs"][0]
+
+
+def test_spearman_gives_tied_values_their_mean_rank() -> None:
+    assert summarize.spearman([1, 2, 3, 4, 5], [2, 4, 6, 8, 100]) == pytest.approx(1.0)
+    assert summarize.spearman([1, 2, 3, 4, 5], [5, 4, 3, 2, 1]) == pytest.approx(-1.0)
+    # Ranks (1, 2.5, 2.5, 4, 5) and (1, 2, 3, 4, 5): the Pearson correlation of the ranks.
+    assert summarize.spearman([1, 2, 2, 3, 4], [1, 2, 3, 4, 5]) == pytest.approx(0.9746794)
+    assert summarize.spearman([1, 2, 3, 4], [1, 2, 3, 4]) is None
+    assert summarize.spearman([1, 1, 1, 1, 1], [1, 2, 3, 4, 5]) is None
+
+
+def test_the_age_of_a_value_is_compared_with_its_fitted_factor() -> None:
+    rows = []
+    for run in range(3):
+        ages = {
+            "qubits": {str(q): {"one_qubit": 10.0 * q + run, "readout": 1.0} for q in range(3)},
+            "pairs": {"0-1": {"two_qubit": 5.0 + run}, "1-2": {"two_qubit": 50.0 + run}},
+        }
+        fits = {
+            "qubits": [{"qubit": q, "factor": math.exp(0.1 * q + 0.01 * run)} for q in range(3)],
+            "pairs": [{"qubits": [0, 1], "factor": 2.0}, {"qubits": [1, 2], "factor": None}],
+        }
+        more = {"ages": {"calibration": {"calibration_h": 1.0, "values": {}, "loci": ages}}}
+        rows.append(_row("ibm_fez", {}, fits={"locus": fits}, **more))
+
+    summary = summarize.summarize({"rows": rows})
+
+    assert summary["age_against_error"] == [
+        {"device": "ibm_fez", "loci": "pairs", "points": 3, "spearman": None},
+        {"device": "ibm_fez", "loci": "qubits", "points": 9, "spearman": pytest.approx(1.0)},
+    ]
+    assert "| ibm_fez | qubits | 9 | +1.000 |" in summarize.markdown(summary)
 
 
 def test_a_run_that_is_in_the_analysis_two_times_counts_one_time() -> None:
