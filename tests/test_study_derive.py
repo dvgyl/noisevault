@@ -67,6 +67,21 @@ def test_a_counts_file_with_no_profile_beside_it_is_a_failure(tmp_path: Path) ->
     assert len(data["failures"]) == 1
 
 
+def test_a_failure_gives_no_file_name_and_no_error_message(tmp_path: Path) -> None:
+    week = tmp_path / "campaign" / "week"
+    week.mkdir(parents=True)
+    (week / "best-JOB-PRIVATE-123.counts.json").write_text("{}")
+    out = tmp_path / "results"
+
+    assert derive.main([str(tmp_path / "campaign"), "--out", str(out)]) == 1
+
+    text = (out / "fits.json").read_text() + (out / "fits.md").read_text()
+    (failure,) = json.loads((out / "fits.json").read_text())["failures"]
+    assert set(failure) == {"error", "file"}
+    assert failure["file"].startswith("sha256:")
+    assert "PRIVATE" not in text and "week" not in text and str(tmp_path) not in text
+
+
 _CIRCUIT_KEYS = {
     "name",
     "qubits",

@@ -11,12 +11,14 @@ a run of the deep circuit set, the fit uses only the ``train`` circuits (see ``P
 The output holds derived numbers only: fitted factors, intervals, distances and tests. A row holds
 no counts, no calibration value, no file name and no job id. The SHA-256 of each counts file and
 the fingerprint of each calibration identify the data. A file that cannot be fitted gives a
-failure entry with the type and the message of the error.
+failure entry with the type of the error and the SHA-256 of the file. The entry holds no error
+message, because a message can hold a file name.
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib.util
 import json
 import sys
@@ -27,7 +29,7 @@ from typing import Any
 import noisevault as nv
 from noisevault.counts import MeasuredCounts, load_counts
 from noisevault.errors import NoiseVaultError
-from noisevault.suite import role
+from noisevault.suite import train_names
 
 FORMAT = "1"
 COUNTS_SUFFIXES = (".counts.json", ".counts.json.gz")
@@ -53,10 +55,8 @@ def profile_beside(path: Path) -> Path:
 def fit_counts(counts: MeasuredCounts) -> tuple[MeasuredCounts, str]:
     """The counts that a fit can use. A run of the deep circuit set gives only its ``train``
     circuits, so that no fit sees a test circuit."""
-    names = [c.name for c in counts.circuits]
-    if not any(name == "readout_1" or name.startswith("deep_") for name in names):
-        return counts, "all"
-    return counts.select([name for name in names if role(name) == "train"]), "train"
+    train = train_names([c.name for c in counts.circuits])
+    return (counts, "all") if train is None else (counts.select(train), "train")
 
 
 def fit(path: Path) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -85,8 +85,10 @@ def derive(root: Path) -> tuple[dict[str, Any], dict[str, Any]]:
         try:
             row, table_row = fit(path)
         except NoiseVaultError as exc:
-            # The message of a counts or profile error names fields, not values of the account.
-            failures.append({"error": type(exc).__name__, "message": exc.message})
+            # A message can hold the path of the file, and a file name can hold an id of the
+            # account. So a failure gives only the error type and the hash of the file.
+            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+            failures.append({"error": type(exc).__name__, "file": f"sha256:{digest}"})
             continue
         rows.append(row)
         table_rows.append(table_row)
@@ -141,7 +143,7 @@ def markdown(data: dict[str, Any]) -> str:
                 f" {c['tvd_profile']:.4f} | {c['tvd_fitted']:.4f} | {c['shot_noise_95']:.4f} |"
             )
     for failure in data["failures"]:
-        lines += ["", f"Failed: {failure['error']}: {failure['message']}"]
+        lines += ["", f"Failed: {failure['error']} on the counts file {failure['file'][:19]}"]
     return "\n".join(lines) + "\n"
 
 

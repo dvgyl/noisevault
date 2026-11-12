@@ -73,23 +73,37 @@ A measured readout probability is (k + 1/2) / (n + 1) for k wrong results in n s
 
 ## Comparisons
 
-Each comparison is the paired test of `noisevault.score.paired` on the test circuits of one run,
-at the 5% level, with the log score. The primary comparisons are:
+Each comparison is the paired test of `noisevault.score.paired` on one run, at the 5% level, with
+the log score. A comparison with a fitted model uses the test circuits of the run, `test_near` and
+`test_far` together. A comparison of two models with no fitted parameter uses every circuit of
+the run.
+
+The five primary comparisons are:
 
 1. `calibration` against `medians`: do the values of each qubit forecast better than device
    medians?
-2. `calibration` against `stale(d)` for each d, and against `bundled`: does a newer calibration
-   forecast better? The difference in log score as a function of d is the staleness curve. These
-   models have no fitted parameter, so this comparison uses every circuit of the run.
+2. `calibration` against `stale(30)`: does the calibration of the run forecast better than the
+   calibration from 30 days before?
 3. `calibration` against `symmetric`: do two readout errors for each qubit forecast better than
    their mean?
 4. `two_factor` against `calibration`: do two fitted factors forecast better?
-5. `readout_measured` against `two_factor`, and `locus` against `readout_measured`.
+5. `locus` against `two_factor`: do measured readout errors and one factor for each qubit and
+   each pair forecast better than two factors?
 
-For each comparison, the result over all runs is the number of runs in which the first model is
-better, the second model is better, or neither, for each device. A comparison counts as confirmed
-when the sign test over the runs rejects equal chances at the 5% level, with the Holm correction
-for the five comparisons.
+For each primary comparison, the result over all runs is the number of runs in which the first
+model is better, the second model is better, or neither, for each device. The test of a primary
+comparison is the two-sided sign test over the runs with a verdict, against equal chances. The
+five sign tests form one family, with the Holm correction at the 5% level. Runs of one device in
+different weeks are not independent draws of devices, so the result is also given for each
+device.
+
+The secondary comparisons are not in the family, and their results are descriptive:
+
+- `calibration` against `stale(d)` for each other d, and against `bundled`. The difference in log
+  score as a function of the age of the values is the staleness curve.
+- `readout_measured` against `two_factor`, and `locus` against `readout_measured`.
+- Each primary comparison on `test_near` and on `test_far` separately, and with the quadratic
+  score.
 
 The adequacy of the best model is its excess on `test_far`, with the p-value of `nv score`.
 
@@ -114,3 +128,12 @@ The adequacy of the best model is its excess on `test_far`, with the p-value of 
   1-qubit gate errors and of the 2-qubit gate errors of each model. The age from the time of the
   calibration is also given. This entry was written before a test circuit of the deep circuit
   set was scored.
+- 2026-11-12: the family of tests. The first version named more comparisons than the five that
+  its Holm correction counted. The plan now names five primary comparisons, one sign test for
+  each, and the secondary comparisons that are descriptive. This entry was written before a test
+  circuit of the deep circuit set was scored.
+- 2026-11-12: the depths of the deep circuit set. From the week of 2026-11-16, `suite` takes the
+  depths at which the profile with a gate factor of 2 predicts the ideal result with the
+  probabilities 0.8, 0.6 and 0.4 (pairs: 0.8 and 0.55, qubits: 0.85). The runs of the week of
+  2026-11-09 used the stated errors and the probabilities 0.9, 0.75 and 0.55 (pairs: 0.85 and
+  0.6, qubits: 0.9).
