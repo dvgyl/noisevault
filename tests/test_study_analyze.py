@@ -11,10 +11,10 @@ import numpy as np
 import pytest
 from conftest import require
 
-from noisevault.counts import MeasuredCounts, PlannedCircuit, load_counts, plan, simulate
+from noisevault.counts import MeasuredCounts, load_counts, plan, simulate
 from noisevault.errors import SourceUnavailable
 from noisevault.profile import Profile
-from noisevault.reference import MAX_QUBITS, Op
+from noisevault.reference import MAX_QUBITS
 from noisevault.suite import role, suite
 from study import analyze, models, summarize, wide
 
@@ -69,29 +69,20 @@ class FakeSource:
         return max(older, key=lambda p: p.device.calibrated_at)
 
 
-def _probes(calibration: Profile) -> list[PlannedCircuit]:
-    """Two probe circuits on the chain of the suite: m x gates on each qubit, m = 4 and 64."""
-    chain = next(c.qubits for c in suite(calibration) if c.name == "readout")
-    return [
-        PlannedCircuit(
-            name=f"axis_d{m}",
-            qubits=chain,
-            ops=tuple(Op("x", (i,)) for _ in range(m) for i in range(len(chain))),
-        )
-        for m in (4, 64)
-    ]
+PROBES = ["axis_d64", "axis_d256"]
 
 
 @pytest.fixture(scope="module")
 def result(tmp_path_factory: pytest.TempPathFactory) -> Iterator[dict[str, Any]]:
-    """One run simulated from C with gate factor 2, analyzed with spies on every fit. The run
-    also holds two probe circuits."""
+    """One run simulated from C with gate factor 2, analyzed with spies on every fit. The suite
+    holds the probe circuits."""
     root = tmp_path_factory.mktemp("analysis")
     calibration = _device()
     truth = models.floored(calibration).model_copy(
         update={"unmodeled_error": {"gates": {"factor": 2.0}}}
     )
-    circuits = [*suite(calibration), *_probes(calibration)]
+    circuits = suite(calibration)
+    assert [c.name for c in circuits if role(c.name) == "probe"] == PROBES
     counts = simulate(truth, circuits, shots=1000, seed=4, run_at=RUN_AT)
     counts = counts.model_copy(
         update={
@@ -192,6 +183,17 @@ def test_a_zero_off_the_chain_is_not_a_zero_on_the_chain() -> None:
     calibration = _device()
     assert analyze.zero_on(calibration, [0]) is True
     assert analyze.zero_on(calibration, [1, 2]) is False
+
+
+def test_a_fresh_deep_circuit_is_a_test_circuit_of_the_chain() -> None:
+    calibration = _device()
+    counts = simulate(calibration, suite(calibration, fresh=5), shots=20, seed=1, run_at=RUN_AT)
+
+    named = analyze.groups(counts)
+
+    fresh = [c.name for c in counts.circuits if c.name.endswith("_f5")]
+    assert fresh and all(n.startswith("deep_") for n in fresh)
+    assert set(fresh) <= set(named["test_near"]) & set(named["test4"]) & set(named["all4"])
 
 
 def test_each_model_has_a_score_or_a_reason(result: dict[str, Any]) -> None:
@@ -298,9 +300,9 @@ def test_the_groups_hold_only_circuits_of_the_chain_and_no_probe(result: dict[st
     ]
     assert named["all4"] == expected
     assert named["test4"] == [n for n in expected if role(n) in ("test_near", "test_far")]
-    assert "axis_d4" in by_name and "axis_d64" in by_name
+    assert set(PROBES) <= set(by_name)
     for names in named.values():
-        assert not {"axis_d4", "axis_d64"} & set(names)
+        assert not set(PROBES) & set(names)
     assert _row(result)["circuits"] == {g: len(names) for g, names in named.items()}
 
 
@@ -574,7 +576,13 @@ def test_the_groups_of_the_exact_simulator_hold_no_circuit_above_10_qubits(
 ) -> None:
     (row,) = clifford_result["data"]["rows"]
 
-    assert row["circuits"]["all4"] + row["circuits"]["wide"] == len(clifford_result["small"])
+    # Each circuit of 10 qubits or fewer is on the chain, a wide circuit or a probe circuit.
+    probes = [n for n in clifford_result["small"] if role(n) == "probe"]
+    assert probes == PROBES
+    assert row["circuits"]["all4"] + row["circuits"]["wide"] + len(probes) == len(
+        clifford_result["small"]
+    )
+    assert [c["name"] for c in row["probes"]["circuits"]] == PROBES
     assert "calibration" not in row["failures"]
     assert len(row["qubits"]) < 20
 
@@ -634,10 +642,10 @@ def test_the_probe_table_gives_the_measured_and_the_forecast_wrong_bits(
     for i, base in enumerate(table["baseline"]):
         ones = sum(n for key, n in readout.counts.items() if key[i] == "1")
         assert base == {"qubit": chain[i], "measured": pytest.approx(ones / readout.shots)}
-    assert [c["name"] for c in table["circuits"]] == ["axis_d4", "axis_d64"]
+    assert [c["name"] for c in table["circuits"]] == PROBES
     for probe in table["circuits"]:
         circuit = next(c for c in counts.circuits if c.name == probe["name"])
-        # An even number of x gates on each qubit gives the all-0 result.
+        # Each axis circuit is a whole number of full rotations, so its ideal result is all 0.
         assert probe["ideal"] == "0" * len(chain)
         assert probe["measured"] == pytest.approx(circuit.counts.get(probe["ideal"], 0) / 1000)
         assert set(probe["forecast"]) == {"calibration", "two_factor"}
@@ -664,7 +672,7 @@ def test_the_summary_gives_the_growth_ratio_of_each_probe_qubit(result: dict[str
         assert g["qubit"] == s["qubit"]
         assert g["ratio"] == (None if expected is None else pytest.approx(expected))
     text = summarize.markdown(summarize.summarize(result["data"]))
-    assert "| axis_d64 |" in text and "Growth ratio" in text
+    assert "| axis_d256 |" in text and "Growth ratio" in text
 
 
 def test_a_growth_ratio_with_a_divisor_not_above_0_has_no_value() -> None:
