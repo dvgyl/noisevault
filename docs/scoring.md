@@ -89,9 +89,26 @@ z      = D / sqrt(Var(D))
 ```
 
 `var_c` above uses the measured frequencies. An outcome that no shot showed then adds no
-variance. If such an outcome has a large score difference, the test rejects too often. The test
-therefore computes `var_c` three times: with the measured frequencies, with the probabilities of
-profile a and with the probabilities of profile b. It uses the largest of the three values.
+variance. If such an outcome has a large score difference, the test rejects too often. An
+example is a readout error that profile a states as 0.001 and profile b as 10^-12, on a qubit
+with a true error of 0.00005. In most runs of 2000 shots, no shot shows the error, and profile b
+then looks better on every shot. The test therefore does two more things:
+
+- **Rare outcomes count as one outcome (log rule).** An outcome is rare when no shot showed it
+  and each profile expects it less than one time in the shots of the circuit. Counts of this size
+  cannot test the probability of one such outcome. The test adds the probabilities of the rare
+  outcomes of a circuit and treats them as one outcome.
+- **Outcomes that no shot showed add variance.** The shots tell how much probability the unseen
+  outcomes can have together: about `(n_1 + 3) / N_c`, where `n_1` is the number of outcomes
+  with exactly one shot. `n_1 / N_c` is the Good-Turing estimate of that probability, and
+  `3 / N_c` is the probability that can stay hidden when no shot shows an event (the rule of
+  three). The test adds this probability times the largest value of `(d(x) - mean_c)^2` over the
+  unseen outcomes to `var_c`.
+
+In the example, the test then gave a verdict in 0 of 4000 simulated runs, and the test without
+these two steps gave the wrong verdict in 92% of the runs. In a usual case (6 qubits with a true
+error of 0.03, two profiles with the same expected score), the test rejected in 3.2% of 4000
+runs at the 5% level.
 
 The two-sided p-value comes from the standard normal distribution. The result gives the mean
 difference per shot, D / N, with its standard error, z and p for each rule. `better` is `"a"` or
@@ -111,8 +128,10 @@ The log rule decides. These cases have no z:
 The paired test needs three conditions:
 
 - The shots are independent. A device that drifts during a job gives shots that are not.
-- The number of shots is large enough for the normal approximation. The largest of three
-  variances makes the test more careful with rare outcomes, but it gives no exact guarantee.
+- The number of shots is large enough for the normal approximation. The two steps for rare and
+  unseen outcomes make the test careful, but they give no exact guarantee. No test can be safe
+  against a device that has an outcome with a very large score difference and a probability
+  that the shots cannot show.
 - Both profiles were fixed before you saw the counts. A profile is also fixed when its factors
   were fitted on other shots or on other circuits. A profile whose factors `nv compare` fitted on
   the same counts has an advantage that the test does not correct. Such a profile scores better
@@ -173,7 +192,7 @@ ibm_fez against ibm_kingston@2026-04-15:
   log score: ibm_fez is ruled out by 52 shots, so ibm_kingston@2026-04-15 is
     better
   quadratic score: ibm_kingston@2026-04-15 is better by 0.00217 per shot than
-    ibm_fez (z = 5.99, p = 2.2e-09, standard error 0.00036)
+    ibm_fez (z = 9.00, p = 2.3e-19, standard error 0.00024)
 ```
 
 The rows put the best profile first. Profiles that are ruled out come last, in the order of

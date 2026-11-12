@@ -27,6 +27,7 @@ if TYPE_CHECKING:
 
 DRAWS = 200
 LEVEL = 0.05
+UNSEEN_SHOTS = 3
 _WIDTH = 80
 _DIGITS = 5
 _DROPPABLE = ("fingerprint", "noise 95%", "age")
@@ -309,11 +310,14 @@ def paired(a: Forecast, b: Forecast) -> PairedTest:
 
     For each rule, the test sums the per-shot score differences over all shots and divides the
     sum by its standard error. The two-sided p-value comes from the standard normal
-    distribution. The variance of the difference in each circuit is the largest of three
-    estimates: from the measured frequencies, from the probabilities of model a and from the
-    probabilities of model b. The measured frequencies alone give no variance to an outcome
-    that no shot showed. A rare outcome with a large score difference then makes the test
-    reject too often.
+    distribution. The variance of the difference in each circuit comes from the measured
+    frequencies, plus a part for the outcomes that no shot showed. For the log rule, the test
+    first takes the rare outcomes of a circuit together as one outcome: the outcomes that no
+    shot showed and that each model expects less than one time.
+
+    No test of this kind is safe against every possible device. A device can have an outcome
+    that both models call almost impossible, with a very large score difference. The part for
+    the outcomes that no shot showed limits this risk, and it makes the test careful.
 
     The test needs independent shots. It is valid when both models were fixed before the counts
     were seen, or when their parameters were fitted on other shots or other circuits. A model
@@ -342,8 +346,8 @@ def paired(a: Forecast, b: Forecast) -> PairedTest:
     elif a.ruled_out or b.ruled_out:
         log = RuleTest("log", "ruled_out", None, None, None, None, "b" if a.ruled_out else "a")
     else:
-        log = _test("log", pairs, _log)
-    quadratic = _test("quadratic", pairs, _quadratic)
+        log = _test("log", pairs, _log, group_rare=True)
+    quadratic = _test("quadratic", pairs, _quadratic, group_rare=False)
     return PairedTest(a=a, b=b, log=log, quadratic=quadratic)
 
 
@@ -557,26 +561,38 @@ def _test(
     rule: Rule,
     circuits: Sequence[tuple[np.ndarray, np.ndarray, np.ndarray]],
     rule_score: Callable[[np.ndarray], np.ndarray],
+    *,
+    group_rare: bool,
 ) -> RuleTest:
     """The paired test of one rule. Each circuit gives its counts and the outcome
-    probabilities of model a and of model b. No measured outcome has probability 0."""
+    probabilities of model a and of model b. No measured outcome has probability 0.
+
+    The variance of the score difference in a circuit has two parts. The first part comes from
+    the measured frequencies. The second part is for the outcomes that no shot showed: the
+    probability that they can have together, times the largest squared deviation of the score
+    difference among them. Without the second part, a rare outcome with a large score
+    difference gives no variance until a shot shows it, and the test rejects too often.
+    """
     total, variance, scale, shots = 0.0, 0.0, 0.0, 0
     for measured, probs_a, probs_b in circuits:
-        with np.errstate(invalid="ignore"):
-            difference = rule_score(probs_a) - rule_score(probs_b)
         n = int(measured.sum())
-        spreads = []
-        for weights in (measured / n, probs_a, probs_b):
-            expected = weights > 0
-            d = difference[expected]
-            if not np.all(np.isfinite(d)):
-                return RuleTest(rule, "unbounded", None, None, None, None, "neither")
-            mean = float(weights[expected] @ d)
-            spreads.append(float(weights[expected] @ (d - mean) ** 2))
-            scale += n * float(np.abs(d).max())
+        if group_rare:
+            measured, probs_a, probs_b = _grouped(measured, probs_a, probs_b)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            difference = rule_score(probs_a) - rule_score(probs_b)
         seen = measured > 0
-        total += float(measured[seen] @ difference[seen])
-        variance += n * max(spreads)
+        unseen = ~seen & ((probs_a > 0) | (probs_b > 0))
+        if not np.all(np.isfinite(difference[unseen])):
+            return RuleTest(rule, "unbounded", None, None, None, None, "neither")
+        d = difference[seen]
+        frequency = measured[seen] / n
+        mean = float(frequency @ d)
+        spread = float(frequency @ (d - mean) ** 2)
+        if unseen.any():
+            spread += _unseen_mass(measured, n) * float(((difference[unseen] - mean) ** 2).max())
+        total += float(measured[seen] @ d)
+        variance += n * spread
+        scale += n * float(np.abs(difference[seen | unseen]).max())
         shots += n
     error = math.sqrt(variance)
     if error <= 1e-12 * scale:
@@ -585,6 +601,37 @@ def _test(
     p_value = math.erfc(abs(z) / math.sqrt(2))
     better: Choice = "neither" if p_value >= LEVEL else "a" if z > 0 else "b"
     return RuleTest(rule, "tested", total / shots, error / shots, z, p_value, better)
+
+
+def _grouped(
+    measured: np.ndarray, probs_a: np.ndarray, probs_b: np.ndarray
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """The outcomes of one circuit with the rare outcomes as one last outcome.
+
+    An outcome is rare when no shot showed it and each model expects it less than one time in
+    the shots of the circuit. Counts of this size cannot test the probability of one such
+    outcome, so the test takes them together.
+    """
+    n = int(measured.sum())
+    rare = (measured == 0) & (n * np.maximum(probs_a, probs_b) < 1)
+    if rare.sum() < 2:
+        return measured, probs_a, probs_b
+    keep = ~rare
+    return (
+        np.append(measured[keep], 0),
+        np.append(probs_a[keep], probs_a[rare].sum()),
+        np.append(probs_b[keep], probs_b[rare].sum()),
+    )
+
+
+def _unseen_mass(measured: np.ndarray, shots: int) -> float:
+    """An upper estimate of the probability of all outcomes that no shot showed.
+
+    The Good-Turing estimate is the number of outcomes with exactly one shot, divided by the
+    shots. With no such outcome, an event that 3 / shots can hide stays possible at the 5%
+    level (the rule of three). The estimate adds both.
+    """
+    return min(1.0, (int((measured == 1).sum()) + UNSEEN_SHOTS) / shots)
 
 
 def _names(a: Profile, b: Profile) -> tuple[str, str]:

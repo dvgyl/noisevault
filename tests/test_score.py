@@ -18,7 +18,7 @@ from noisevault.counts import MeasuredCounts, PlannedCircuit, load_counts, plan,
 from noisevault.errors import CountsError
 from noisevault.profile import Profile
 from noisevault.reference import Op, probabilities
-from noisevault.score import age_text, paired, rank, score
+from noisevault.score import _grouped, age_text, paired, rank, score
 
 KINGSTON = "ibm_kingston@2026-04-15"
 RUN_AT = datetime(2026, 4, 16, 9, 30, tzinfo=UTC)
@@ -126,9 +126,9 @@ def test_paired_equals_the_formulas_on_one_qubit() -> None:
         d = s(pa) - s(pb)
         total = variance = 0.0
         for n in (np.array([70, 30]), np.array([9, 1])):
+            f = n / n.sum()
             total += n @ d
-            # The largest variance: from the frequencies and from each model's probabilities.
-            variance += n.sum() * max(w @ d**2 - (w @ d) ** 2 for w in (n / n.sum(), pa, pb))
+            variance += n.sum() * (f @ d**2 - (f @ d) ** 2)
         z = total / math.sqrt(variance)
         assert rule.outcome == "tested"
         assert rule.difference == pytest.approx(total / 110, abs=1e-12)
@@ -211,6 +211,12 @@ def test_shots_with_one_outcome_still_test_models_that_expect_another_outcome() 
     assert test.log.outcome == "tested"
     assert test.log.z is not None and test.log.z > 3
     assert test.better == "a"
+    # The outcome 1 has no shot. Its part of the variance is (0 + 3) / 100 times its squared
+    # deviation from the mean score difference.
+    d0, d1 = math.log(0.9 / 0.8), math.log(0.1 / 0.2)
+    error = math.sqrt(100 * 0.03 * (d1 - d0) ** 2)
+    assert test.log.z == pytest.approx(100 * d0 / error, rel=1e-9)
+    assert test.quadratic.outcome == "tested" and test.quadratic.difference != 0
 
 
 def test_the_log_rule_gives_no_test_when_one_model_excludes_an_outcome_the_other_expects() -> None:
@@ -257,6 +263,50 @@ def test_a_rare_outcome_that_few_runs_show_does_not_make_the_test_reject_too_oft
         )
         rejected += paired(score(a, counts), score(b, counts)).log.better != "neither"
     assert rejected <= 0.05 * runs
+
+
+def test_an_outcome_that_both_models_call_almost_impossible_does_not_give_a_false_verdict() -> None:
+    # Both models have the same expected log score under these true probabilities. Qubit 1
+    # reads wrong in 1 of 20,000 shots, and model a gives that outcome almost no probability.
+    a, b = two_qubits(2e-8, 1e-8 * math.exp(-700)), two_qubits(1e-8, 1e-8)
+    truth = (0.05, 4.951051361071759e-5)
+    rng = np.random.default_rng(42)
+    runs, rejected = 300, 0
+    for _ in range(runs):
+        ones = [int(rng.binomial(2000, p)) for p in truth]
+        counts = written(a, [("q0", {"0": 2000})]).model_copy(
+            update={
+                "circuits": [
+                    {"name": f"q{q}", "qubits": [q], "ops": [], "shots": 2000, "counts": found}
+                    for q, found in enumerate({"0": 2000 - k, "1": k} for k in ones)
+                ]
+            }
+        )
+        rejected += paired(score(a, counts), score(b, counts)).log.better != "neither"
+    assert rejected <= 0.05 * runs
+
+
+def test_a_model_far_from_shots_with_one_outcome_loses_the_test() -> None:
+    # 10,000 of 10,000 shots read 0. A readout error of 0.1 is then very unlikely.
+    near, far = one_qubit(1e-12), one_qubit(0.1)
+    counts = written(near, [("readout", {"0": 10_000})])
+    test = paired(score(near, counts), score(far, counts))
+    assert test.log.outcome == "tested" and test.log.better == "a"
+    assert test.log.z is not None and test.log.z > 10
+
+
+def test_rare_outcomes_of_a_circuit_count_as_one_outcome_in_the_log_rule() -> None:
+    measured = np.array([1990, 10, 0, 0])
+    a = np.array([0.99, 0.0098, 1.5e-4, 5e-5])
+    b = np.array([0.99, 0.0099, 2e-5, 8e-5])
+    grouped = _grouped(measured, a, b)
+    assert [list(part) for part in grouped] == [
+        [1990, 10, 0],
+        [0.99, 0.0098, pytest.approx(2e-4)],
+        [0.99, 0.0099, pytest.approx(1e-4)],
+    ]
+    one_rare = _grouped(np.array([1990, 10, 0]), a[:3], b[:3])
+    assert len(one_rare[0]) == 3
 
 
 def test_a_very_small_probability_gives_a_finite_excess() -> None:
