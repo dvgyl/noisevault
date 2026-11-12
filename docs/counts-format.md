@@ -316,6 +316,20 @@ device properties, imports them with `nv.from_braket` and plans from the result.
 - **One task or one task per circuit.** When the device properties list the program set action,
   all circuits go in one task. Otherwise, each circuit is one task, so the run pays the task price
   for each circuit.
+- **`--suite`.** The script runs the
+  [deep circuit set](recipes.md#run-the-deep-circuit-set) of `noisevault.suite.suite` in place
+  of the `nv compare` circuits, with `--shots` for each circuit. The circuit table then also
+  gives the role of each circuit.
+- **`--budget USD`.** The script runs the circuits and the shots that
+  `noisevault.design.design` chooses from the deep circuit set for at most USD. `--budget`
+  implies `--suite`. Do not give `--shots` with `--budget`, because the design chooses the shots.
+  The design must know the price per task. Thus the script makes two designs. The design for
+  one program set task spends at most the cost of `maximumTotalShots` shots, so that it fits in
+  the program set limits of the device. The design for one task per circuit pays the task price
+  for each circuit. The script takes the design with the smaller predicted error of the gate
+  factor. The cost that the script shows is the cost of the tasks that it submits, rounded up to
+  the cent, and the cost is never more than USD. If USD does not pay 100 shots of the smallest
+  design, the script stops and submits nothing.
 - **Saved tasks.** Before the first task, the script creates `<stem>.job.json`, with the plan.
   It adds each task id to the job file before it creates the next task. The script follows the
   rules of [the IBM script](#the-script-never-replaces-a-file): it never replaces a file, and it
@@ -343,6 +357,35 @@ device properties, imports them with `nv.from_braket` and plans from the result.
 - **`--local PROPERTIES`.** The free Braket `LocalEmulator` runs the circuits from a saved
   properties file, with no AWS account. Its noise model comes from the same file. The counts have
   `source` set to `simulated`. A local run cannot be collected later.
+
+This run of the test file `tests/fixtures/braket/iqm_garnet_run.json` on the local emulator
+shows a design for 35 US dollars. The file describes no real device, so the numbers show only
+how the script works:
+
+```text
+$ python scripts/run_on_braket.py iqm_garnet --local tests/fixtures/braket/iqm_garnet_run.json --budget 35 -o garnet.counts.json
+iqm_garnet@2026-10-20 nv:e2977716a282 on qubits 1-2-3-4
+
+circuit       qubits   gates  role
+readout       1-2-3-4      0  train
+readout_1     1-2-3-4      8  train
+deep_d4_s0    1-2-3-4     80  train
+deep_d8_s0    1-2-3-4    156  train
+deep_d8_s1    1-2-3-4    154  train
+deep_d4_s2    1-2-3-4     80  test_near
+pair0_d12_s0  1-2        122  train
+pair1_d12_s0  2-3        120  train
+pair2_d12_s0  3-4        120  train
+
+budget          $35
+shots           2659 per circuit, 9 circuits in 1 program set task
+cost            none on the local emulator, about $35.00 ($0.30 a task, $0.00145 a shot) on iqm_garnet
+gate factor     predicted standard error 1.5%
+readout factor  predicted standard error 4.2%
+counts file     garnet.counts.json
+```
+
+The exact cost is $34.99995. On the device, the script submits with `--confirm-cost 35.00`.
 
 The counts file has `bit_order` set to `clbit0_left`. `execution.job_ids` holds the task ids. A
 task ARN contains the id of your AWS account, so share a counts file only where you would share
