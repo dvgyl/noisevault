@@ -18,7 +18,8 @@ from noisevault.counts import MeasuredCounts, PlannedCircuit, load_counts, plan,
 from noisevault.errors import CountsError
 from noisevault.profile import Profile
 from noisevault.reference import Op, probabilities
-from noisevault.score import _grouped, age_text, paired, rank, score
+from noisevault.score import LeftOut, _grouped, age_text, paired, probe_report, rank, score
+from noisevault.suite import suite
 
 KINGSTON = "ibm_kingston@2026-04-15"
 RUN_AT = datetime(2026, 4, 16, 9, 30, tzinfo=UTC)
@@ -605,3 +606,275 @@ def test_select_gives_the_forecast_of_the_named_circuits_with_no_new_simulation(
         whole.select(["missing"])
     with pytest.raises(CountsError, match="names no circuit"):
         whole.select([])
+
+
+def two_qubit_device() -> Profile:
+    return Profile.uniform(
+        "toy",
+        technology="superconducting",
+        num_qubits=2,
+        one_qubit_error=0.01,
+        two_qubit_error=0.02,
+        readout_error=0.03,
+    )
+
+
+def run_of(
+    profile: Profile, circuits: Sequence[tuple[str, int, Sequence[Op], dict[str, int]]]
+) -> MeasuredCounts:
+    """Counts of circuits made by hand: name, number of qubits, ops and counts."""
+    data = written(profile, [("readout", {"0": 1})]).to_dict()
+    data["circuits"] = [
+        {
+            "name": name,
+            "qubits": list(range(n)),
+            "ops": [[op.name, list(op.qubits), list(op.params)] for op in ops],
+            "shots": sum(counts.values()),
+            "counts": counts,
+        }
+        for name, n, ops, counts in circuits
+    ]
+    return MeasuredCounts.model_validate(data)
+
+
+def x_times(repeats: int) -> list[Op]:
+    return [Op("x", (q,)) for _ in range(repeats) for q in (0, 1)]
+
+
+READOUT = ("readout", 2, (), {"00": 90, "01": 6, "10": 4})
+AXIS_D4 = ("axis_d4", 2, x_times(4), {"00": 80, "01": 10, "10": 6, "11": 4})
+AXIS_D8 = ("axis_d8", 2, x_times(8), {"00": 50, "01": 20, "10": 22, "11": 8})
+WIDE = ("clifford_n12_d1", 12, (), {"0" * 12: 10})
+
+
+def test_score_leaves_out_probe_and_wide_circuits_and_names_them() -> None:
+    profile = two_qubit_device()
+    counts = run_of(profile, [READOUT, AXIS_D4, WIDE])
+
+    result = score(profile, counts)
+
+    assert [c.name for c in result.circuits] == ["readout"]
+    assert result.left_out == (LeftOut("axis_d4", "probe"), LeftOut("clifford_n12_d1", "too_wide"))
+    assert result.to_dict()["left_out"] == [
+        {"name": "axis_d4", "reason": "probe"},
+        {"name": "clifford_n12_d1", "reason": "too_wide"},
+    ]
+    assert result.summary().splitlines()[-2:] == [
+        "1 probe circuit left out: axis_d4",
+        "1 circuit on more than 10 qubits left out: clifford_n12_d1",
+    ]
+    assert paired(result, score(scaled(profile, readout=2.0), counts)).log.outcome == "tested"
+
+
+def test_named_circuits_keep_a_probe_circuit_and_refuse_a_wide_one() -> None:
+    profile = two_qubit_device()
+    counts = run_of(profile, [READOUT, AXIS_D4, WIDE])
+
+    named = score(profile, counts, circuits=["readout", "axis_d4"])
+
+    assert [c.name for c in named.circuits] == ["readout", "axis_d4"] and named.left_out == ()
+    with pytest.raises(CountsError, match="circuit clifford_n12_d1 has 12 qubits"):
+        score(profile, counts, circuits=["readout", "clifford_n12_d1"])
+    with pytest.raises(CountsError, match="different circuits"):
+        paired(score(profile, counts), named)
+    with pytest.raises(CountsError, match="only probe circuits") as info:
+        score(profile, counts.select(["axis_d4", "clifford_n12_d1"]))
+    assert info.value.hint == "name the circuits to score with circuits="
+
+
+def test_a_long_list_of_left_out_circuits_is_cut() -> None:
+    profile = two_qubit_device()
+    wide = [(f"w{i}", 12, (), {"0" * 12: 1}) for i in range(6)]
+    result = score(profile, run_of(profile, [READOUT, *wide]))
+    assert result.summary().splitlines()[-1] == (
+        "6 circuits on more than 10 qubits left out: w0, w1, w2, w3 and 2 more"
+    )
+
+
+def wrong_forecast(profile: Profile, ops: Sequence[Op], ideal: str) -> list[float]:
+    """The forecast fraction of wrong bits of each of 2 qubits, from the outcome probabilities."""
+    probs = probabilities(profile, list(ops), 2, layout=(0, 1), readout=True)
+    keys = ["00", "01", "10", "11"]
+    return [
+        sum(p for key, p in zip(keys, probs, strict=True) if key[i] != ideal[i]) for i in range(2)
+    ]
+
+
+def test_the_probe_report_equals_a_hand_computation() -> None:
+    profile = two_qubit_device()
+    counts = run_of(profile, [READOUT, AXIS_D4, AXIS_D8])
+
+    report = probe_report(profile, counts)
+
+    assert report is not None and report == profile.probe_report(counts)
+    d4, d8 = report.circuits
+    assert (d4.name, d4.qubits, d4.shots, d4.ideal_result) == ("axis_d4", (0, 1), 100, "00")
+    assert d4.measured == pytest.approx(0.80) and d8.measured == pytest.approx(0.50)
+    probs = probabilities(profile, x_times(4), 2, layout=(0, 1), readout=True)
+    assert d4.forecast == pytest.approx(probs[0])
+    measured = {"axis_d4": [0.10, 0.14], "axis_d8": [0.30, 0.28]}
+    for c, ops in ((d4, x_times(4)), (d8, x_times(8))):
+        assert [q.qubit for q in c.wrong_bits] == [0, 1]
+        assert [q.ideal_bit for q in c.wrong_bits] == ["0", "0"]
+        assert [q.measured for q in c.wrong_bits] == pytest.approx(measured[c.name])
+        forecast = wrong_forecast(profile, ops, "00")
+        assert [q.forecast for q in c.wrong_bits] == pytest.approx(forecast)
+        assert [q.baseline for q in c.wrong_bits] == pytest.approx([0.04, 0.06])
+    growth = report.growth
+    assert growth is not None
+    assert (growth.fewer, growth.more, growth.gates) == ("axis_d4", "axis_d8", 2)
+    assert growth.qubits == (0, 1)
+    assert growth.ratios == pytest.approx([0.26 / 0.06, 0.22 / 0.08])
+    assert report.left_out == ()
+    data = report.to_dict()
+    assert data["growth"]["ratios"][0] == {"qubit": 0, "ratio": pytest.approx(0.26 / 0.06)}
+    assert data["circuits"][1]["wrong_bits"][1]["measured"] == pytest.approx(0.28)
+    text = " ".join(report.summary("toy").split())
+    assert "a systematic rotation error gives about 4, and an error with no direction" in text
+    narrow = report.summary("toy", width=46).splitlines()
+    table = narrow[narrow.index("wrong bits, measured / forecast") :]
+    assert max(map(len, table)) <= 46
+    assert [line.split()[2:] for line in narrow if line.startswith("qubit")] == [
+        ["axis_d4"],
+        ["axis_d8", "growth"],
+    ]
+
+
+def test_growth_has_no_ratio_where_the_fewer_gates_give_no_wrong_bits_above_baseline() -> None:
+    profile = two_qubit_device()
+    at_baseline = ("axis_d4", 2, x_times(4), {"00": 90, "01": 6, "10": 4})
+    report = probe_report(profile, run_of(profile, [READOUT, at_baseline, AXIS_D8]))
+    assert report is not None and report.growth is not None
+    assert report.growth.ratios == (None, None)
+    rows = [line.split() for line in report.summary().splitlines() if line[:2] in ("0 ", "1 ")]
+    assert [row[-1] for row in rows] == ["-", "-"]
+    no_readout = probe_report(profile, run_of(profile, [AXIS_D4, AXIS_D8]))
+    assert no_readout is not None and no_readout.growth is not None
+    assert [q.baseline for q in no_readout.circuits[0].wrong_bits] == [None, None]
+    assert no_readout.growth.ratios == pytest.approx([0.30 / 0.10, 0.28 / 0.14])
+
+
+def test_a_probe_circuit_whose_ideal_result_is_not_all_0() -> None:
+    profile = two_qubit_device()
+    ops = [Op("x", (0,)), Op("sx", (1,)), Op("sx", (1,))]
+    periodic = ("periodic_d2", 2, ops, {"11": 90, "01": 5, "10": 3, "00": 2})
+    uncertain = ("periodic_d3", 2, [Op("h", (0,))], {"00": 5, "10": 5})
+
+    report = probe_report(profile, run_of(profile, [READOUT, periodic, uncertain, WIDE]))
+
+    assert report is not None and report.growth is None
+    (c,) = report.circuits
+    assert c.ideal_result == "11" and c.measured == pytest.approx(0.90)
+    assert [q.ideal_bit for q in c.wrong_bits] == ["1", "1"]
+    assert [q.measured for q in c.wrong_bits] == pytest.approx([0.07, 0.05])
+    assert [q.forecast for q in c.wrong_bits] == pytest.approx(wrong_forecast(profile, ops, "11"))
+    assert report.left_out == (LeftOut("periodic_d3", "no_ideal_result"),)
+    assert "1 circuit with no certain result left out: periodic_d3" in report.summary()
+
+
+def test_counts_with_no_probe_circuit_that_the_simulator_runs_give_no_probe_report() -> None:
+    profile = two_qubit_device()
+    wide_probe = ("axis_d64", 12, (), {"0" * 12: 10})
+    assert probe_report(profile, run_of(profile, [READOUT, wide_probe])) is None
+    assert probe_report(profile, run_of(profile, [READOUT])) is None
+
+
+def toy_suite_run(tmp_path: Path) -> tuple[Path, Path]:
+    """A profile of a small device and simulated counts of its deep circuit set."""
+    device = Profile.uniform(
+        "toy",
+        technology="superconducting",
+        num_qubits=3,
+        one_qubit_error=0.002,
+        two_qubit_error=0.02,
+        readout_error=0.02,
+        one_qubit_ns=30,
+        two_qubit_ns=60,
+        connectivity=[(0, 1), (1, 2)],
+    )
+    counts = simulate(scaled(device, 1.5), suite(device), shots=1000, seed=1, run_at=RUN_AT)
+    return device.save(tmp_path / "toy.json"), counts.save(tmp_path / "run.counts.json")
+
+
+def test_nv_score_of_a_deep_circuit_set_prints_the_probe_report(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    profile, counts = (path.name for path in toy_suite_run(tmp_path))
+
+    shown = {
+        columns: runner.invoke(app, ["score", profile, counts], env={"COLUMNS": columns})
+        for columns in ("100", "80")
+    }
+
+    for columns, result in shown.items():
+        assert result.exit_code == 0, result.output
+        lines = result.stdout.splitlines()
+        assert max(len(line) for line in lines) <= int(columns), result.stdout
+        text = " ".join(result.stdout.split())
+        assert "3 probe circuits left out: periodic_d8, axis_d64, axis_d256" in text
+        assert f"probe circuits, not in the score; forecast by {profile}" in text
+        assert any(line.split()[:3] == ["axis_d64", "1000", "000"] for line in lines)
+        assert "a systematic rotation error gives about 16" in text
+
+
+def test_nv_score_with_a_wide_circuit_scores_the_others(tmp_path: Path) -> None:
+    profile = two_qubit_device()
+    path = run_of(profile, [READOUT, AXIS_D4, AXIS_D8, WIDE]).save(tmp_path / "run.counts.json")
+    saved = profile.save(tmp_path / "toy.json")
+
+    result = runner.invoke(app, ["score", str(saved), str(path)], env={"COLUMNS": "80"})
+
+    assert result.exit_code == 0, result.output
+    assert "run 2026-04-16 09:30Z on toy, qubits 0-1" in result.stdout.splitlines()
+    assert "1 circuit on more than 10 qubits left out: clifford_n12_d1" in result.stdout
+    assert "growth" in result.stdout
+
+
+def test_nv_score_json_holds_the_probe_report_of_the_best_profile(tmp_path: Path) -> None:
+    profile, counts = toy_suite_run(tmp_path)
+    worse = scaled(Profile.load(profile), 4.0).save(tmp_path / "worse.json")
+
+    result = runner.invoke(app, ["score", str(worse), str(profile), str(counts), "--json"])
+
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.stdout)
+    best = data["models"][0]
+    assert data["probes"]["ref"] == best["ref"] == str(profile)
+    assert data["probes"]["fingerprint"] == best["fingerprint"]
+    names = [c["name"] for c in data["probes"]["circuits"]]
+    assert names == ["periodic_d8", "axis_d64", "axis_d256"]
+    assert data["probes"]["growth"]["gates"] == 4
+    assert {item["reason"] for item in best["left_out"]} == {"probe"}
+
+
+def test_nv_score_prints_no_probe_section_for_counts_with_no_probe_circuit(tmp_path: Path) -> None:
+    counts = kingston_counts().save(tmp_path / "run.counts.json")
+
+    text = runner.invoke(app, ["score", KINGSTON, str(counts)], env={"COLUMNS": "100"})
+    data = runner.invoke(app, ["score", KINGSTON, str(counts), "--json"])
+
+    assert text.exit_code == data.exit_code == 0, text.output
+    assert "probe circuits" not in text.stdout and "left out" not in text.stdout
+    assert json.loads(data.stdout)["probes"] is None
+
+
+def test_nv_score_floor_gives_the_probe_forecast_of_the_floored_profile(tmp_path: Path) -> None:
+    data = nv.load(KINGSTON).to_dict()
+    data["qubits"][0]["readout"] = {"error": 0.0}
+    stated = Profile.model_validate(data)
+    saved = stated.save(tmp_path / "stated.json")
+    path = run_of(stated, [READOUT, AXIS_D4, AXIS_D8]).save(tmp_path / "run.counts.json")
+
+    plain = runner.invoke(app, ["score", str(saved), str(path), "--json"])
+    floored = runner.invoke(app, ["score", str(saved), str(path), "--json", "--floor"])
+
+    assert plain.exit_code == floored.exit_code == 0, plain.output
+    first, second = json.loads(plain.stdout)["probes"], json.loads(floored.stdout)["probes"]
+    assert first["fingerprint"] == stated.fingerprint
+    assert second["fingerprint"] == stated.floored().fingerprint
+    expected = probe_report(stated.floored(), load_counts(path))
+    assert expected is not None
+    wrong = expected.circuits[0].wrong_bits[0].forecast
+    assert second["circuits"][0]["wrong_bits"][0]["forecast"] == pytest.approx(wrong)
+    assert first["circuits"][0]["wrong_bits"][0]["forecast"] != pytest.approx(wrong)

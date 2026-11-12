@@ -63,7 +63,7 @@ if TYPE_CHECKING:
     from .compare import Comparison
     from .counts import MeasuredCounts
     from .diff import ProfileDiff
-    from .score import Forecast
+    from .score import Forecast, ProbeReport
     from .table import GateNoise, NoiseTable
 
 FORMAT_VERSION = "1.0"
@@ -1100,6 +1100,11 @@ class Profile(_Model):
         from .score import score
 
         return score(self, counts, circuits=circuits)
+
+    def probe_report(self, counts: MeasuredCounts) -> ProbeReport | None:
+        from .score import probe_report
+
+        return probe_report(self, counts)
 
     def to_qiskit(self, *, unknown_gates: str = "typical", **options: Any) -> Any:
         from .frameworks.qiskit import to_qiskit

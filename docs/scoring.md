@@ -233,3 +233,94 @@ then the noise column, then the age.
 With two or more profiles, one line for each other profile gives the paired test against the
 best profile. `nv score ... --json` prints all numbers, also the scores of each circuit, as one
 JSON object. `nv score` exits with status 0 when it scored every profile.
+
+## Probe circuits and what a score leaves out
+
+A run of the [deep circuit set](recipes.md#run-the-deep-circuit-set) holds two kinds of circuits
+that a score cannot use:
+
+- **Probe circuits.** `axis_d64` and `axis_d256` apply one gate 64 and 256 times on each qubit,
+  and the ideal result is 0 on each qubit. `periodic_d*` is a mirror circuit that repeats two
+  layers. In these circuits, a small systematic rotation error of each gate adds up. A noise
+  model from a calibration holds no such error, so it cannot forecast these circuits, and they
+  would decide the score.
+- **Circuits on more than 10 qubits.** The `clifford_n*` circuits run on 20, 40 and 80 qubits.
+  The reference simulator holds 10 qubits at most.
+
+With no `circuits=`, `score` leaves out both kinds. `Forecast.left_out` names each circuit with
+its reason, `probe` or `too_wide`. A call that names `circuits=` scores a named probe circuit,
+and it refuses a named circuit on more than 10 qubits.
+
+`probe_report(profile, counts)` (or `Profile.probe_report(counts)`) shows the probe circuits.
+For each probe circuit, it gives the probability of the ideal result, measured and forecast. For
+each qubit, it gives the fraction of wrong bits, measured and forecast. A bit is wrong when it
+differs from the ideal bit of its qubit. The `readout` column is the fraction of wrong bits of
+the qubit in the `readout` circuit, which has no gate. The growth divides the wrong bits above
+the readout value in `axis_d256` by the same in `axis_d64`. With 4 times the gates, a systematic
+error gives about 16, and an error with no direction gives about 4, when the fractions are
+small. `nv score` prints the report after the ranking, with the forecast of the best profile.
+
+These commands simulate a run of the deep circuit set of the bundled `ibm_kingston` profile and
+score the profile on it:
+
+<!-- not-run: makes the deep circuit set, which takes about one minute -->
+```python
+from datetime import UTC, datetime
+
+import noisevault as nv
+from noisevault import wide
+from noisevault.counts import simulate
+from noisevault.reference import MAX_QUBITS
+from noisevault.suite import suite
+
+kingston = nv.load("ibm_kingston")
+circuits = suite(kingston)
+narrow = [c for c in circuits if len(c.qubits) <= MAX_QUBITS]
+run_at = datetime(2026, 4, 16, 9, 30, tzinfo=UTC)
+run = simulate(kingston, narrow, shots=1250, seed=1, run_at=run_at)
+# simulate holds 10 qubits at most, so Stim samples the wider circuits.
+wider = [
+    c.model_dump(mode="json")
+    | {"shots": 1250, "counts": wide.counts(wide.sample(kingston, c, 1250, seed=1))}
+    for c in circuits
+    if len(c.qubits) > MAX_QUBITS
+]
+run.model_copy(update={"circuits": run.to_dict()["circuits"] + wider}).save("deep.counts.json")
+```
+
+```text
+$ nv score ibm_kingston deep.counts.json
+counts deep.counts.json, simulated, sha256:ab79d315cf37
+run 2026-04-16 09:30Z on ibm_kingston, qubits 148-149-150-151-147-152-153-154
+
+model             fingerprint   age  log score   excess  noise 95%  quadratic
+ibm_kingston  nv:609c845ed934  26 h   -1.30817  0.01135    0.01220    0.53290
+
+3 probe circuits left out: periodic_d48, axis_d64, axis_d256
+3 circuits on more than 10 qubits left out: clifford_n20_d15, clifford_n40_d15,
+  clifford_n80_d13
+
+probe circuits, not in the score; forecast by ibm_kingston
+
+circuit       shots  ideal result  measured  forecast
+periodic_d48   1250          0001     0.657     0.656
+axis_d64       1250          0000     0.934     0.933
+axis_d256      1250          0000     0.822     0.818
+
+wrong bits, measured / forecast
+qubit  readout   periodic_d48       axis_d64      axis_d256  growth
+148      0.000  0.157 / 0.151  0.014 / 0.011  0.037 / 0.040     2.6
+149      0.011  0.170 / 0.178  0.018 / 0.021  0.059 / 0.054     7.5
+150      0.010  0.119 / 0.133  0.017 / 0.020  0.053 / 0.055     6.0
+151      0.009  0.095 / 0.104  0.018 / 0.017  0.049 / 0.047     4.2
+
+growth: wrong bits above the readout value in axis_d256, divided by the same in
+  axis_d64. When the fractions are small, a systematic rotation error gives
+  about 16, and an error with no direction about 4.
+```
+
+The simulated device has the errors of the profile and no systematic error. Thus the forecast
+agrees with the measured values, and the growth is near 4. Few wrong bits make a growth
+uncertain: in `axis_d64`, qubit 149 has only about 9 wrong shots above the readout value. On a
+real IBM device, the growth was 11 to 20 on 7 of 8 qubits, and `axis_d256` gave 0.36 to 0.90
+wrong bits on a qubit where the forecast was 0.05 to 0.13.
