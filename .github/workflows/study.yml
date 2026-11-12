@@ -1,0 +1,86 @@
+name: Study results
+
+# Builds the derived results of the realism study from the campaign folder of the IBM campaign.
+# The campaign folder holds account data under IBM's terms, so it stays in the encrypted artifact
+# that the IBM campaign workflow saves. This workflow decrypts it on the runner and publishes only
+# derived numbers: fitted factors, intervals, distances, scores and tests. It publishes no counts,
+# no calibration file and no job id.
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows: ["IBM campaign"]
+    types: [completed]
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: study-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  UV_SYSTEM_PYTHON: "1"
+  PYTHONUNBUFFERED: "1"
+  ARTIFACT: ibm-campaign
+  ARCHIVE: campaign.tar.gz.enc
+
+jobs:
+  results:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - uses: astral-sh/setup-uv@v6
+      - run: uv pip install -e .
+
+      - name: Restore the campaign folder
+        id: restore
+        env:
+          GH_TOKEN: ${{ github.token }}
+          IBM_QUANTUM_TOKEN: ${{ secrets.IBM_QUANTUM_TOKEN }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          if [ -z "$IBM_QUANTUM_TOKEN" ]; then
+            echo "::notice title=Study results skipped::The repository has no secret IBM_QUANTUM_TOKEN, so no campaign folder can be read."
+            exit 0
+          fi
+          id=$(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/artifacts?name=$ARTIFACT&per_page=100" \
+              --jq ".artifacts[] | select((.expired | not) and .workflow_run.head_branch == \"$DEFAULT_BRANCH\") | [.created_at, .id] | @tsv" \
+            | sort | tail -n 1 | cut -f 2)
+          if [ -z "$id" ]; then
+            echo "::notice title=Study results skipped::No campaign artifact exists."
+            exit 0
+          fi
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$id/zip" > previous.zip
+          unzip -q previous.zip -d previous
+          openssl enc -d -aes-256-cbc -pbkdf2 -pass env:IBM_QUANTUM_TOKEN \
+            -in "previous/$ARCHIVE" | tar -xz
+          rm -rf previous previous.zip
+          echo "found=true" >> "$GITHUB_OUTPUT"
+
+      - name: Build the derived results
+        if: steps.restore.outputs.found == 'true'
+        run: |
+          status=0
+          python -m study.derive campaign --out results || status=$?
+          cat results/fits.md >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
+
+      - name: Remove the campaign folder
+        if: always()
+        run: rm -rf campaign
+
+      - uses: actions/upload-artifact@v4
+        if: always() && steps.restore.outputs.found == 'true'
+        with:
+          name: study-results
+          path: results
+          if-no-files-found: ignore
