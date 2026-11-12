@@ -26,7 +26,8 @@ import noisevault as nv
 from noisevault import gates
 from noisevault.counts import PlannedCircuit, load_counts, plan
 from noisevault.errors import NoiseVaultError, install_hint
-from noisevault.reference import Op
+from noisevault.profile import Profile
+from noisevault.reference import MAX_QUBITS, Op
 from noisevault.suite import role, suite
 
 require("braket.emulation.local_emulator")
@@ -211,9 +212,38 @@ def test_each_planned_gate_runs_as_one_native_gate_in_a_verbatim_box(arn: str) -
 def test_each_gate_of_the_deep_circuit_set_runs_as_one_native_gate(arn: str) -> None:
     target, _ = _target(arn)
     batch = script.prepare(target, 100, script.PRICES[arn], deep=True)
-    assert [c.name for c in batch.planned] == [c.name for c in suite(batch.profile)]
+    assert [c.name for c in batch.planned] == _narrow(batch.profile)
     assert len(batch.planned) > 20
     _assert_native(batch, target)
+
+
+def _narrow(profile: Profile) -> list[str]:
+    """The names of the circuits of ``suite`` that a Braket run keeps: 10 qubits or fewer."""
+    return [c.name for c in suite(profile) if len(c.qubits) <= MAX_QUBITS]
+
+
+def _with_a_wide_circuit(profile: Profile) -> tuple[PlannedCircuit, ...]:
+    wide = PlannedCircuit(name="clifford_n20_d3", qubits=tuple(range(20)), ops=())
+    return (*suite(profile), wide)
+
+
+@pytest.mark.parametrize("budget", [None, Decimal("2")])
+def test_a_suite_run_leaves_out_each_circuit_above_10_qubits_and_says_so(
+    garnet: Run,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    budget: Decimal | None,
+) -> None:
+    monkeypatch.setattr(script, "suite", _with_a_wide_circuit)
+    target, _ = _target(GARNET)
+
+    batch = script.prepare(target, 100, script.PRICES[GARNET], deep=True, budget=budget)
+    assert garnet(confirm_cost=None, deep=True, budget=budget) is None
+
+    assert batch.left_out == 1
+    assert all(len(c.qubits) <= MAX_QUBITS for c in batch.planned)
+    out = capsys.readouterr().out
+    assert "1 circuit on more than 10 qubits, which nv compare cannot score" in out
 
 
 def _assert_native(batch: Any, target: Any) -> None:
@@ -353,7 +383,7 @@ def test_a_budget_run_costs_at_most_the_budget_and_one_more_shot_costs_more(
     names = [c.name for c in batch.planned]
     assert {"readout", "readout_1"} <= set(names)
     assert [role(name) for name in names].count("test_near") == 1
-    assert names == [c.name for c in suite(batch.profile) if c.name in names]
+    assert names == [n for n in _narrow(batch.profile) if n in names]
 
 
 @pytest.mark.parametrize(
@@ -449,7 +479,7 @@ def test_a_suite_run_on_an_ion_trap_saves_every_suite_circuit(tmp_path: Path) ->
     run = _run(tmp_path, IBEX)
     measured = run(shots=10, deep=True)
     profile = nv.load(str(run.output.with_name("dev.profile.json")))
-    assert [c.name for c in load_counts(run.output).circuits] == [c.name for c in suite(profile)]
+    assert [c.name for c in load_counts(run.output).circuits] == _narrow(profile)
     assert len(run.hardware.tasks) == 1
     assert all(c.shots == 10 for c in measured.circuits)
 
@@ -468,7 +498,7 @@ def test_the_same_command_collects_a_stopped_suite_run(
     assert len(garnet.hardware.tasks) == 1
     assert capsys.readouterr().out.startswith("collecting task ")
     profile = nv.load(str(garnet.output.with_name("dev.profile.json")))
-    assert [c.name for c in load_counts(garnet.output).circuits] == [c.name for c in suite(profile)]
+    assert [c.name for c in load_counts(garnet.output).circuits] == _narrow(profile)
     assert not garnet.pending.exists()
 
 

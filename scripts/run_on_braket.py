@@ -73,9 +73,11 @@ from noisevault.errors import (  # noqa: E402
     NoiseVaultError,
     install_hint,
     parse_json,
+    plural,
     qubit_loci,
 )
 from noisevault.profile import Profile, file_bytes, ref_on_day  # noqa: E402
+from noisevault.reference import MAX_QUBITS  # noqa: E402
 from noisevault.suite import role, suite  # noqa: E402
 
 DEFAULT_SHOTS = 4000
@@ -154,6 +156,7 @@ class Batch:
     deep: bool = False
     design: Design | None = None
     budget: Decimal | None = None
+    left_out: int = 0
 
 
 @dataclass(frozen=True)
@@ -310,7 +313,9 @@ def prepare(
     """The circuits, the shots and the cost of a run.
 
     ``deep`` runs ``suite`` in place of ``plan``. ``budget`` runs the circuits and the shots of
-    ``noisevault.design.design`` for that budget, from the circuits of ``suite``.
+    ``noisevault.design.design`` for that budget, from the circuits of ``suite``. The run leaves
+    out each circuit of ``suite`` on more than ``MAX_QUBITS`` qubits, because ``nv compare``
+    cannot score it.
     """
     properties = target.properties
     profile = calibration(properties, target.name)
@@ -325,10 +330,12 @@ def prepare(
     low, high = (properties.get("service") or {}).get("shotsRange") or (1, math.inf)
     limits = action.get(PROGRAM_SET) or {}
     chosen = None
+    made = suite(profile) if deep or budget is not None else plan(profile)
+    narrow = tuple(c for c in made if len(c.qubits) <= MAX_QUBITS)
     if budget is None:
-        planned = suite(profile) if deep else plan(profile)
+        planned = narrow
     else:
-        chosen = _design(profile, suite(profile), budget, price, limits, (low, high))
+        chosen = _design(profile, narrow, budget, price, limits, (low, high))
         planned, shots = chosen.circuits, chosen.shots
     circuits = tuple(braket_circuit(c, natives, target.name) for c in planned)
     if not low <= shots <= high:
@@ -348,6 +355,7 @@ def prepare(
         deep=deep or budget is not None,
         design=chosen,
         budget=budget,
+        left_out=len(made) - len(narrow),
     )
 
 
@@ -778,6 +786,14 @@ def summary(batch: Batch, target: Target, output: Path) -> str:
         ):
             found = "not identified" if error is None else f"{100 * error:.1f}%"
             labels.append((axis, f"predicted standard error {found}"))
+    if batch.left_out:
+        labels.append(
+            (
+                "left out",
+                f"{plural(batch.left_out, 'circuit')} on more than {MAX_QUBITS} qubits, which"
+                " nv compare cannot score",
+            )
+        )
     labels.append(("counts file", str(output)))
     return "\n".join(
         [
