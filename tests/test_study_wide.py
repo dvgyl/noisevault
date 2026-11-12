@@ -178,12 +178,20 @@ def test_the_qubit_test_holds_the_sampling_variance_of_both_forecasts(
 
     result = wide.compare([circuit], [a], [b])
 
+    from noisevault import wide as stabilizer
+
     keys, times = wide._rows(circuit)
-    f = times @ (keys != np.array([bit == "1" for bit in a.ideal])) / circuit.shots
-    expected = sum(
-        circuit.shots**2 / samples * ((f - q) ** 2 / (q * (1 - q))).sum()
-        for q in (a.qubit, b.qubit)
-    )
+    target = np.array([bit == "1" for bit in a.ideal])
+    f = times @ (keys != target) / circuit.shots
+    expected = 0.0
+    for found, profile, seed in ((a, _factor(line_24, 2.0), 1), (b, _factor(line_24, 1.5), 2)):
+        # The same seed and one chunk give the bits of the forecast again.
+        wrong = stabilizer.sample(profile, circuit, samples, seed=seed) != target
+        covariance = np.cov(wrong.T.astype(float), bias=True)
+        assert found.covariance == pytest.approx(covariance, abs=1e-12)
+        q = found.qubit
+        weights = circuit.shots * (f - q) / (q * (1 - q))
+        expected += weights @ covariance @ weights / samples
     assert result.qubit_sampling.variance == pytest.approx(expected)
     plain = wide._shot_test(wide._cells(circuit, a, b, merge=True)[2:])
     shot_variance = (plain.standard_error * circuit.shots) ** 2
@@ -200,6 +208,43 @@ def test_the_qubit_test_holds_the_sampling_variance_of_both_forecasts(
         for p in (pa, pb)
     )
     assert result.wrong_sampling.variance == pytest.approx(cells)
+
+
+def test_the_sampling_variance_of_two_correlated_qubits_holds_their_covariance() -> None:
+    q = np.array([0.1, 0.1])
+    f = np.array([0.2, 0.2])
+    variance = q[0] * (1 - q[0])
+    # The two qubits are wrong in the same samples, so each value of C is q (1 - q).
+    same = np.full((2, 2), variance)
+
+    full = wide.qubit_sampling_variance(1000, 4000, f, q, same)
+    alone = wide.qubit_sampling_variance(1000, 4000, f, q)
+
+    a = 1000 * (0.2 - 0.1) / variance
+    assert alone == pytest.approx(2 * a**2 * variance / 4000)
+    assert full == pytest.approx((2 * a) ** 2 * variance / 4000)
+    assert full == pytest.approx(2 * alone)
+    # With opposite errors on the two qubits, the correlated errors cancel.
+    opposite = wide.qubit_sampling_variance(1000, 4000, np.array([0.2, 0.0]), q, same)
+    assert opposite < 1e-9 < wide.qubit_sampling_variance(1000, 4000, np.array([0.2, 0.0]), q)
+
+
+def test_the_forecast_gives_the_covariance_of_correlated_wrong_bits(line_24: Profile) -> None:
+    from noisevault.counts import PlannedCircuit
+    from noisevault.reference import Op
+
+    # A 2-qubit gate with a large error flips both bits in some samples.
+    circuit = PlannedCircuit(
+        name="clifford_pair",
+        qubits=(0, 1),
+        ops=(Op("x", (0,)), Op("cz", (0, 1)), Op("x", (0,))),
+    )
+    found = wide.forecast(_factor(line_24, 20.0), circuit, samples=20_000, seed=3, chunk=3000)
+
+    assert found.covariance.shape == (2, 2)
+    assert found.covariance == pytest.approx(found.covariance.T)
+    p = (found.qubit * (found.samples + 1) - 0.5) / found.samples
+    assert np.diag(found.covariance) == pytest.approx(p * (1 - p))
 
 
 def test_a_test_with_more_sampling_variance_than_shot_variance_gives_no_verdict() -> None:
