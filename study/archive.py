@@ -20,10 +20,16 @@ The change sizes and the regression to the mean exclude the failure-ceiling valu
 changes that each exclusion removes.
 
 The script excludes ibm_torino, which IBM retired in April 2026, unless ``--include-retired`` is
-given. ``--start`` and ``--end`` set the grid of times for the time since the last change.
-A series counts on the grid only from its first change to its last change, so a series that IBM
-stopped to update does not count after its last change. The other statistics use all rows of
-the file.
+given.
+
+``--start`` and ``--end`` set one window for all statistics. A row or a change counts only when
+its ``calibrated_time`` is in the window. A statistic of two changes, such as an interval, a change
+size or a next value, needs both changes in the window. The script finds the changes and the
+re-stamps on the full series, so the first row in the window is a change only when its value is
+new. The grid of times for the time since the last change is in the window. At a grid time, a
+series uses its last change at or before the grid time, also when that change is before the
+window. A series counts on the grid only from its first change to its last change, so a series
+that IBM stopped to update does not count after its last change.
 """
 
 from __future__ import annotations
@@ -233,29 +239,35 @@ def analyze(
 ) -> dict[str, Any]:
     """Every statistic of the archive file at ``path``, with its count."""
     rows = read_rows(path, include_retired)
-    changes = rows.select(rows.change)
+    change = rows.change
+    changes = rows.select(change)
+    inside = (rows.time_us >= _micros_of(start)) & (rows.time_us <= _micros_of(end))
+    window = rows.select(inside)
+    restamps = ~change[inside]
+    window_changes = rows.select(inside & change)
     return {
         "format": FORMAT,
         "dataset": DATASET,
         "license": LICENSE,
         "file_sha256": _sha256(path),
         "devices": sorted(set(rows.devices[d] for d in np.unique(rows.device).tolist())),
-        "rows": int(rows.value.size),
-        "changes": int(changes.value.size),
+        "window": {"start": _iso_dt(start), "end": _iso_dt(end)},
+        "rows": int(window.value.size),
+        "changes": int(window_changes.value.size),
+        "file_rows": int(rows.value.size),
+        "file_changes": int(changes.value.size),
         "duplicate_times": {"rows": rows.duplicates, "different_value": rows.conflicts},
-        "calibrated_from": _iso(int(rows.time_us.min())) if rows.value.size else None,
-        "calibrated_to": _iso(int(rows.time_us.max())) if rows.value.size else None,
-        "grid": {"start": _iso_dt(start), "end": _iso_dt(end), "step_h": 6},
-        "intervals": _intervals(rows, changes, _kind_label),
-        "intervals_by_property": _intervals(rows, changes, _property_label),
+        "grid_step_h": int(GRID_STEP.total_seconds() // 3600),
+        "intervals": _intervals(window, restamps, window_changes, _kind_label),
+        "intervals_by_property": _intervals(window, restamps, window_changes, _property_label),
         "since_change": _since_change(changes, start, end, _kind_label),
         "since_change_by_property": _since_change(changes, start, end, _property_label),
-        "excluded": _excluded(changes),
-        "change_size": _change_size(changes),
+        "excluded": _excluded(window_changes),
+        "change_size": _change_size(window_changes),
         "change_size_note": CHANGE_SIZE_NOTE,
-        "persistence": _persistence(changes),
-        "readout_grid": _readout_grid(rows),
-        "regression": {p: _regression(changes, p) for p in RANKED},
+        "persistence": _persistence(window_changes),
+        "readout_grid": _readout_grid(window),
+        "regression": {p: _regression(window_changes, p) for p in RANKED},
     }
 
 
@@ -282,14 +294,17 @@ def _property_label(rows: Rows) -> tuple[np.ndarray, Callable[[int], tuple[str, 
     return labels, name
 
 
-def _intervals(rows: Rows, changes: Rows, label: Label) -> dict[str, dict[str, Any]]:
+def _intervals(
+    rows: Rows, restamp: np.ndarray, changes: Rows, label: Label
+) -> dict[str, dict[str, Any]]:
     """Definition 3: the hours between two changes, the hours between two times and the
-    fraction of rows that are re-stamps, for each device and group."""
+    fraction of rows that are re-stamps, for each device and group. ``restamp`` marks the
+    re-stamps of ``rows``."""
     found: dict[str, dict[str, Any]] = {}
     labels, name = label(rows)
     later = ~rows.first
     row_gaps = _split(labels[later], np.diff(rows.time_us, prepend=0)[later] / _US_PER_HOUR)
-    restamps = _split(labels, (~rows.change).astype(np.float64))
+    restamps = _split(labels, restamp.astype(np.float64))
     change_labels, _ = label(changes)
     later = ~changes.first
     gaps = _split(change_labels[later], np.diff(changes.time_us, prepend=0)[later] / _US_PER_HOUR)
@@ -512,6 +527,8 @@ def _pair(now: np.ndarray, after: np.ndarray) -> dict[str, Any]:
 
 
 def _split(labels: np.ndarray, values: np.ndarray) -> dict[int, np.ndarray]:
+    if labels.size == 0:
+        return {}
     order = np.argsort(labels, kind="stable")
     keys, starts = np.unique(labels[order], return_index=True)
     return dict(zip(keys.tolist(), np.split(values[order], starts[1:]), strict=True))
@@ -537,8 +554,8 @@ def _seconds(when: datetime) -> int:
     return int(when.timestamp())
 
 
-def _iso(micros: int) -> str:
-    return _iso_dt(datetime.fromtimestamp(micros / 1_000_000, UTC))
+def _micros_of(when: datetime) -> int:
+    return _seconds(when) * 1_000_000
 
 
 def _iso_dt(when: datetime) -> str:
@@ -547,16 +564,16 @@ def _iso_dt(when: datetime) -> str:
 
 def markdown(data: Mapping[str, Any]) -> str:
     """The compact tables of ``data``, the result of ``analyze``."""
-    grid = data["grid"]
+    window = data["window"]
     lines = [
         "# Calibration archive",
         "",
         f"- Dataset: {data['dataset']} ({data['license']})",
         f"- File SHA-256: `{data['file_sha256']}`",
         f"- Devices: {', '.join(data['devices'])}",
-        f"- Values: calibrated from {data['calibrated_from']} to {data['calibrated_to']},"
-        f" {data['rows']} rows, {data['changes']} changes",
-        f"- Grid of times: {grid['start']} to {grid['end']}, each {grid['step_h']} hours",
+        f"- Window: calibrated from {window['start']} to {window['end']}, {data['rows']} rows,"
+        f" {data['changes']} changes. The grid of times has a time each {data['grid_step_h']}"
+        " hours in the window.",
         "",
         "## Hours between two changes and between two times",
         "",

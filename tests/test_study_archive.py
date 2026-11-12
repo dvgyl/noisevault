@@ -18,7 +18,7 @@ pa = require("pyarrow")
 pq = require("pyarrow.parquet")
 
 T0 = datetime(2026, 3, 1, tzinfo=UTC)
-END = T0 + timedelta(hours=48)
+END = T0 + timedelta(days=7)
 LN2 = math.log(2)
 # The readout values of 21 qubits of ibm_fez on 2026-03-05 and on the day after, in units of
 # 1/4096. Qubit 20 has the value HIGH on 2026-03-05.
@@ -106,7 +106,11 @@ def test_reads_only_the_kinds_and_excludes_the_retired_device(
     data: dict[str, Any], parquet: Path
 ) -> None:
     assert data["devices"] == ["ibm_fez", "ibm_kingston"]
-    assert data["rows"] == 5 + 2 + 1 + 1 + 2 + 6 + 42 + 38
+    assert data["file_rows"] == 5 + 2 + 1 + 1 + 2 + 6 + 42 + 38
+    assert data["file_changes"] == 2 + 3 + 2 + 1 + 1 + 1 + 3 + 42 + 38
+    # The T1 row at -240 h and the T2 row are before the window.
+    assert data["rows"] == data["file_rows"] - 2
+    assert data["changes"] == data["file_changes"] - 2
     assert data["duplicate_times"] == {"rows": 1, "different_value": 1}
     retired = archive.analyze(parquet, T0, END, include_retired=True)["devices"]
     assert retired == ["ibm_fez", "ibm_kingston", "ibm_torino"]
@@ -122,14 +126,16 @@ def test_counts_a_change_only_when_the_value_changes(data: dict[str, Any]) -> No
     assert cz["between_changes_h"]["count"] == 2
     assert cz["restamps"]["restamps"] == 1
     t1 = data["intervals"]["ibm_fez"]["t1"]
-    assert t1["between_changes_h"] == {"count": 1, "median": 288.0, "p90": 288.0}
+    # The change of T1 before the change at 48 h is before the window.
+    assert t1["between_changes_h"] == {"count": 0, "median": None, "p90": None}
     readout = data["intervals_by_property"]["ibm_fez"]["prob_meas1_prep0"]
     assert readout["between_changes_h"] == {"count": 21, "median": 24.0, "p90": 24.0}
 
 
 def test_gives_the_time_since_the_last_change_at_each_grid_time(data: dict[str, Any]) -> None:
     since = data["since_change"]["ibm_fez"]
-    # The grid holds 9 times, 0 to 48 hours after T0. The T1 changes at -240 h and at 48 h.
+    # The grid holds 29 times, 0 to 168 hours after T0. The T1 changes at -240 h and at 48 h, so
+    # it counts at the 9 times from 0 h to 48 h.
     t1 = since["t1"]
     assert (t1["series"], t1["ended"], t1["count"]) == (1, 0, 9)
     assert t1["median"] == 258.0
@@ -142,9 +148,10 @@ def test_gives_the_time_since_the_last_change_at_each_grid_time(data: dict[str, 
     assert sx["count"] == 14
     assert sx["median"] == 6.0
     assert sx["above_24h"] == 0.0
-    # prob_meas0_prep1 has one change, at T0. The prob_meas1_prep0 series start after the grid.
+    # prob_meas0_prep1 has one change, at T0. Each prob_meas1_prep0 series of ibm_fez changes at
+    # 108 h and 132 h, so it counts at 5 grid times.
     assert data["since_change_by_property"]["ibm_fez"]["prob_meas0_prep1"]["count"] == 1
-    assert data["since_change_by_property"]["ibm_fez"]["prob_meas1_prep0"]["count"] == 0
+    assert data["since_change_by_property"]["ibm_fez"]["prob_meas1_prep0"]["count"] == 21 * 5
 
 
 def test_counts_a_series_that_ended_before_the_grid_but_not_its_age(data: dict[str, Any]) -> None:
@@ -157,7 +164,8 @@ def test_counts_a_series_that_ended_before_the_grid_but_not_its_age(data: dict[s
 def test_gives_the_size_of_a_change_by_its_gap(data: dict[str, Any]) -> None:
     size = data["change_size"]
     assert size["one_qubit"] == {"12-36 h": {"count": 1, "median": LN2, "p90": LN2}}
-    assert size["t1"][">7 d"]["median"] == pytest.approx(LN2)
+    # The change of T1 before the change at 48 h is before the window.
+    assert "t1" not in size
     # The zero has no ratio and the next value of qubit 19 is a failure-ceiling value, so 19 of
     # the 21 changes of ibm_fez count. The 19 changes of ibm_kingston count.
     pairs = [
@@ -245,7 +253,7 @@ def test_writes_the_json_and_the_tables(parquet: Path, tmp_path: Path) -> None:
     text = (out / "archive.md").read_text(encoding="utf-8")
     assert data["file_sha256"] in text
     assert "phanerozoic/qiskit-calibration-drift (CC-BY-4.0)" in text
-    assert "2026-03-01T00:00:00Z to 2026-03-03T00:00:00Z" in text
+    assert "- Window: calibrated from 2026-03-01T00:00:00Z to 2026-03-03T00:00:00Z" in text
     assert "| ibm_fez | one_qubit | 3 | 24.0 | 24.0 | 6 | 11.5 |" in text
 
 
@@ -281,3 +289,29 @@ def test_gives_no_rank_correlation_when_all_values_tie() -> None:
     first = np.array([1.0, 2.0, 2.0, 3.0])
     assert archive._spearman(first, np.ones(4)) is None
     assert archive._spearman(first, first.copy()) == pytest.approx(1.0)
+
+
+def test_counts_only_the_rows_and_the_changes_in_the_window(parquet: Path) -> None:
+    # The window starts after the first sx changes and ends before the readout changes of
+    # 2026-03-06.
+    data = archive.analyze(parquet, T0 + timedelta(hours=12), T0 + timedelta(hours=120))
+    sx = data["intervals"]["ibm_fez"]["one_qubit"]
+    # Only qubit 1 has two changes in the window, at 24 h and 48 h.
+    assert sx["between_changes_h"] == {"count": 1, "median": 24.0, "p90": 24.0}
+    # The rows in the window are 24 h and 25 h of qubit 0, and 24 h and 48 h of qubit 1.
+    assert sx["between_times_h"]["count"] == 2
+    assert sx["restamps"] == {"rows": 4, "restamps": 1, "fraction": 0.25}
+    assert data["readout_grid"]["ibm_fez"]["prob_meas1_prep0"]["values"] == 21
+    assert "readout" not in data["change_size"]
+    fez = data["regression"]["prob_meas1_prep0"]["ibm_fez"]
+    assert fez["days"] == 1
+    assert [fez["parts"][p]["count"] for p in archive.PARTS] == [0, 0, 0]
+    assert "readout" not in data["persistence"].get("ibm_fez", {})
+
+
+def test_uses_the_value_in_effect_at_the_first_grid_times(parquet: Path) -> None:
+    data = archive.analyze(parquet, T0 + timedelta(hours=12), T0 + timedelta(hours=120))
+    # The T1 change at -240 h is before the window, but it is in effect at 12 h to 42 h.
+    t1 = data["since_change"]["ibm_fez"]["t1"]
+    assert t1["count"] == 7
+    assert t1["median"] == 264.0
