@@ -66,6 +66,7 @@ from .profile import (
     unmodeled_note,
 )
 from .table import GateNoise
+from .value_times import LABELS, hours
 
 if TYPE_CHECKING:
     from .check import CheckResult, FrameworkCheck
@@ -531,6 +532,7 @@ def card(profile: Profile) -> dict[str, Any]:
         "median_p1_given_0": medians.p1_given_0,
         "median_p0_given_1": medians.p0_given_1,
         "disabled_qubits": [i for i in range(dev.num_qubits) if table.qubit(i).disabled],
+        "value_ages": profile.value_ages() if dev.calibrated_at else None,
         "provenance": prov.model_dump(mode="json", exclude_none=True, exclude={"notes", "extra"}),
         "fingerprint": profile.fingerprint,
         "short_fingerprint": profile.short_fingerprint,
@@ -647,6 +649,10 @@ def _print_card(
     _add_lines(grid, "unmodeled", [line.short for line in data["unmodeled_note"]])
     if not brief:
         _add_lines(grid, "effects", [_plain_effect(line) for line in data["effects"]])
+    if data["value_ages"]:
+        ages = data["value_ages"].items()
+        shown = ", ".join(f"{LABELS[kind]} {hours(age['median_h'])}" for kind, age in ages)
+        _add_lines(grid, "value ages", [shown, "older than the calibration time (median)"])
     prov = data["provenance"]
     grid.add_row("provenance", _provenance(prov))
     redistribution = _REDISTRIBUTION[prov["redistributable"]]

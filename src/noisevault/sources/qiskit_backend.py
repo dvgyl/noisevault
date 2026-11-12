@@ -25,7 +25,7 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any, NewType
 
-from .. import __version__, gates, metrics, units
+from .. import __version__, gates, metrics, units, value_times
 from ..errors import SourceDataError, plural, qubit_loci
 from ..profile import FORMAT_VERSION, Profile, Technology
 from . import Origin, source_json
@@ -125,6 +125,8 @@ class Calibration:
     skipped: tuple[str, ...] = ()  # source instruction names deliberately not converted
     supported: Mapping[str, frozenset[tuple[int, ...]]] = field(default_factory=dict)
     notes: tuple[str, ...] = ()
+    value_times: Mapping[str, tuple[datetime, ...]] = field(default_factory=dict)
+    """The measurement time of each dated value, by kind of :data:`value_times.KINDS`."""
 
 
 # Qiskit backends -------------------------------------------------------------------------------
@@ -161,6 +163,7 @@ def from_qiskit_backend(backend: Any) -> Profile:
             cal,
             instructions=cal.instructions + dropped,
             calibrated_at=from_props.calibrated_at,
+            value_times=from_props.value_times,
             qubits={
                 i: _overlay(cal.qubits.get(i, QubitCalibration()), from_props.qubits.get(i))
                 for i in sorted(cal.qubits.keys() | from_props.qubits.keys())
@@ -449,12 +452,19 @@ def calibration_from_properties(props: Mapping[str, Any], *, origin: Origin) -> 
     time in an unknown unit raises a SourceDataError from ``origin``. A value that is not a number
     also raises one, and so does an ``operational`` flag that is not 0 or 1. A gate on the wrong
     number of qubits, or on a qubit that ``qubits`` does not list, also raises one.
+
+    ``value_times`` gets the ``date`` of each readout, T1, T2 and gate error value. A gate error
+    of 0 with no duration is a virtual gate, not a measured value, and gets no time. A date that
+    is not an ISO 8601 time also raises a SourceDataError.
     """
     qubits: dict[int, QubitCalibration] = {}
     instructions: list[Instruction] = []
+    times: dict[str, list[datetime]] = {kind: [] for kind in value_times.KINDS}
     for index, params in enumerate(props.get("qubits") or []):
         owner = f"qubit {index}"
         values = _parameters(params, origin, owner)
+        for name, kind in _DATED_QUBIT_PARAMETERS.items():
+            _add_time(times[kind], values.get(name))
         qubits[index] = QubitCalibration(
             t1_us=_in_unit(values.get("T1"), "us", origin, owner),
             t2_us=_in_unit(values.get("T2"), "us", origin, owner),
@@ -487,6 +497,8 @@ def calibration_from_properties(props: Mapping[str, Any], *, origin: Origin) -> 
         locus = _locus(name, canonical, entry["qubits"], arities, origin)
         owner = f"{name} on {qubit_loci(locus)}"
         values = _parameters(entry.get("parameters") or [], origin, owner)
+        if len(locus) in (1, 2) and _measured(values, len(locus)):
+            _add_time(times[f"error_{len(locus)}q"], values["gate_error"])
         instructions.append(
             Instruction(
                 canonical,
@@ -504,7 +516,31 @@ def calibration_from_properties(props: Mapping[str, Any], *, origin: Origin) -> 
         qubits=qubits,
         calibrated_at=None if stamp is None else as_utc(stamp),
         skipped=tuple(sorted(skipped)),
+        value_times={kind: tuple(found) for kind, found in times.items() if found},
     )
+
+
+# IBM measures the readout pair in the same run as the readout error.
+_DATED_QUBIT_PARAMETERS = {
+    "T1": "t1",
+    "T2": "t2",
+    "readout_error": "readout",
+    "prob_meas1_prep0": "readout",
+    "prob_meas0_prep1": "readout",
+}
+
+
+def _measured(values: Mapping[str, Mapping[str, Any]], arity: int) -> bool:
+    """True when the gate error is a measured value: not missing, not virtual, not a sentinel."""
+    error = _value(values.get("gate_error"))
+    if error is None or _is_sentinel(error, arity):
+        return False
+    return error != 0 or bool(_value(values.get("gate_length")))
+
+
+def _add_time(times: list[datetime], param: Mapping[str, Any] | None) -> None:
+    if param is not None and param.get("date") is not None:
+        times.append(as_utc(param["date"]))
 
 
 def _parameters(
@@ -519,12 +555,29 @@ def _parameters(
             raise origin.refuse(f"{name} of {owner} is {value!r}, not a number")
         if unit is not None and not isinstance(unit, str):
             raise origin.refuse(f"{name} of {owner} has the unit {unit!r}, not a string")
+        _check_date(param.get("date"), origin, f"{name} of {owner}")
         first = values.setdefault(name, param)
         if (first.get("value"), first.get("unit") or None) != (value, unit or None):
             raise origin.refuse(
                 f"{name} of {owner} has two different values, {_shown(first)} and {_shown(param)}"
             )
     return values
+
+
+def _check_date(stamp: Any, origin: Origin, owner: str) -> None:
+    """``origin`` refuses a date that is not a datetime or an ISO 8601 string.
+
+    The REST JSON has strings, and ``properties().to_dict()`` has datetimes.
+    """
+    if stamp is None:
+        return
+    if isinstance(stamp, str | datetime):
+        try:
+            as_utc(stamp)
+            return
+        except ValueError:
+            pass
+    raise origin.refuse(f"{owner} has the date {stamp!r}, not an ISO 8601 time")
 
 
 def _shown(param: Mapping[str, Any]) -> str:
@@ -782,6 +835,11 @@ def _profile_data(cal: _Checked, provenance: Mapping[str, Any]) -> dict[str, Any
             notes.append(
                 f"Qubits {lacking[key]} have no {label}; the device median applies to them."
             )
+    extra = dict(provenance.get("extra", {}))
+    if times := value_times.summary(cal.value_times):
+        extra[value_times.KEY] = times
+        note = value_times.old_note(times, cal.calibrated_at)
+        notes += [note] if note else []
     data = {
         "noisevault": FORMAT_VERSION,
         "device": {
@@ -799,7 +857,12 @@ def _profile_data(cal: _Checked, provenance: Mapping[str, Any]) -> dict[str, Any
         "idle": idle,
         "qubits": qubit_records,
         "calibrations": records,
-        "provenance": {"tool": f"noisevault {__version__}", **provenance, "notes": notes},
+        "provenance": {
+            "tool": f"noisevault {__version__}",
+            **provenance,
+            "notes": notes,
+            **({"extra": extra} if extra else {}),
+        },
     }
     return data
 
@@ -1060,7 +1123,10 @@ def as_utc(value: str | date | datetime, *, name: str = "at") -> datetime:
         ) from None
     if stamp.tzinfo is None:
         stamp = stamp.replace(tzinfo=UTC)
-    return stamp.astimezone(UTC)
+    try:
+        return stamp.astimezone(UTC)
+    except OverflowError:
+        raise ValueError(f"{name}={value!r} is outside the years 1 to 9999 in UTC") from None
 
 
 def now_utc() -> datetime:

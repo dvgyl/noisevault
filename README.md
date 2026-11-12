@@ -32,7 +32,7 @@ To try NoiseVault without an install, use [uv](https://docs.astral.sh/uv/):
 uvx --from git+https://github.com/dvgyl/noisevault nv show ibm_fez
 ```
 
-<img src="assets/cli-show.svg" alt="Terminal output of nv show ibm_fez. The output shows a 156-qubit Heron r2 device and its native gates, with the median average infidelity and duration of each gate. It also shows the median T1, T2 and readout error, the data source, the license and the profile fingerprint." width="830">
+<img src="assets/cli-show.svg" alt="Terminal output of nv show ibm_fez. The output shows a 156-qubit Heron r2 device and its native gates, with the median average infidelity and duration of each gate. It also shows the median T1, T2 and readout error, how much older the values are than the calibration time, the data source, the license and the profile fingerprint." width="830">
 
 ## Install
 

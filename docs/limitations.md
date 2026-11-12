@@ -81,6 +81,23 @@ neighboring operations, the time since the last calibration) are not in the numb
   have retired some of them. Pull a current calibration when you need one.
 - **Google willow_pink** is importable but not bundled, because the scope of its two-qubit error
   values (per cycle or per gate) is unresolved.
+- **An IBM value can be older than the calibration time.** IBM gives a calibration one time,
+  `device.calibrated_at`, and gives each value its own date. A public archive of IBM
+  calibrations ([phanerozoic/qiskit-calibration-drift](https://huggingface.co/datasets/phanerozoic/qiskit-calibration-drift),
+  CC-BY-4.0, polls every 30 minutes from 2026-02-15 to 2026-11-10 on `ibm_fez`, `ibm_kingston`
+  and `ibm_marrakesh`) shows the typical ages. A T1, `sx` or `cz` value changes about one time
+  each day: the median time between two changes is 25 hours. A readout value changes each 3.7 to
+  4.4 hours (median). At a random time, the newest T1, `sx` or `cz` value is 14 to 17 hours old
+  (median). It is more than 1 day old 16 to 29 percent of the time, and more than 7 days old 0.6
+  to 4.7 percent of the time. A readout value is 2.8 to 4.0 hours old (median). The tail can be
+  long. In the calibrations of 2026-11-12, the 1-qubit gate errors of `ibm_marrakesh` were 336
+  hours older than the calibration time. On `ibm_fez`, the readout values were 51 hours
+  older, T1 and T2 53 hours (median, oldest 411 hours), the 2-qubit gate errors 52 hours and the
+  1-qubit gate errors 151 hours. IBM also sometimes gives a gate error a new date with the same
+  value, so a date is not always the time of a measurement. The profile records the oldest,
+  median and newest date of each kind in `provenance.extra["value_times"]`.
+  `Profile.value_ages()` gives the ages, `nv show` prints the median ages, and one provenance
+  note names each kind with a median age of more than 24 hours.
 - **IBM does not document its public endpoint.** IBM can change or remove the endpoint without
   notice. The account source (`--source ibm-account`) uses the documented `qiskit-ibm-runtime`
   API.

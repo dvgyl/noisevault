@@ -589,6 +589,25 @@ profile with deeper data is invalid, and `nv validate` names the field.
 | `notes` | Free-text notes, one per decision an importer made. |
 | `extra` | Free-form source details, such as a commit hash. |
 
+The IBM sources write `extra.value_times` when the source dates each value. The object has one
+entry for each kind of value with a date: `readout`, `t1`, `t2`, `error_1q` and `error_2q`. Each
+entry has `oldest`, `median` and `newest`, ISO 8601 UTC times such as `2025-02-24T12:48:08Z`,
+and `values`, the number of dated values. For example:
+
+```json
+"extra": {
+  "value_times": {
+    "readout": {"oldest": "2025-02-24T12:48:02Z", "median": "2025-02-24T12:48:08Z",
+                "newest": "2025-02-24T12:48:16Z", "values": 468}
+  }
+}
+```
+
+`Profile.value_ages(at=None)` gives `oldest_h`, `median_h`, `newest_h` and `values` for each
+kind: the ages in hours at `at`, which is the calibration time by default. It gives None when
+the profile has no `value_times`. The times are provenance, so they do not change the
+fingerprint.
+
 ## Fingerprint and artifact hash
 
 A profile has two hashes, both SHA-256 over canonical JSON (sorted keys, no whitespace, floats
