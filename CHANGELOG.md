@@ -7,6 +7,17 @@ This file lists all notable changes to NoiseVault. Versions follow
 
 ### Added
 
+- **The age of each kind of IBM value.** IBM gives a calibration one time and each value its
+  own date. The IBM sources and the bundled IBM profiles now keep the oldest, median and newest
+  date of the readout values, T1, T2, 1-qubit gate errors and 2-qubit gate errors in
+  `provenance.extra["value_times"]`. `Profile.value_ages(at=None)` gives the ages in hours,
+  `nv show` prints the median ages, and `nv show --json` has the numbers. Typically, a T1,
+  `sx` or `cz` value is 14 to 17 hours old (median) and a readout value 2.8 to 4.0 hours, in a
+  public archive of 30-minute polls from February to November 2026. The tail can be long: on
+  2026-11-12, the 1-qubit gate errors of `ibm_marrakesh` were 336 hours older than the
+  calibration time. One provenance note names each kind with a median age of more than 24
+  hours. The fingerprints do not change.
+  [docs/limitations.md](docs/limitations.md#limits-of-the-data)
 - **`nv score` scores profiles as forecasts of a counts file, with no fit.** For each profile,
   it gives the log score, the quadratic score, the shots that the profile rules out and the
   excess over the best possible log score, with a shot-noise reference. A paired test says which

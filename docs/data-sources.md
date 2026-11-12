@@ -73,6 +73,18 @@ https on the same host.
 IBM does not document the endpoint, and the endpoint may change or disappear. If the endpoint
 fails, the error says so and suggests the account source.
 
+IBM gives the calibration one time, `last_update_date`, which becomes `device.calibrated_at`.
+IBM also gives each value its own `date`, and a value can be older than the calibration time.
+The IBM sources keep the oldest, median and newest date of each kind of value in
+`provenance.extra["value_times"]`. The kinds are the readout values, T1, T2, the 1-qubit gate
+errors and the 2-qubit gate errors. A gate error of 0 with no duration, such as the error of the
+virtual `rz`, is not a measured value and has no date in the summary. `Profile.value_ages()`
+gives the age of each kind in hours, and `nv show` prints the median ages. When the median age
+of a kind is more than 24 hours, `provenance.notes` has one note that names those kinds. A reply
+without dates gives no summary. A date that is not an ISO 8601 time makes the reply a reply of
+the wrong shape, as a bad `last_update_date` does. The fake backends of qiskit-ibm-runtime also
+date each value, so the bundled IBM profiles have the summary too.
+
 ### IBM account (`--source ibm-account`)
 
 | | |
@@ -82,6 +94,9 @@ fails, the error says so and suggests the account source.
 | History | Yes, through `--at`. |
 | License | Your account's terms. `redistributable: "unknown"`. |
 | Stored | The same fields as the public endpoint. |
+
+The account source keeps the dates of the values as the public endpoint does. A date that is
+not a time stops the import with an error that names the value.
 
 ### IonQ characterizations (`--source ionq`, the default for `ionq...`)
 
