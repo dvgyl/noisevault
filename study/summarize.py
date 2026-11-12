@@ -6,8 +6,10 @@ The script reads ``analysis.json`` of ``study.analyze``. For each primary compar
 ``PLAN.md``, it counts the runs in which the first model is better, the second model is better,
 or neither. It tests the counts with a two-sided sign test and applies the Holm correction to the
 five tests. It also lists the points of the staleness curve, and the rank correlation of the
-age of a value with the fitted factor of the ``locus`` model. The script writes
-``summary.json`` and ``summary.md``.
+age of a value with the fitted factor of the ``locus`` model. For the Clifford circuits on 20
+to 80 qubits, it counts the verdicts of each comparison of ``CLIFFORD_COMPARISONS`` on the
+circuits of a run together. These counts are descriptive and have no sign test. It also lists
+the twirl check of each run. The script writes ``summary.json`` and ``summary.md``.
 """
 
 from __future__ import annotations
@@ -20,7 +22,7 @@ from math import comb, log, sqrt
 from pathlib import Path
 from typing import Any
 
-from study.analyze import PRIMARY, STALE
+from study.analyze import CLIFFORD_COMPARISONS, PRIMARY, STALE
 
 FORMAT = "1"
 LEVEL = 0.05
@@ -81,7 +83,48 @@ def summarize(analysis: dict[str, Any]) -> dict[str, Any]:
         "staleness": _staleness(rows),
         "age_against_error": age_against_error(rows),
         "age_against_error_without_marked_runs": age_against_error(unmarked_rows),
+        "clifford": clifford(rows),
+        "twirl_check": twirl_check(rows),
     }
+
+
+def clifford(rows: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
+    """For each Clifford comparison, the runs in which the first model is better, the second
+    model is better, or neither, by the qubit score on the Clifford circuits of a run together.
+    """
+    result = []
+    for a, b in CLIFFORD_COMPARISONS:
+        by_device: dict[str, dict[str, int]] = {}
+        for row in rows:
+            test = next(
+                (
+                    t
+                    for t in row.get("clifford", {}).get("paired", ())
+                    if (t["a"], t["b"], t["circuits"]) == (a, b, "all")
+                ),
+                None,
+            )
+            if test is None:
+                continue
+            counts = by_device.setdefault(row["device"], {"a": 0, "b": 0, "neither": 0})
+            counts[test["qubit"]["log"]["better"]] += 1
+        total = {
+            key: sum(counts[key] for counts in by_device.values()) for key in ("a", "b", "neither")
+        }
+        result.append(
+            {"a": a, "b": b, "by_device": dict(sorted(by_device.items())), "total": total}
+        )
+    return result
+
+
+def twirl_check(rows: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The twirl check of each 8-qubit circuit of each run: the log score of ``calibration``
+    from the exact simulator and from the stabilizer forecast, per shot."""
+    return [
+        {"device": row["device"], "chain": row["chain"], "run_at": row["run_at"], **check}
+        for row in rows
+        for check in row.get("twirl_check", ())
+    ]
 
 
 def spearman(first: Sequence[float], second: Sequence[float]) -> float | None:
@@ -202,6 +245,32 @@ def markdown(summary: dict[str, Any]) -> str:
             lines.append(
                 f"| {c['device']} | {c['loci']} | {c['points']} | {_signed(c['spearman'], '.3f')} |"
             )
+    lines += [
+        "",
+        "Clifford circuits on 20 to 80 qubits, qubit score, descriptive:",
+        "",
+        "| First model | Second model | Device | First better | Second better | Neither |",
+        "| --- | --- | --- | --- | --- | --- |",
+    ]
+    for c in summary["clifford"]:
+        for device, counts in [*c["by_device"].items(), ("all devices", c["total"])]:
+            lines.append(
+                f"| {c['a']} | {c['b']} | {device} | {counts['a']} | {counts['b']} |"
+                f" {counts['neither']} |"
+            )
+    lines += [
+        "",
+        "Twirl check of calibration on the 8-qubit circuits (log score per shot):",
+        "",
+        "| Device | Chain | Run | Circuit | Exact | Stabilizer | Difference |",
+        "| --- | --- | --- | --- | --- | --- | --- |",
+    ]
+    for t in summary["twirl_check"]:
+        lines.append(
+            f"| {t['device']} | {t['chain'] or '-'} | {t['run_at']} | {t['name']} |"
+            f" {_signed(t['exact_log'])} | {_signed(t['stabilizer_log'])} |"
+            f" {_signed(t['difference'])} |"
+        )
     return "\n".join(lines) + "\n"
 
 
