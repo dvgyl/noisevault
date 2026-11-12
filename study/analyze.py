@@ -117,9 +117,12 @@ def build(
     pull: models.Pull | None = None,
 ) -> tuple[dict[str, Profile], dict[str, str], dict[str, Any]]:
     """Each model of the plan in the form that the comparisons score, the reason for each model
-    that is not built, and the fitted values."""
+    that is not built, and the fitted values.
+
+    Each model from a calibration starts from the calibration as stated. The zero floor applies
+    to the result, as the plan states.
+    """
     train = counts.select([c.name for c in counts.circuits if role(c.name) == "train"])
-    base = models.floored(calibration)
     built: dict[str, Profile] = {}
     missing: dict[str, str] = {}
     fits: dict[str, Any] = {}
@@ -158,7 +161,7 @@ def build(
         return models.floored(models.averaged(calibration, others)) if others else None
 
     def measured() -> Profile:
-        rates = models.readout_measured(base, train)
+        rates = models.floored(models.readout_measured(calibration, train))
         others = [c.name for c in train.circuits if c.name not in _READOUT]
         factor = models.gate_factor(rates, train, others)
         chain = next(c.qubits for c in train.circuits if c.name == "readout")
@@ -169,13 +172,13 @@ def build(
         return models.with_factors(rates, factor)
 
     def per_locus() -> Profile:
-        fitted, _, rows = models.locus(base, train)
+        fitted, _, rows = models.locus(calibration, train)
         fits["locus"] = rows
-        return fitted
+        return models.floored(fitted)
 
     attempt("ideal", lambda: models.ideal(calibration))
     attempt("generic", lambda: models.generic(calibration))
-    attempt("medians", lambda: models.medians(base))
+    attempt("medians", lambda: models.floored(models.medians(calibration)))
     for days, name in zip(STALE_DAYS, STALE, strict=True):
         if offline:
             missing[name] = "skipped: --offline"
@@ -190,12 +193,12 @@ def build(
         lambda: _floored(models.bundled(calibration)),
         "NoiseVault bundles no other calibration of this device",
     )
-    attempt("symmetric", lambda: models.symmetric(base))
+    attempt("symmetric", lambda: models.floored(models.symmetric(calibration)))
     if offline:
         missing["averaged(7)"] = "skipped: --offline"
     else:
         attempt("averaged(7)", week, _no_stale(calibration))
-    attempt("calibration", lambda: base)
+    attempt("calibration", lambda: models.floored(calibration))
     attempt("two_factor", two)
     attempt("readout_measured", measured)
     attempt("locus", per_locus)

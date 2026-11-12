@@ -283,3 +283,24 @@ def test_a_device_of_another_vendor_has_no_ages() -> None:
     other = Profile.model_validate(data)
     counts = simulate(other, plan(other), shots=10, seed=1, run_at=RUN_AT)
     assert analyze._ages(other, counts, None, lambda device, at: pytest.fail("asked")) == {}
+
+
+def test_each_model_starts_from_the_stated_calibration_and_is_floored_after(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    data = _device().to_dict()
+    data["qubits"] = [
+        {"index": 0, "readout": {"p1_given_0": 0.0, "p0_given_1": 0.04}},
+        {"index": 1, "readout": {"p1_given_0": 0.02, "p0_given_1": 0.08}},
+        {"index": 2, "readout": {"p1_given_0": 0.0, "p0_given_1": 0.03}},
+    ]
+    calibration = Profile.model_validate(data)
+    counts = simulate(calibration, suite(calibration), shots=50, seed=1)
+    monkeypatch.setattr(models, "fit_factor", lambda build, counts, circuits: 1.0)
+
+    built, _, _ = analyze.build(calibration, counts, cache=None, offline=True)
+
+    assert built["symmetric"].table.qubit(0).readout == pytest.approx((0.02, 0.02))
+    assert built["medians"].table.qubit(0).readout == pytest.approx((0.02, 0.04))
+    for name in ("medians", "symmetric", "calibration", "two_factor", "readout_measured", "locus"):
+        assert models.zero_readouts(built[name]) == 0
