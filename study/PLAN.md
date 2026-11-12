@@ -517,3 +517,9 @@ trial run of circuit set version 2 on `ibm_fez` on 2026-11-12. No run that count
   (two jobs, 1250 shots for each circuit) was analyzed, and its results were read. The fitted
   gate factors were x0.94 and x1.04. From 64 to 256 gates, the wrong bits of the `axis` probes
   above the baseline grew 11 to 20 times on 7 of 8 qubits. These results are exploratory.
+- 2026-11-12: the threads of the analysis. The study workflow gives each analysis process one
+  thread of the linear algebra library. The analysis starts one process for each CPU, and with
+  more threads the processes wait for each other: one run of the workflow needed 41 minutes for
+  the fits that an earlier run made in 23 minutes. The number of threads can change a result in
+  its last digits only. This entry changes the workflow and not the frozen code. No run that
+  counts existed when this entry was written.

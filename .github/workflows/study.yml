@@ -84,6 +84,12 @@ jobs:
       - name: Build the derived results
         if: steps.restore.outputs.found == 'true'
         timeout-minutes: 320
+        env:
+          # The programs start one process for each CPU. With more than one thread of the linear
+          # algebra library in each process, the processes wait for each other.
+          OMP_NUM_THREADS: "1"
+          OPENBLAS_NUM_THREADS: "1"
+          MKL_NUM_THREADS: "1"
         run: |
           status=0
           python -m study.derive campaign --out results --rows rows || status=$?
