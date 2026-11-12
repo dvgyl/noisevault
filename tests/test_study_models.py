@@ -10,7 +10,7 @@ import pytest
 
 import noisevault as nv
 from noisevault.compare import NoEstimate
-from noisevault.counts import simulate
+from noisevault.counts import PlannedCircuit, simulate
 from noisevault.errors import SourceUnavailable
 from noisevault.profile import Profile
 from noisevault.reference import Op, probabilities
@@ -186,9 +186,39 @@ def test_fit_factor_finds_the_maximum_in_few_simulations() -> None:
 
     found = models.fit_factor(build, counts, [circuit.name])
 
-    assert len(calls) <= 20
+    assert len(calls) <= 30
     assert min(calls) >= 0.05 and max(calls) <= 20
     assert found == pytest.approx(3.0, rel=0.25)
+    assert models.fit_factor(build, counts, [circuit.name]) == found
+
+
+def test_fit_factor_finds_the_maximum_past_a_flat_likelihood_below_the_relaxation_floor() -> None:
+    profile = Profile.uniform(
+        "one",
+        technology="superconducting",
+        num_qubits=1,
+        one_qubit_error=0.001,
+        readout_error=0.01,
+        t1_us=10.0,
+        t2_us=10.0,
+        one_qubit_ns=100.0,
+    )
+    circuit = PlannedCircuit(name="xs", qubits=(0,), ops=tuple(Op("x", (0,)) for _ in range(20)))
+    counts = simulate(models.with_factors(profile, 10.0), [circuit], shots=100_000, seed=1)
+
+    found = models.gate_factor(profile, counts, ["xs"])
+
+    assert found == pytest.approx(10.0, rel=0.2)
+
+
+def test_fit_factor_takes_the_grid_point_nearest_1_when_the_likelihood_is_flat() -> None:
+    profile = device(1)
+    circuit = next(c for c in suite(profile) if c.name.startswith("qubit0"))
+    counts = simulate(profile, [circuit], shots=10, seed=1)
+
+    found = models.fit_factor(lambda f: profile, counts, [circuit.name])
+
+    assert found == pytest.approx(1.0, rel=0.05)
 
 
 def _all_loci(profile: Profile) -> dict[tuple[int, ...], float]:

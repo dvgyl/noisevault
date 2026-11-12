@@ -38,6 +38,7 @@ GENERIC_2Q = 0.01
 GENERIC_READOUT = 0.01
 # The search ends when the bracket of log f is this narrow: 0.5% in f.
 LOG_TOLERANCE = 0.005
+GRID_POINTS = 13
 _GOLDEN = (math.sqrt(5) - 1) / 2
 _INDEX = "index.json"
 
@@ -372,8 +373,17 @@ def fit_factor(
     """The factor f of maximum likelihood, where ``build(f)`` gives the model at f.
 
     The log-likelihood is the multinomial log-likelihood of the named circuits under exact
-    reference simulation. A golden-section search on log f finds the maximum. The search needs
-    about 15 simulations of the circuits.
+    reference simulation. The search has two steps on log f:
+
+    1. Compute the log-likelihood at 13 points with equal steps over the range of ``nv compare``,
+       0.05 to 20. The middle point is f = 1. Take the best point. On a tie, take the point
+       nearest f = 1.
+    2. Refine with a golden-section search between the two neighbours of that point. On a tie,
+       keep the part of the bracket nearer f = 1.
+
+    The grid finds the maximum also when the likelihood is flat over a part of the range, for
+    example below the relaxation floor. The search needs about 26 simulations of the circuits.
+    The result is the same on each call.
     """
     chosen = [_circuit(counts, name) for name in dict.fromkeys(circuits)]
     if not chosen:
@@ -393,12 +403,16 @@ def fit_factor(
             total += float(n[seen] @ np.log(p[seen]))
         return total
 
-    low, high = math.log(FACTOR_RANGE[0]), math.log(FACTOR_RANGE[1])
+    first, last = math.log(FACTOR_RANGE[0]), math.log(FACTOR_RANGE[1])
+    step = (last - first) / (GRID_POINTS - 1)
+    grid = [first + i * step for i in range(GRID_POINTS)]
+    values = [loglik(x) for x in grid]
+    best = max(range(GRID_POINTS), key=lambda i: (values[i], -abs(grid[i])))
+    low, high = grid[max(best - 1, 0)], grid[min(best + 1, GRID_POINTS - 1)]
     a, b = high - _GOLDEN * (high - low), low + _GOLDEN * (high - low)
     fa, fb = loglik(a), loglik(b)
     while high - low > LOG_TOLERANCE:
-        # A tie keeps the lower bracket, so that a flat likelihood gives the same result each time.
-        if fa >= fb:
+        if fa > fb or (fa == fb and abs(a) <= abs(b)):
             high, b, fb = b, a, fa
             a = high - _GOLDEN * (high - low)
             fa = loglik(a)
