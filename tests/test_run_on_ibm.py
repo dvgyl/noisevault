@@ -343,7 +343,7 @@ def test_the_usage_names_the_script_the_same_way_for_uv_and_a_clone() -> None:
     )
     assert result.stdout.startswith(
         "usage: run_on_ibm.py [-h] [--shots N] -o FILE [--collect JOB_FILE]\n"
-        "                     [--job-id JOB_ID] [--yes]\n"
+        "                     [--job-id JOB_ID] [--yes] [--suite]\n"
         "                     DEVICE\n"
     )
 

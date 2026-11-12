@@ -18,6 +18,7 @@ import noisevault as nv
 from noisevault.compare import compare
 from noisevault.counts import load_counts, plan
 from noisevault.errors import NoiseVaultError
+from noisevault.suite import role
 
 campaign = load_script("ibm_campaign")
 
@@ -406,3 +407,39 @@ def test_a_backend_that_cannot_open_stops_the_chain_choice_at_once(
         )
         assert opened == ["ibm_fez"]
         assert not (tmp_path / "campaign" / "ibm_fez" / "2026-11-02" / "chains.json").exists()
+
+
+def test_a_suite_run_saves_the_deep_circuits_beside_the_compare_circuits(tmp_path: Path) -> None:
+    with _fake_ibm(tmp_path / "nv_home") as ibm:
+        root = tmp_path / "campaign"
+        _run(root, ibm, MONDAY)
+        account = ibm.account(campaign)
+        deep = campaign.Campaign(
+            root=root,
+            account=account,
+            budget=campaign.Budget(account.remaining_s, 0.0),
+            shots=200,
+            kinds=campaign.SUITE_CHAINS,
+        )
+        with contextlib.redirect_stdout(io.StringIO()), warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            statuses = deep.run(["ibm_fez"], THURSDAY)
+
+    week = root / "ibm_fez" / "2026-11-02"
+    assert _states(statuses) == [
+        ("2026-11-02", "best-deep", "collected"),
+        ("2026-11-02", "median-deep", "collected"),
+    ]
+    chains = json.loads((week / "chains.json").read_text())
+    for kind in campaign.CHAINS:
+        short = load_counts(week / f"{kind}.counts.json")
+        counts = load_counts(week / f"{kind}-deep.counts.json")
+        profile = nv.load(week / f"{kind}-deep.profile.json")
+        names = [c.name for c in counts.circuits]
+        assert names[: len(short.circuits)] == [c.name for c in short.circuits]
+        assert {role(name) for name in names} == {"train", "test_near", "test_far"}
+        assert max(counts.circuits, key=lambda c: len(c.qubits)).qubits == tuple(
+            chains[kind]["qubits"]
+        )
+        assert counts.profile.fingerprint == profile.calibration_fingerprint
+        assert all(c.shots == 200 for c in counts.circuits)

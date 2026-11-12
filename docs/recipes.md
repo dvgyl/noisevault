@@ -485,6 +485,37 @@ the two calibrations, with the largest changes by qubit and by pair.
    python scripts/drift_report.py
    ```
 
+### Run the deep circuit set
+
+The `nv compare` circuits are short. A short circuit has few errors, so most shots give no
+information on the error rates. `noisevault.suite.suite(profile)` adds deep mirror circuits to
+them. A deep mirror circuit applies layers of random native gates and then undoes them, so the
+ideal result is one known bit string. The depth of each circuit comes from the profile: `suite`
+takes the depths at which the profile predicts the ideal result with a probability of 0.9, 0.75
+and 0.55. The set also has such circuits on each pair and each qubit of the chain, a second
+readout circuit that prepares each qubit in 1, and circuits that no fit uses.
+
+To run the set, add `--suite` to `scripts/run_on_ibm.py` or to the campaign:
+
+```bash
+python scripts/ibm_campaign.py ibm_kingston ibm_fez --suite --shots 2000
+```
+
+The campaign then writes `best-deep.*` and `median-deep.*` files beside the files of the
+`nv compare` circuits, for the same two chains. One job with 2000 shots for each circuit uses
+about 15 s of QPU time.
+
+`noisevault.suite.role(name)` gives the role of each circuit:
+
+| Role | Circuits | Use |
+| --- | --- | --- |
+| `train` | `readout`, `readout_1`, `deep_d*_s0`, `deep_d*_s1`, `pair*`, `qubit*` | Fit a model on these circuits |
+| `test_near` | `deep_d*_s2` | Deep circuits from another random seed |
+| `test_far` | the `nv compare` circuits, `periodic_d*`, `qubits_d*` | Circuits of another kind |
+
+Fit on the `train` circuits and score on the test circuits. A model that fits the `train`
+circuits and fails on the test circuits does not describe the device.
+
 When IBM cannot run a job, the script cannot collect it, and each run reports the error again.
 To submit a new job for that chain, delete its `.job.json` file. The `campaign` folder holds
 your account data under IBM's terms, so Git ignores it.
@@ -507,9 +538,13 @@ it. To add the secret, do these steps:
 
 3. If the key sees more than one instance, add a second secret named `IBM_QUANTUM_INSTANCE` with
    the instance CRN.
-4. Optional: to run other devices than `ibm_kingston ibm_fez`, add a repository variable named
-   `IBM_CAMPAIGN_DEVICES` (on the **Variables** tab), such as `ibm_kingston ibm_marrakesh`.
+4. Optional: to run other devices than `ibm_kingston ibm_fez ibm_marrakesh`, add a repository
+   variable named `IBM_CAMPAIGN_DEVICES` (on the **Variables** tab), such as
+   `ibm_kingston ibm_fez`.
 5. Start the first run: on the **Actions** tab, select **IBM campaign**, then **Run workflow**.
+
+The weekly run uses the deep circuit set with 2000 shots for each circuit. **Run workflow** lets
+you select the `nv compare` circuits instead, and another number of shots.
 
 The campaign runs only on the default branch, `main`. The logs and artifacts of a public
 repository are public. For this reason, the log shows only the status table. Each run encrypts

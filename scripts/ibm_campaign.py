@@ -56,8 +56,13 @@ from noisevault import check, layout  # noqa: E402
 from noisevault.counts import PlannedCircuit, plan  # noqa: E402
 from noisevault.errors import NoiseVaultError, install_hint  # noqa: E402
 from noisevault.profile import Profile, file_bytes  # noqa: E402
+from noisevault.suite import suite  # noqa: E402
 
 CHAINS = ("best", "median")
+# A job with the deep circuit set of noisevault.suite has its own files beside the files of the
+# nv compare circuits: best-deep.counts.json runs on the chain of best.counts.json.
+DEEP = "-deep"
+SUITE_CHAINS = tuple(kind + DEEP for kind in CHAINS)
 DEFAULT_ROOT = Path("campaign")
 DEFAULT_RESERVE_S = 20.0
 CALIBRATION = "calibration.json"
@@ -136,6 +141,7 @@ class Campaign:
     budget: Budget
     shots: int = runner.DEFAULT_SHOTS
     wait: bool = True
+    kinds: tuple[str, ...] = CHAINS
     statuses: list[Status] = field(default_factory=list)
 
     def run(self, devices: Sequence[str], today: date) -> list[Status]:
@@ -165,8 +171,8 @@ class Campaign:
 
     def _submit(self, device: str, today: date) -> list[Path]:
         folder = week_folder(self.root / device, today)
-        missing = [kind for kind in CHAINS if not _counts(folder, kind).exists()]
-        for kind in CHAINS:
+        missing = [kind for kind in self.kinds if not _counts(folder, kind).exists()]
+        for kind in self.kinds:
             if kind not in missing:
                 self.statuses.append(Status(device, folder.name, kind, "done"))
         todo = [kind for kind in missing if not _job_files(folder, kind)]
@@ -186,7 +192,8 @@ class Campaign:
 
         submitted = []
         for kind in todo:
-            _section(f"{device}: submit the {kind} chain {_loci(chains[kind].qubits)}")
+            chain = chains[kind.removesuffix(DEEP)]
+            _section(f"{device}: submit the {kind} chain {_loci(chain.qubits)}")
             try:
                 runner.run(
                     device=device,
@@ -197,10 +204,11 @@ class Campaign:
                     open_backend=lambda fractional: self.account.open_backend(device, fractional),
                     open_job=self.account.open_job,
                     confirm=None,
-                    layout=chains[kind].qubits,
+                    layout=chain.qubits,
                     approve=functools.partial(self._approve, folder, kind),
                     wait=False,
                     keep_profile=True,
+                    planner=suite if kind.endswith(DEEP) else plan,
                 )
             except NoiseVaultError as exc:
                 self.statuses.append(Status(device, folder.name, kind, "error", _message(exc)))
@@ -285,7 +293,7 @@ class Campaign:
         if not folder.is_dir():
             return
         for week in sorted(p for p in folder.iterdir() if _is_week(p)):
-            for kind in CHAINS:
+            for kind in (*CHAINS, *SUITE_CHAINS):
                 yield from _job_files(week, kind)
 
     def _collect(self, device: str, job: Path) -> None:
@@ -603,6 +611,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         budget=Budget(None if args.no_budget_check else account.remaining_s, args.reserve),
         shots=args.shots,
         wait=not args.no_wait,
+        kinds=SUITE_CHAINS if args.suite else CHAINS,
     )
     signal.signal(signal.SIGTERM, _interrupt)
     try:
@@ -651,6 +660,12 @@ def _parser() -> argparse.ArgumentParser:
         "--no-budget-check",
         action="store_true",
         help="submit without reading the remaining QPU time",
+    )
+    parser.add_argument(
+        "--suite",
+        action="store_true",
+        help="run the deep circuit set of noisevault.suite on the two chains. The files are"
+        " best-deep.* and median-deep.*, beside the files of the nv compare circuits",
     )
     return parser
 

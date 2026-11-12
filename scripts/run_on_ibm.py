@@ -70,6 +70,7 @@ from noisevault.profile import (  # noqa: E402
     ref_on_day,
 )
 from noisevault.sources import ibm_account  # noqa: E402
+from noisevault.suite import suite  # noqa: E402
 
 DEFAULT_SHOTS = 4000
 FRACTIONAL_GATES = frozenset({"rx", "rzz"})
@@ -83,6 +84,7 @@ PROGRAM = "sampler"  # the program id of the server-side SamplerV2
 SUB_JOB_OVERHEAD_S = 2.0
 
 Calibration = Callable[[datetime | None], Profile]
+Planner = Callable[[Profile, Sequence[int] | None], tuple[PlannedCircuit, ...]]
 
 
 @dataclass(frozen=True)
@@ -133,9 +135,10 @@ def prepare(
     open_backend: Callable[[bool], Any],
     shots: int,
     layout: Sequence[int] | None = None,
+    planner: Planner = plan,
 ) -> tuple[Any, Batch]:
     profile = calibration(None)
-    planned = plan(profile, layout)
+    planned = planner(profile, layout)
     fractional = any(op.name in FRACTIONAL_GATES for c in planned for op in c.ops)
     try:
         backend = open_backend(fractional)
@@ -419,12 +422,14 @@ def run(
     approve: Callable[[Batch], None] | None = None,
     wait: bool = True,
     keep_profile: bool = False,
+    planner: Planner = plan,
 ) -> MeasuredCounts | None:
     """Submit one job and save its counts, or collect the job that ``pending`` records.
 
     ``device`` is the device that the command names. The function collects a job only when
     ``pending`` and IBM record the job for that device. ``layout`` gives the chain to plan on,
-    else ``plan`` chooses one. ``approve`` sees the batch
+    else ``plan`` chooses one. ``planner`` makes the circuits: ``plan`` for the ``nv compare``
+    circuits, or ``suite`` for the deep circuit set. ``approve`` sees the batch
     before the script saves ``pending`` and submits, and can stop the run with NoiseVaultError.
     With ``wait`` False, the function returns None after it submits, and a later call collects
     the job. With ``keep_profile``, the profile file is always saved beside the counts file.
@@ -433,7 +438,7 @@ def run(
         record, submitted, job = _resume(pending, job_id, device, open_job)
         print(f"collecting job {submitted.job_id}, submitted earlier for {output}")
     else:
-        backend, batch = prepare(calibration, open_backend, shots, layout)
+        backend, batch = prepare(calibration, open_backend, shots, layout, planner)
         print(summary(batch, output))
         print()
         if approve is not None:
@@ -747,6 +752,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             confirm=None if args.yes else _ask,
             collect_only=collect_only,
             job_id=args.job_id,
+            planner=suite if args.suite else plan,
         )
     except NoiseVaultError as exc:
         return _fail(exc.message, exc.hint)
@@ -789,6 +795,12 @@ def _parser() -> argparse.ArgumentParser:
         help="collect job JOB_ID when the job file has no job id",
     )
     parser.add_argument("--yes", action="store_true", help="submit without asking")
+    parser.add_argument(
+        "--suite",
+        action="store_true",
+        help="run the deep circuit set of noisevault.suite, which holds the nv compare circuits"
+        " and deep mirror circuits",
+    )
     return parser
 
 

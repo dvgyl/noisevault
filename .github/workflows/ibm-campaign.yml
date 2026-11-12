@@ -17,6 +17,15 @@ on:
         description: "IBM devices, separated by spaces (default: the IBM_CAMPAIGN_DEVICES variable)"
         required: false
         default: ""
+      circuits:
+        description: "The circuit set: deep (noisevault.suite) or compare (the nv compare circuits)"
+        type: choice
+        options: [deep, compare]
+        default: deep
+      shots:
+        description: "Shots per circuit (default: 2000 for deep, 4000 for compare)"
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -68,7 +77,10 @@ jobs:
     env:
       IBM_QUANTUM_TOKEN: ${{ secrets.IBM_QUANTUM_TOKEN }}
       IBM_QUANTUM_INSTANCE: ${{ secrets.IBM_QUANTUM_INSTANCE }}
-      DEVICES: ${{ inputs.devices || vars.IBM_CAMPAIGN_DEVICES || 'ibm_kingston ibm_fez' }}
+      DEVICES: ${{ inputs.devices || vars.IBM_CAMPAIGN_DEVICES || 'ibm_kingston ibm_fez ibm_marrakesh' }}
+      # The weekly run has no inputs and takes the deep circuit set.
+      CIRCUITS: ${{ inputs.circuits || 'deep' }}
+      SHOTS: ${{ inputs.shots }}
       DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
     steps:
       - uses: actions/checkout@v4
@@ -110,8 +122,13 @@ jobs:
           log="campaign/logs/$(date -u +%Y-%m-%dT%H%MZ).log"
           echo "The full output goes to $log in the encrypted archive."
           status=0
-          # DEVICES is a list separated by spaces, so it is not in quotes.
-          python scripts/ibm_campaign.py $DEVICES > "$log" 2>&1 || status=$?
+          if [ "$CIRCUITS" = deep ]; then
+            options="--suite --shots ${SHOTS:-2000}"
+          else
+            options="--shots ${SHOTS:-4000}"
+          fi
+          # DEVICES and options are lists separated by spaces, so they are not in quotes.
+          python scripts/ibm_campaign.py $DEVICES $options > "$log" 2>&1 || status=$?
           sed -n '/^device  /,$p' "$log"
           exit "$status"
 
