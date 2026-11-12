@@ -530,3 +530,7 @@ trial run of circuit set version 2 on `ibm_fez` on 2026-11-12. No run that count
   random Pauli or Clifford gates; the second half is the exact inverse, with no new random
   gates; and no random layer comes first, so each circuit starts with all qubits in 0. This
   entry changes words only. The circuits and the frozen code do not change.
+- 2026-11-12: words on the depth of the circuits on 20, 40 and 80 qubits. The entry of
+  2026-11-12 on these circuits names a gate factor of 2 for their depth. Since circuit set
+  version 2, each depth comes from the stated errors, as the section [Circuits](#circuits)
+  says. This entry changes words only.
