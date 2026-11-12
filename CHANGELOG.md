@@ -43,8 +43,12 @@ This file lists all notable changes to NoiseVault. Versions follow
   `test_far`. `noisevault.wide` gives the forecast of a profile for such a circuit from the
   Stim stabilizer simulator, with the Pauli twirl of the noise that the reference simulator
   applies and the asymmetric readout error of each qubit. Without Stim, `suite` makes no
-  Clifford circuit. `study/wide.py` scores two models on these circuits by the probability of
-  the ideal result, the number of wrong bits and the error of each qubit, with paired tests.
+  Clifford circuit. The depth of a Clifford circuit is the first whole depth at which the
+  profile with gate errors 2 times the stated errors predicts a wrong bit with a mean
+  probability of 0.15 or more. `study/wide.py` scores two models on these circuits by the
+  probability of the ideal result, the number of wrong bits and the error of each qubit, with
+  paired tests. `noisevault.design.design` and `scripts/run_on_braket.py` leave out each
+  circuit on more than 10 qubits, and the Braket summary says how many.
   [Run the deep circuit set](docs/recipes.md#run-the-deep-circuit-set) tells how.
 - **Counts of circuits on up to 256 qubits.** A counts file now holds a circuit on up to 256
   qubits. `nv compare`, `nv score`, `simulate`, `circuit.vector()` and the reference simulator
