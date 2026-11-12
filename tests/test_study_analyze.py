@@ -571,6 +571,44 @@ def test_the_clifford_block_ranks_two_factor_above_the_calibration(clifford_resu
     }
 
 
+def test_a_model_that_fails_on_a_wide_circuit_keeps_its_scores_on_the_chain(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calibration = _line_24()
+    small = [c for c in suite(calibration) if len(c.qubits) <= MAX_QUBITS]
+    chain = next(c.qubits for c in small if c.name == "readout")
+    wide_chain = next(c.qubits for c in small if c.name.startswith("wide_"))
+    pairs = [(a, b) for a, b in zip(wide_chain, wide_chain[1:], strict=False)]
+    pair = next(p for p in pairs if not set(p) <= set(chain))
+    counts = simulate(calibration, small, shots=200, seed=2, run_at=RUN_AT)
+    counts.save(tmp_path / "best-deep.counts.json")
+    calibration.save(tmp_path / "best-deep.profile.json")
+    real = models.medians
+
+    def no_pair(profile: Profile) -> Profile:
+        """The medians model with the cz gate of one pair of the wide chain disabled."""
+        data = real(profile).to_dict()
+        data["calibrations"] = [
+            *data.get("calibrations", ()),
+            *({"gate": "cz", "qubits": list(q), "disabled": True} for q in (pair, pair[::-1])),
+        ]
+        return Profile.model_validate(data)
+
+    monkeypatch.setattr(models, "medians", no_pair)
+    monkeypatch.setattr(models, "fit_factor", lambda build, counts, circuits: 1.0)
+
+    row = analyze.analyze_run(tmp_path / "best-deep.counts.json", cache=None, offline=True)
+
+    assert set(row["scores"]["medians"]) == {"all4", "test4", "test_near", "test_far"}
+    assert row["failures"]["medians (wide)"].startswith("CountsError")
+    assert "medians" not in row["failures"]
+    assert set(row["scores"]["calibration"]) == {"all4", "test4", "test_near", "test_far", "wide"}
+    tests = {(t["a"], t["b"], t["group"]) for t in row["paired"]}
+    assert ("calibration", "medians", "all4") in tests
+    assert ("calibration", "medians", "wide") not in tests
+    assert all("medians" in d["models"] for d in row["deep"] if not d["name"].startswith("wide"))
+
+
 def test_the_groups_of_the_exact_simulator_hold_no_circuit_above_10_qubits(
     clifford_result,
 ) -> None:
