@@ -393,6 +393,7 @@ def _ages(
             found[name] = {
                 "calibration_h": ages.calibration_age(reply, counts.run_at),
                 "values": ages.value_ages(reply, counts.run_at, counts.qubits),
+                "loci": ages.locus_ages(reply, counts.run_at, counts.qubits),
             }
     return found
 

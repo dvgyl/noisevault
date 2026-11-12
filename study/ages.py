@@ -78,6 +78,29 @@ def value_ages(
     return ages
 
 
+def locus_ages(
+    properties: Mapping[str, Any], at: datetime, qubits: Sequence[int]
+) -> dict[str, dict[str, dict[str, float]]]:
+    """The age in hours at the time ``at`` of the values of each qubit and each pair of a chain.
+
+    ``qubits`` gives a qubit its kinds ``readout``, ``t1``, ``t2`` and ``one_qubit``. ``pairs``
+    gives each pair of neighbours in the chain its kind ``two_qubit``, with the key ``"a-b"``.
+    A kind with several values, such as the two readout errors, gets the age of the oldest one.
+    """
+    chain = list(qubits)
+    found: dict[str, dict[str, dict[str, float]]] = {"qubits": {}, "pairs": {}}
+    for q in chain:
+        times = value_times(properties, [q])
+        found["qubits"][str(q)] = {
+            kind: _hours(at, min(when)) for kind, when in times.items() if when
+        }
+    for a, b in zip(chain, chain[1:], strict=False):
+        times = value_times(properties, [a, b])["two_qubit"]
+        if times:
+            found["pairs"][f"{a}-{b}"] = {"two_qubit": _hours(at, min(times))}
+    return found
+
+
 def public_properties(
     device: str, at: datetime, cache: Path | None = None
 ) -> Mapping[str, Any] | None:

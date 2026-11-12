@@ -75,3 +75,11 @@ def test_a_value_measured_after_the_reference_time_has_a_negative_age() -> None:
     later = {"qubits": [[_value("T1", -3)]], "gates": []}
 
     assert ages.value_ages(later, AT)["t1"]["youngest_h"] == pytest.approx(-3)
+
+
+def test_each_qubit_and_each_pair_of_a_chain_gets_the_age_of_its_values() -> None:
+    found = ages.locus_ages(PROPERTIES, AT, [0, 1, 2])
+
+    assert found["qubits"]["0"] == {"readout": 50, "t1": 10, "t2": 12, "one_qubit": 150}
+    assert found["qubits"]["2"]["t1"] == 400 and found["qubits"]["2"]["one_qubit"] == 2
+    assert found["pairs"] == {"0-1": {"two_qubit": 9}, "1-2": {"two_qubit": 120}}

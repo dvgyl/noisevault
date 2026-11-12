@@ -105,6 +105,10 @@ The secondary comparisons are not in the family, and their results are descripti
 - Each primary comparison on `test_near` and on `test_far` separately, and with the quadratic
   score.
 
+- The age of a value against its error. The `locus` model gives a fitted factor for each qubit
+  and each pair, and IBM gives the age of the value of each qubit and each pair. The analysis
+  relates the two, with the device and the week as groups.
+
 The adequacy of the best model is its excess on `test_far`, with the p-value of `nv score`.
 
 ## Rules
@@ -132,6 +136,8 @@ The adequacy of the best model is its excess on `test_far`, with the p-value of 
   its Holm correction counted. The plan now names five primary comparisons, one sign test for
   each, and the secondary comparisons that are descriptive. This entry was written before a test
   circuit of the deep circuit set was scored.
+- 2026-11-12: one more secondary comparison, the age of a value against its fitted factor. This
+  entry was written before a fitted factor of a qubit or a pair was read.
 - 2026-11-12: the `generic` model. Its depolarizing error is the depolarizing parameter: 0.001
   for 1-qubit gates and 0.01 for 2-qubit gates. These values are average infidelities of 0.0005
   and 0.0075.
