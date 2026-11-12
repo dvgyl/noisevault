@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 import math
 import statistics
@@ -236,3 +237,14 @@ def test_writes_the_json_and_the_tables(parquet: Path, tmp_path: Path) -> None:
     assert "phanerozoic/qiskit-calibration-drift (CC-BY-4.0)" in text
     assert "2026-03-01T00:00:00Z to 2026-03-03T00:00:00Z" in text
     assert "| ibm_fez | one_qubit | 3 | 24.0 | 24.0 | 6 | 11.5 |" in text
+
+
+def test_shows_the_median_change_size_of_each_bin_with_100_changes(data: dict[str, Any]) -> None:
+    assert data["change_size_note"] == archive.CHANGE_SIZE_NOTE
+    assert data["change_size"]["one_qubit"]["12-36 h"]["p90"] == LN2
+    larger = copy.deepcopy(data)
+    larger["change_size"]["one_qubit"]["12-36 h"]["count"] = 100
+    text = archive.markdown(larger)
+    assert "| one_qubit | 12-36 h | 100 | 0.693 |\n" in text
+    assert "| t1 | >7 d |" not in text
+    assert "| Kind | Gap | Changes | Median |\n" in text

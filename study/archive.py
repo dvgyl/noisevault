@@ -67,6 +67,10 @@ GRID_DENOMINATORS = (1000, 1024, 2048, 4096, 8192, 10000)
 GRID_TOLERANCE = 1e-6
 PARTS = ("lowest tenth", "middle", "highest tenth")
 MIN_DAY_CHANGES = 20
+MIN_BIN_CHANGES = 100
+CHANGE_SIZE_NOTE = (
+    "The p90 of a change size is not stable: a value near 0 gives a very large log ratio."
+)
 _COLUMNS = (
     "backend",
     "property",
@@ -244,6 +248,7 @@ def analyze(
         "since_change_by_property": _since_change(changes, start, end, _property_label),
         "excluded": _excluded(changes),
         "change_size": _change_size(changes),
+        "change_size_note": CHANGE_SIZE_NOTE,
         "readout_grid": _readout_grid(rows),
         "regression": {p: _regression(changes, p) for p in RANKED},
     }
@@ -547,17 +552,16 @@ def markdown(data: Mapping[str, Any]) -> str:
         "## Size of a change, abs(ln(value / previous value)), by the time since the previous"
         " change",
         "",
-        "| Kind | Gap | Changes | Median | P90 |",
-        "|---|---|---:|---:|---:|",
+        f"The table shows only a bin with {MIN_BIN_CHANGES} or more changes.",
+        "",
+        "| Kind | Gap | Changes | Median |",
+        "|---|---|---:|---:|",
     ]
     for kind in KIND_ORDER:
         for gap in GAP_BINS:
             row = data["change_size"].get(kind, {}).get(gap)
-            if row is not None:
-                lines.append(
-                    f"| {kind} | {gap} | {row['count']} | {_f(row['median'], 3)}"
-                    f" | {_f(row['p90'], 3)} |"
-                )
+            if row is not None and row["count"] >= MIN_BIN_CHANGES:
+                lines.append(f"| {kind} | {gap} | {row['count']} | {_f(row['median'], 3)} |")
     denominators = [f"1/{n}" for n in GRID_DENOMINATORS]
     lines += [
         "",
