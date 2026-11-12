@@ -644,15 +644,15 @@ def _print_card(
     grid.add_row("natives", _natives_table(data["natives"]))
     grid.add_row("coherence", _coherence(data))
     grid.add_row("readout", _readout(data))
-    if data["value_ages"]:
-        ages = data["value_ages"].items()
-        shown = ", ".join(f"{LABELS[kind]} {hours(age['median_h'])}" for kind, age in ages)
-        _add_lines(grid, "value ages", [shown, "older than the calibration time (median)"])
     if data["disabled_qubits"]:
         grid.add_row("disabled", "qubits " + ", ".join(map(str, data["disabled_qubits"])))
     _add_lines(grid, "unmodeled", [line.short for line in data["unmodeled_note"]])
     if not brief:
         _add_lines(grid, "effects", [_plain_effect(line) for line in data["effects"]])
+    if data["value_ages"]:
+        ages = data["value_ages"].items()
+        shown = ", ".join(f"{LABELS[kind]} {hours(age['median_h'])}" for kind, age in ages)
+        _add_lines(grid, "value ages", [shown, "older than the calibration time (median)"])
     prov = data["provenance"]
     grid.add_row("provenance", _provenance(prov))
     redistribution = _REDISTRIBUTION[prov["redistributable"]]
