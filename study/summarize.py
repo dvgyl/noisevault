@@ -5,8 +5,9 @@
 The script reads ``analysis.json`` of ``study.analyze``. For each primary comparison of
 ``PLAN.md``, it counts the runs in which the first model is better, the second model is better,
 or neither. It tests the counts with a two-sided sign test and applies the Holm correction to the
-five tests. It also lists the points of the staleness curve. The script writes ``summary.json``
-and ``summary.md``.
+five tests. It also lists the points of the staleness curve, and the rank correlation of the
+age of a value with the fitted factor of the ``locus`` model. The script writes
+``summary.json`` and ``summary.md``.
 """
 
 from __future__ import annotations
@@ -15,7 +16,7 @@ import argparse
 import json
 import sys
 from collections.abc import Sequence
-from math import comb
+from math import comb, log, sqrt
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +25,7 @@ from study.analyze import PRIMARY, STALE
 FORMAT = "1"
 LEVEL = 0.05
 AGE_KINDS = ("readout", "one_qubit", "two_qubit")
+MIN_POINTS = 5
 
 
 def sign_test(first: int, second: int) -> float:
@@ -46,14 +48,27 @@ def holm(p_values: Sequence[float]) -> list[float]:
     return adjusted
 
 
+def unique(rows: Sequence[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
+    """The first row of each ``counts_sha256``, and the number of rows removed.
+
+    One run must count one time in a sign test, also when the analysis comes from another tool.
+    """
+    found: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        found.setdefault(row["counts_sha256"], row)
+    return list(found.values()), len(rows) - len(found)
+
+
 def summarize(analysis: dict[str, Any]) -> dict[str, Any]:
-    rows = analysis["rows"]
+    rows, duplicates = unique(analysis["rows"])
     comparisons = _family(rows)
-    unmarked = _family([r for r in rows if r.get("marked") is not True])
+    unmarked_rows = [r for r in rows if r.get("marked") is not True]
+    unmarked = _family(unmarked_rows)
     stated = [r["stated"]["ruled_out"].get("all", 0) for r in rows]
     return {
         "nv_study_summary": FORMAT,
         "runs": len(rows),
+        "duplicate_rows_removed": duplicates,
         "devices": sorted({r["device"] for r in rows}),
         "level": LEVEL,
         "stated_calibration": {
@@ -64,7 +79,65 @@ def summarize(analysis: dict[str, Any]) -> dict[str, Any]:
         "runs_marked": sum(1 for r in rows if r.get("marked") is True),
         "primary_without_marked_runs": unmarked,
         "staleness": _staleness(rows),
+        "age_against_error": age_against_error(rows),
+        "age_against_error_without_marked_runs": age_against_error(unmarked_rows),
     }
+
+
+def spearman(first: Sequence[float], second: Sequence[float]) -> float | None:
+    """The Spearman rank correlation, with the mean rank for tied values.
+
+    The result is None for fewer than ``MIN_POINTS`` points or when one input is constant.
+    """
+    if len(first) < MIN_POINTS:
+        return None
+    a, b = _ranks(first), _ranks(second)
+    if len(set(a)) == 1 or len(set(b)) == 1:
+        return None
+    mean_a, mean_b = sum(a) / len(a), sum(b) / len(b)
+    cross = sum((x - mean_a) * (y - mean_b) for x, y in zip(a, b, strict=True))
+    spread_a = sum((x - mean_a) ** 2 for x in a)
+    spread_b = sum((y - mean_b) ** 2 for y in b)
+    return cross / sqrt(spread_a * spread_b)
+
+
+def age_against_error(rows: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
+    """For each device, and for the qubits and the pairs separately, the Spearman rank
+    correlation between the age of a value at the run time and the absolute value of ln f.
+
+    f is the factor of that qubit or pair in the ``locus`` model. The age of a qubit is the age
+    of its 1-qubit gate errors, and the age of a pair is the age of its 2-qubit gate errors.
+    """
+    points: dict[tuple[str, str], list[tuple[float, float]]] = {}
+    for row in rows:
+        loci = (row.get("ages", {}).get("calibration") or {}).get("loci")
+        fits = row.get("fits", {}).get("locus")
+        if not loci or not fits:
+            continue
+        found = [
+            (str(q["qubit"]), "qubits", "one_qubit", q["factor"]) for q in fits.get("qubits", ())
+        ]
+        found += [
+            ("-".join(map(str, p["qubits"])), "pairs", "two_qubit", p["factor"])
+            for p in fits.get("pairs", ())
+        ]
+        for key, kind, age_kind, factor in found:
+            age = loci.get(kind, {}).get(key, {}).get(age_kind)
+            if age is None or factor is None or factor <= 0:
+                continue
+            points.setdefault((row["device"], kind), []).append((age, abs(log(factor))))
+    result = []
+    for (device, kind), pairs in sorted(points.items()):
+        ages, errors = zip(*pairs, strict=True)
+        result.append(
+            {
+                "device": device,
+                "loci": kind,
+                "points": len(pairs),
+                "spearman": spearman(ages, errors),
+            }
+        )
+    return result
 
 
 def markdown(summary: dict[str, Any]) -> str:
@@ -73,6 +146,8 @@ def markdown(summary: dict[str, Any]) -> str:
         f"{summary['runs']} runs on {', '.join(summary['devices']) or 'no device'}.",
         f"The calibration as stated is ruled out in {stated['runs_ruled_out']} runs.",
     ]
+    if summary["duplicate_rows_removed"]:
+        lines.append(f"Duplicate rows removed: {summary['duplicate_rows_removed']}.")
     tables = [("All runs", summary["primary"])]
     if summary["runs_marked"]:
         tables.append(
@@ -110,6 +185,23 @@ def markdown(summary: dict[str, Any]) -> str:
             f" {_hours(p['calibration_age_h'])} | {ages} | {_signed(p['difference'])} |"
             f" {_signed(p['z'], '.2f')} |"
         )
+    for title, key in (
+        ("Age of a value against its error, all runs", "age_against_error"),
+        ("Without the marked runs", "age_against_error_without_marked_runs"),
+    ):
+        if key == "age_against_error_without_marked_runs" and not summary["runs_marked"]:
+            continue
+        lines += [
+            "",
+            f"{title}:",
+            "",
+            "| Device | Loci | Points | Spearman |",
+            "| --- | --- | --- | --- |",
+        ]
+        for c in summary[key]:
+            lines.append(
+                f"| {c['device']} | {c['loci']} | {c['points']} | {_signed(c['spearman'], '.3f')} |"
+            )
     return "\n".join(lines) + "\n"
 
 
@@ -201,6 +293,22 @@ def _staleness(rows: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
                 }
             )
     return points
+
+
+def _ranks(values: Sequence[float]) -> list[float]:
+    """The rank of each value from 1, in the order of ``values``. Tied values share their mean
+    rank."""
+    order = sorted(range(len(values)), key=lambda i: values[i])
+    ranks = [0.0] * len(values)
+    start = 0
+    while start < len(order):
+        end = start
+        while end + 1 < len(order) and values[order[end + 1]] == values[order[start]]:
+            end += 1
+        for i in order[start : end + 1]:
+            ranks[i] = (start + end) / 2 + 1
+        start = end + 1
+    return ranks
 
 
 def _hours(value: float | None) -> str:

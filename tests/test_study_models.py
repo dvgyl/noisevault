@@ -10,7 +10,7 @@ import pytest
 
 import noisevault as nv
 from noisevault.compare import NoEstimate
-from noisevault.counts import simulate
+from noisevault.counts import PlannedCircuit, simulate
 from noisevault.errors import SourceUnavailable
 from noisevault.profile import Profile
 from noisevault.reference import Op, probabilities
@@ -127,6 +127,22 @@ def test_medians_gives_every_qubit_and_every_pair_the_same_values() -> None:
     assert found.calibration_fingerprint != profile.calibration_fingerprint
 
 
+def test_medians_keeps_a_virtual_default_and_scales_only_calibrated_records() -> None:
+    data = uneven().to_dict()
+    data["calibrations"] += [
+        {"gate": "rz", "qubits": [0], "virtual": False, "avg_infidelity": 1e-4},
+        {"gate": "rz", "qubits": [1], "virtual": False, "avg_infidelity": 3e-4},
+    ]
+    profile = Profile.model_validate(data)
+
+    found = models.medians(profile)
+
+    assert found.gates["rz"].virtual
+    assert found.table.gate("rz", (2,)).state == "ideal"
+    errors = [found.table.gate("rz", (q,)).avg_infidelity for q in (0, 1)]
+    assert errors == pytest.approx([2e-4, 2e-4])
+
+
 def test_symmetric_keeps_the_mean_of_the_two_readout_errors() -> None:
     profile = uneven()
 
@@ -186,9 +202,39 @@ def test_fit_factor_finds_the_maximum_in_few_simulations() -> None:
 
     found = models.fit_factor(build, counts, [circuit.name])
 
-    assert len(calls) <= 20
+    assert len(calls) <= 30
     assert min(calls) >= 0.05 and max(calls) <= 20
     assert found == pytest.approx(3.0, rel=0.25)
+    assert models.fit_factor(build, counts, [circuit.name]) == found
+
+
+def test_fit_factor_finds_the_maximum_past_a_flat_likelihood_below_the_relaxation_floor() -> None:
+    profile = Profile.uniform(
+        "one",
+        technology="superconducting",
+        num_qubits=1,
+        one_qubit_error=0.001,
+        readout_error=0.01,
+        t1_us=10.0,
+        t2_us=10.0,
+        one_qubit_ns=100.0,
+    )
+    circuit = PlannedCircuit(name="xs", qubits=(0,), ops=tuple(Op("x", (0,)) for _ in range(20)))
+    counts = simulate(models.with_factors(profile, 10.0), [circuit], shots=100_000, seed=1)
+
+    found = models.gate_factor(profile, counts, ["xs"])
+
+    assert found == pytest.approx(10.0, rel=0.2)
+
+
+def test_fit_factor_takes_the_grid_point_nearest_1_when_the_likelihood_is_flat() -> None:
+    profile = device(1)
+    circuit = next(c for c in suite(profile) if c.name.startswith("qubit0"))
+    counts = simulate(profile, [circuit], shots=10, seed=1)
+
+    found = models.fit_factor(lambda f: profile, counts, [circuit.name])
+
+    assert found == pytest.approx(1.0, rel=0.05)
 
 
 def _all_loci(profile: Profile) -> dict[tuple[int, ...], float]:
@@ -359,7 +405,7 @@ def test_averaged_takes_the_median_of_each_value_over_the_calibrations() -> None
     newest = with_values(50.0, 0.0, 0.004)
     others = [with_values(200.0, 0.02, 0.010), with_values(120.0, 0.01, 0.020)]
 
-    found = models.averaged(newest, others)
+    found = models.averaged(newest, [newest, *others])
 
     qubit = found.table.qubit(0)
     assert qubit.t1_ns == pytest.approx(120_000.0)
@@ -367,8 +413,27 @@ def test_averaged_takes_the_median_of_each_value_over_the_calibrations() -> None
     assert found.table.gate("cz", (0, 1)).avg_infidelity == pytest.approx(0.010)
     assert found.table.qubit(1).t1_ns == newest.table.qubit(1).t1_ns
     assert models.averaged(newest, []).fingerprint == newest.fingerprint
-    twice = models.averaged(newest, [others[0], others[0]])
+    twice = models.averaged(newest, [newest, others[0], others[0]])
     assert twice.table.gate("cz", (0, 1)).avg_infidelity == pytest.approx(0.010)
+
+
+def test_averaged_takes_the_values_from_the_given_calibrations_only() -> None:
+    def with_values(t1: float, cz: float) -> Profile:
+        data = uneven(2).to_dict()
+        data["qubits"][0]["t1_us"] = t1
+        data["calibrations"] = [{"gate": "cz", "qubits": [0, 1], "avg_infidelity": cz}]
+        return Profile.model_validate(data)
+
+    structure = with_values(50.0, 0.004)
+    week = [with_values(200.0, 0.010), with_values(120.0, 0.020)]
+
+    found = models.averaged(structure, week)
+
+    assert found.table.qubit(0).t1_ns == pytest.approx(160_000.0)
+    assert found.table.gate("cz", (0, 1)).avg_infidelity == pytest.approx(0.015)
+    assert (
+        found.table.gate("cz", (0, 1)).duration_ns == structure.table.gate("cz", (0, 1)).duration_ns
+    )
 
 
 def test_pulled_calls_the_public_source_with_the_time_as_a_keyword(monkeypatch, tmp_path) -> None:

@@ -33,6 +33,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+from pydantic import ValidationError
 
 import noisevault as nv
 from noisevault.counts import MeasuredCounts, load_counts
@@ -117,9 +118,12 @@ def build(
     pull: models.Pull | None = None,
 ) -> tuple[dict[str, Profile], dict[str, str], dict[str, Any]]:
     """Each model of the plan in the form that the comparisons score, the reason for each model
-    that is not built, and the fitted values."""
+    that is not built, and the fitted values.
+
+    Each model from a calibration starts from the calibration as stated. The zero floor applies
+    to the result, as the plan states.
+    """
     train = counts.select([c.name for c in counts.circuits if role(c.name) == "train"])
-    base = models.floored(calibration)
     built: dict[str, Profile] = {}
     missing: dict[str, str] = {}
     fits: dict[str, Any] = {}
@@ -146,19 +150,22 @@ def build(
         return models.floored(fitted)
 
     def week() -> Profile | None:
-        """The median over the calibrations in effect at the run time and 1 to 6 days before."""
+        """The median over the calibrations in effect at the run time and 1 to 6 days before.
+
+        A calibration that is in effect at two of these times counts two times.
+        """
         if calibration.device.vendor != "ibm":
             return None
         device = calibration.device.name
-        earlier = [
+        pulls = [
             models.pulled(device, counts.run_at - timedelta(days=days), cache, pull)
-            for days in range(1, AVERAGED_DAYS)
+            for days in range(AVERAGED_DAYS)
         ]
-        others = [p for p in earlier if p is not None]
-        return models.floored(models.averaged(calibration, others)) if others else None
+        found = [p for p in pulls if p is not None]
+        return models.floored(models.averaged(calibration, found)) if found else None
 
     def measured() -> Profile:
-        rates = models.readout_measured(base, train)
+        rates = models.floored(models.readout_measured(calibration, train))
         others = [c.name for c in train.circuits if c.name not in _READOUT]
         factor = models.gate_factor(rates, train, others)
         chain = next(c.qubits for c in train.circuits if c.name == "readout")
@@ -169,13 +176,13 @@ def build(
         return models.with_factors(rates, factor)
 
     def per_locus() -> Profile:
-        fitted, _, rows = models.locus(base, train)
+        fitted, _, rows = models.locus(calibration, train)
         fits["locus"] = rows
-        return fitted
+        return models.floored(fitted)
 
     attempt("ideal", lambda: models.ideal(calibration))
     attempt("generic", lambda: models.generic(calibration))
-    attempt("medians", lambda: models.medians(base))
+    attempt("medians", lambda: models.floored(models.medians(calibration)))
     for days, name in zip(STALE_DAYS, STALE, strict=True):
         if offline:
             missing[name] = "skipped: --offline"
@@ -190,12 +197,12 @@ def build(
         lambda: _floored(models.bundled(calibration)),
         "NoiseVault bundles no other calibration of this device",
     )
-    attempt("symmetric", lambda: models.symmetric(base))
+    attempt("symmetric", lambda: models.floored(models.symmetric(calibration)))
     if offline:
         missing["averaged(7)"] = "skipped: --offline"
     else:
         attempt("averaged(7)", week, _no_stale(calibration))
-    attempt("calibration", lambda: base)
+    attempt("calibration", lambda: models.floored(calibration))
     attempt("two_factor", two)
     attempt("readout_measured", measured)
     attempt("locus", per_locus)
@@ -285,9 +292,12 @@ def analyze(
     """The analysis of each run of the deep circuit set below ``root``.
 
     ``rows_folder`` keeps the row of each counts file, so that a later call does not analyze the
-    same run again.
+    same run again. A counts file with the same counts as an earlier file, for example the same
+    run saved as ``.counts.json`` and ``.counts.json.gz``, is a duplicate. Only the first file
+    gives a row, and ``duplicates`` gives the number of the other files.
     """
-    rows, failures, skipped = [], [], 0
+    rows, failures, skipped, duplicates = [], [], 0, 0
+    seen: set[str] = set()
     kind = "analysis-offline" if offline else "analysis"
     for path in counts_files(root):
 
@@ -295,6 +305,11 @@ def analyze(
             return analyze_run(path, cache=cache, offline=offline, pull=pull, properties=properties)
 
         try:
+            digest = load_counts(path).sha256
+            if digest in seen:
+                duplicates += 1
+                continue
+            seen.add(digest)
             beside = profile_beside(path)
             row = kept(rows_folder, kind, [path, beside] if beside.exists() else [path], run)
         except NoiseVaultError as exc:
@@ -308,7 +323,13 @@ def analyze(
         else:
             rows.append(row)
     rows.sort(key=lambda r: (r["device"], r["run_at"], r["chain"] or "", r["counts_sha256"]))
-    return {"nv_study_analysis": FORMAT, "rows": rows, "skipped": skipped, "failures": failures}
+    return {
+        "nv_study_analysis": FORMAT,
+        "rows": rows,
+        "skipped": skipped,
+        "duplicates": duplicates,
+        "failures": failures,
+    }
 
 
 def markdown(data: dict[str, Any]) -> str:
@@ -344,6 +365,8 @@ def markdown(data: dict[str, Any]) -> str:
                     f" {_number(log['z'], '.2f')} | {_number(log['p_value'], '.3g')} |"
                 )
         lines.append("")
+    if data.get("duplicates"):
+        lines += [f"Duplicate counts files not analyzed: {data['duplicates']}", ""]
     for failure in data["failures"]:
         lines += [f"Failed: {failure['error']} on the counts file {failure['file'][:19]}", ""]
     return "\n".join(lines)
@@ -412,9 +435,15 @@ def _ages(
     cache: Path | None,
     properties: ages.Properties | None,
 ) -> dict[str, Any]:
-    """For the calibration of the run and for each stale calibration, the age of the
-    calibration time and of the values of the chain at the run time, in hours. IBM dates each
-    value, so only an IBM device has ages."""
+    """For the calibration C and for each stale calibration, the age of the calibration time and
+    of the values of the chain at the run time, in hours. IBM dates each value, so only an IBM
+    device has ages.
+
+    The entry ``"calibration"`` comes from the reply of C itself: the newest reply at or before
+    the time of C. Its ``last_update_date`` must be the time of C. When it is not, or when the
+    source gives no reply, the result has no entry ``"calibration"``, and ``"missing"`` gives
+    the reason: ``undated``, ``no_reply``, ``source_failed`` or ``other_calibration``.
+    """
     if calibration.device.vendor != "ibm":
         return {}
     device = calibration.device.name
@@ -423,18 +452,41 @@ def _ages(
         return ages.public_properties(name, at, cache)
 
     fetch = properties or public
+
+    def entry(reply: Mapping[str, Any]) -> dict[str, Any]:
+        return {
+            "calibration_h": ages.calibration_age(reply, counts.run_at),
+            "values": ages.value_ages(reply, counts.run_at, counts.qubits),
+            "loci": ages.locus_ages(reply, counts.run_at, counts.qubits),
+        }
+
     found: dict[str, Any] = {}
-    for name, days in (("calibration", 0), *zip(STALE, STALE_DAYS, strict=True)):
+    missing: dict[str, str] = {}
+    when = calibration.device.calibrated_at
+    if when is None:
+        missing["calibration"] = "undated"
+    else:
+        try:
+            # The source gives the newest reply before the requested time.
+            reply = fetch(device, when + timedelta(seconds=1))
+        except NoiseVaultError:
+            missing["calibration"] = "source_failed"
+        else:
+            if reply is None:
+                missing["calibration"] = "no_reply"
+            elif ages.calibration_time(reply) != when:
+                missing["calibration"] = "other_calibration"
+            else:
+                found["calibration"] = entry(reply)
+    for name, days in zip(STALE, STALE_DAYS, strict=True):
         try:
             reply = fetch(device, counts.run_at - timedelta(days=days))
         except NoiseVaultError:
             continue
         if reply is not None:
-            found[name] = {
-                "calibration_h": ages.calibration_age(reply, counts.run_at),
-                "values": ages.value_ages(reply, counts.run_at, counts.qubits),
-                "loci": ages.locus_ages(reply, counts.run_at, counts.qubits),
-            }
+            found[name] = entry(reply)
+    if missing:
+        found["missing"] = missing
     return found
 
 
@@ -503,8 +555,19 @@ def _order(name: str) -> int:
 
 
 def _reason(exc: Exception) -> str:
-    message = exc.message if isinstance(exc, NoiseVaultError) else str(exc)
-    return f"{type(exc).__name__}: {message}"
+    """The type of ``exc`` and, for a validation error, the paths of the fields that failed.
+
+    The reason holds no message text and no input value, because a message can hold a file
+    name, a job id or a calibration value.
+    """
+    name = type(exc).__name__
+    if not isinstance(exc, ValidationError):
+        return name
+    paths = [
+        ".".join(str(part) for part in error["loc"]) or "(top level)"
+        for error in exc.errors(include_url=False, include_context=False, include_input=False)
+    ]
+    return f"{name} at {', '.join(dict.fromkeys(paths))}"
 
 
 def _finite(value: float) -> float | None:

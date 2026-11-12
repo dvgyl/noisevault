@@ -9,7 +9,6 @@ not change it.
 
 from __future__ import annotations
 
-import statistics
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
@@ -41,10 +40,9 @@ def summary(times: Mapping[str, Sequence[datetime]]) -> dict[str, dict[str, Any]
         found = sorted(times.get(kind, ()))
         if not found:
             continue
-        middle = round(statistics.median(t.timestamp() for t in found))
         out[kind] = {
             "oldest": iso_z(found[0]),
-            "median": iso_z(datetime.fromtimestamp(middle, UTC)),
+            "median": iso_z(_median(found)),
             "newest": iso_z(found[-1]),
             "values": len(found),
         }
@@ -91,6 +89,16 @@ def old_note(times: Mapping[str, Any], calibrated_at: datetime | None) -> str | 
 def hours(value: float) -> str:
     """An age such as ``151 h`` or ``2.5 h``."""
     return f"{value:.0f} h" if abs(value) >= 10 else f"{value:.1f} h"
+
+
+def _median(ordered: Sequence[datetime]) -> datetime:
+    """The median of sorted times. For an even count, the earlier of the two middle times plus
+    half of their difference. The arithmetic stays in datetime, so every valid date works."""
+    half = len(ordered) // 2
+    if len(ordered) % 2:
+        return ordered[half]
+    earlier, later = ordered[half - 1], ordered[half]
+    return earlier + (later - earlier) / 2
 
 
 def _ages(entry: Any, at: datetime) -> ValueAge | None:

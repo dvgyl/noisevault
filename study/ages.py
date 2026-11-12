@@ -119,9 +119,14 @@ def public_properties(
     return reply
 
 
+def calibration_time(properties: Mapping[str, Any]) -> datetime | None:
+    """The calibration time (``last_update_date``) of a reply, in UTC."""
+    return _time(properties.get("last_update_date"))
+
+
 def calibration_age(properties: Mapping[str, Any], at: datetime) -> float | None:
     """The age in hours of the calibration time (``last_update_date``) at the time ``at``."""
-    when = _time(properties.get("last_update_date"))
+    when = calibration_time(properties)
     return None if when is None else _hours(at, when)
 
 

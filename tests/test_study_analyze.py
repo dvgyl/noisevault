@@ -81,6 +81,7 @@ def result(tmp_path_factory: pytest.TempPathFactory) -> Iterator[dict[str, Any]]
     week = root / "campaign" / "ibm_line" / "2026-04-13"
     week.mkdir(parents=True)
     counts.save(week / "best-deep.counts.json")
+    counts.save(week / "best-deep.counts.json.gz")
     calibration.save(week / "best-deep.profile.json")
     simulate(calibration, plan(calibration), shots=100, seed=1, run_at=RUN_AT).save(
         week / "best.counts.json"
@@ -127,6 +128,7 @@ def test_only_the_run_of_the_deep_set_is_analyzed(result: dict[str, Any]) -> Non
     data = result["data"]
     assert data["failures"] == []
     assert data["skipped"] == 1
+    assert data["duplicates"] == 1
     row = _row(result)
     assert row["chain"] == "best"
     assert row["shots"] == 1000
@@ -172,7 +174,7 @@ def test_each_model_has_a_score_or_a_reason(result: dict[str, Any]) -> None:
     assert set(row["scores"]) >= {"ideal", "generic", "medians", "stale(7)", "locus"}
     assert row["failures"]["stale(1)"].startswith("the source has no other calibration")
     assert row["failures"]["stale(180)"].startswith("the source has no other calibration")
-    assert "cz" in row["failures"]["stale(30)"]
+    assert row["failures"]["stale(30)"] == "CountsError"
     assert row["scores"]["ideal"]["all"]["ruled_out"] > 0
 
 
@@ -254,27 +256,54 @@ def test_the_primary_comparisons_are_the_five_of_the_plan(result: dict[str, Any]
     assert row["circuits"]["test"] == row["circuits"]["test_near"] + row["circuits"]["test_far"]
 
 
-def test_the_ages_of_a_run_come_from_the_reply_in_effect_at_each_time() -> None:
+class FakeProperties:
+    """IBM's properties endpoint. The device was calibrated 30 h before the run (C), 2 h before
+    the run, and 1 h before each stale time. Each value is 5 h older than its calibration."""
+
+    def __init__(self, *, without: datetime | None = None) -> None:
+        self.times = [RUN_AT - timedelta(hours=2), RUN_AT - timedelta(hours=30)]
+        self.times += [RUN_AT - timedelta(days=d, hours=1) for d in analyze.STALE_DAYS if d < 100]
+        self.times = [t for t in self.times if t != without]
+        self.asked: list[datetime] = []
+
+    def __call__(self, device: str, at: datetime) -> dict[str, Any] | None:
+        self.asked.append(at)
+        older = [t for t in self.times if t < at]
+        if not older:
+            return None
+        newest = max(older)
+        stamp = (newest - timedelta(hours=5)).isoformat()
+        value = {"name": "prob_meas1_prep0", "value": 0.01, "date": stamp}
+        return {"last_update_date": newest.isoformat(), "qubits": [[value], [value]], "gates": []}
+
+
+def test_the_ages_of_a_run_come_from_the_reply_of_each_calibration() -> None:
     calibration = _device()
     counts = simulate(calibration, plan(calibration), shots=10, seed=1, run_at=RUN_AT)
-    asked: list[datetime] = []
-
-    def properties(device: str, at: datetime) -> dict[str, Any] | None:
-        asked.append(at)
-        if at < RUN_AT - timedelta(days=100):
-            return None
-        stamp = (at - timedelta(hours=5)).isoformat()
-        value = {"name": "prob_meas1_prep0", "value": 0.01, "date": stamp}
-        return {"last_update_date": at.isoformat(), "qubits": [[value], [value]], "gates": []}
+    properties = FakeProperties()
 
     found = analyze._ages(calibration, counts, None, properties)
 
-    assert asked[0] == RUN_AT and len(asked) == 1 + len(analyze.STALE_DAYS)
+    c = calibration.device.calibrated_at
+    assert properties.asked[0] == c + timedelta(seconds=1)
+    assert len(properties.asked) == 1 + len(analyze.STALE_DAYS)
     assert set(found) == {"calibration", "stale(1)", "stale(7)", "stale(30)", "stale(90)"}
-    assert found["calibration"]["calibration_h"] == 0
-    assert found["calibration"]["values"]["readout"]["median_h"] == 5
-    assert found["stale(7)"]["values"]["readout"]["median_h"] == 7 * 24 + 5
+    assert found["calibration"]["calibration_h"] == pytest.approx(30)
+    assert found["calibration"]["values"]["readout"]["median_h"] == pytest.approx(35)
+    assert found["stale(7)"]["values"]["readout"]["median_h"] == pytest.approx(7 * 24 + 6)
     assert found["stale(7)"]["values"]["t1"] is None
+
+
+def test_the_calibration_has_no_ages_when_the_source_has_no_reply_of_c() -> None:
+    calibration = _device()
+    counts = simulate(calibration, plan(calibration), shots=10, seed=1, run_at=RUN_AT)
+    c = calibration.device.calibrated_at
+
+    found = analyze._ages(calibration, counts, None, FakeProperties(without=c))
+
+    assert "calibration" not in found
+    assert found["missing"] == {"calibration": "other_calibration"}
+    assert "stale(7)" in found
 
 
 def test_a_device_of_another_vendor_has_no_ages() -> None:
@@ -283,3 +312,90 @@ def test_a_device_of_another_vendor_has_no_ages() -> None:
     other = Profile.model_validate(data)
     counts = simulate(other, plan(other), shots=10, seed=1, run_at=RUN_AT)
     assert analyze._ages(other, counts, None, lambda device, at: pytest.fail("asked")) == {}
+
+
+def test_each_model_starts_from_the_stated_calibration_and_is_floored_after(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    data = _device().to_dict()
+    data["qubits"] = [
+        {"index": 0, "readout": {"p1_given_0": 0.0, "p0_given_1": 0.04}},
+        {"index": 1, "readout": {"p1_given_0": 0.02, "p0_given_1": 0.08}},
+        {"index": 2, "readout": {"p1_given_0": 0.0, "p0_given_1": 0.03}},
+    ]
+    calibration = Profile.model_validate(data)
+    counts = simulate(calibration, suite(calibration), shots=50, seed=1)
+    monkeypatch.setattr(models, "fit_factor", lambda build, counts, circuits: 1.0)
+
+    built, _, _ = analyze.build(calibration, counts, cache=None, offline=True)
+
+    assert built["symmetric"].table.qubit(0).readout == pytest.approx((0.02, 0.02))
+    assert built["medians"].table.qubit(0).readout == pytest.approx((0.02, 0.04))
+    for name in ("medians", "symmetric", "calibration", "two_factor", "readout_measured", "locus"):
+        assert models.zero_readouts(built[name]) == 0
+
+
+def test_the_week_model_takes_the_calibrations_in_effect_at_the_run_time_and_6_days_before(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calibration = _device()
+    counts = simulate(calibration, plan(calibration), shots=10, seed=1, run_at=RUN_AT)
+    source = FakeSource(calibration)
+    given: list[list[datetime | None]] = []
+    real = models.averaged
+
+    def spy(profile: Profile, calibrations: list[Profile]) -> Profile:
+        given.append([p.device.calibrated_at for p in calibrations])
+        return real(profile, calibrations)
+
+    def skipped(*args: Any) -> Any:
+        raise ValueError("not needed")
+
+    monkeypatch.setattr(models, "averaged", spy)
+    for name in ("two_factor", "readout_measured", "locus"):
+        monkeypatch.setattr(models, name, skipped)
+
+    built, _, _ = analyze.build(calibration, counts, cache=None, offline=False, pull=source)
+
+    c, older = (
+        source.calibrations[0].device.calibrated_at,
+        source.calibrations[1].device.calibrated_at,
+    )
+    assert given == [[c, c] + [older] * 5]
+    assert source.asked[-7:] == [RUN_AT - timedelta(days=d) for d in range(7)]
+    assert "averaged(7)" in built
+
+
+def test_a_failure_reason_holds_no_message_and_no_input_value(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    secret = "job-d4c0ffee-secret"
+    data = _device().to_dict()
+    data["provenance"]["extra"] = {"job_id": secret}
+    calibration = Profile.model_validate(data)
+    counts = simulate(calibration, suite(calibration), shots=20, seed=1, run_at=RUN_AT)
+    path = tmp_path / f"best-{secret}.counts.json"
+
+    def invalid(profile: Profile) -> Profile:
+        broken = profile.to_dict()
+        broken["qubits"] = [{"index": 99, "readout": {"error": 0.0123}}]
+        return Profile.model_validate(broken)
+
+    def unreadable(profile: Profile) -> Profile:
+        raise SourceUnavailable(f"cannot read {path}: value 0.0123")
+
+    def fails(profile: Profile, counts: MeasuredCounts) -> Any:
+        raise ValueError(f"{secret} 0.0123")
+
+    monkeypatch.setattr(models, "generic", invalid)
+    monkeypatch.setattr(models, "bundled", unreadable)
+    monkeypatch.setattr(models, "two_factor", fails)
+    monkeypatch.setattr(models, "fit_factor", lambda build, counts, circuits: 1.0)
+
+    _, missing, _ = analyze.build(calibration, counts, cache=None, offline=True)
+
+    assert missing["generic"] == "ValidationError at (top level)"
+    assert missing["bundled"] == "SourceUnavailable"
+    assert missing["two_factor"] == "ValueError"
+    text = json.dumps(missing)
+    assert secret not in text and "0.0123" not in text and str(tmp_path) not in text

@@ -3,9 +3,11 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from noisevault.design import Price, design, information
+from noisevault.counts import PlannedCircuit
+from noisevault.design import Price, _variances, design, information
 from noisevault.errors import NoiseVaultError
 from noisevault.profile import Profile
+from noisevault.reference import Op
 from noisevault.suite import role, suite
 
 
@@ -77,6 +79,65 @@ def test_one_task_for_all_circuits_pays_the_task_price_one_time():
 def test_a_budget_below_the_smallest_design_is_refused(device, circuits):
     with pytest.raises(NoiseVaultError, match="does not pay 100 shots"):
         design(device, circuits, budget=5.0, price=Price(task=0.30, shot=0.08))
+
+
+def _two_x_gates(readout_error: float) -> np.ndarray:
+    profile = Profile.uniform(
+        "one",
+        technology="superconducting",
+        num_qubits=1,
+        one_qubit_error=0.01,
+        readout_error=readout_error,
+    )
+    circuit = PlannedCircuit(name="xs", qubits=(0,), ops=(Op("x", (0,)), Op("x", (0,))))
+    return information(profile, circuit)
+
+
+def test_one_binary_probability_identifies_neither_factor():
+    for readout_error in (1e-9, 1e-3, 0.01):
+        assert _variances(_two_x_gates(readout_error)) == (None, None)
+
+
+def test_a_factor_with_zero_information_leaves_the_other_factor_identified():
+    gate, readout = _variances(np.array([[0.02, 0.0], [0.0, 0.0]]))
+    assert gate == pytest.approx(50.0) and readout is None
+    gate, readout = _variances(np.array([[0.0, 0.0], [0.0, 0.01]]))
+    assert gate is None and readout == pytest.approx(100.0)
+    gate, readout = _variances(np.array([[2.0, 1e-5], [1e-5, 1e-9]]))
+    assert gate is not None and readout is not None
+    assert gate == pytest.approx(1e-9 / (2e-9 - 1e-10))
+
+
+def test_a_design_keeps_to_a_limit_of_circuits_and_of_total_shots(device, circuits):
+    price = Price(task=0.30, shot=0.001, one_task=True)
+
+    found = design(device, circuits, budget=50.0, price=price, max_circuits=5, max_total_shots=2000)
+
+    assert len(found.circuits) <= 5
+    assert len(found.circuits) * found.shots <= 2000
+    with pytest.raises(NoiseVaultError, match="limit of 3 circuits"):
+        design(device, circuits, budget=50.0, price=price, max_circuits=3)
+    with pytest.raises(NoiseVaultError, match="limit of 300 shots"):
+        design(device, circuits, budget=50.0, price=price, max_total_shots=300)
+
+
+def test_task_fees_above_the_budget_pay_no_shots_also_when_shots_are_free(device, circuits):
+    with pytest.raises(NoiseVaultError, match="does not pay 100 shots"):
+        design(device, circuits, budget=1.0, price=Price(task=0.30, shot=0.0))
+
+
+def test_a_profile_with_no_readout_error_gives_the_readout_axis_zero_information():
+    profile = Profile.uniform(
+        "one", technology="superconducting", num_qubits=1, one_qubit_error=0.01
+    )
+    circuit = PlannedCircuit(name="xs", qubits=(0,), ops=(Op("x", (0,)), Op("x", (0,))))
+
+    info = information(profile, circuit)
+
+    assert info[0, 0] > 0
+    assert info[0, 1] == info[1, 0] == info[1, 1] == 0
+    gate, readout = _variances(info)
+    assert gate == pytest.approx(1 / info[0, 0]) and readout is None
 
 
 def test_max_shots_limits_the_shots_of_each_circuit(device, circuits):
