@@ -27,7 +27,8 @@ import hashlib
 import json
 import math
 import sys
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -40,7 +41,7 @@ from noisevault.profile import Profile, iso_z
 from noisevault.reference import outcome_bits
 from noisevault.score import Forecast, paired, score
 from noisevault.suite import role
-from study import models
+from study import ages, models
 from study.derive import counts_files, profile_beside
 
 FORMAT = "1"
@@ -177,7 +178,12 @@ def build(
 
 
 def analyze_run(
-    path: Path, *, cache: Path | None, offline: bool, pull: models.Pull | None = None
+    path: Path,
+    *,
+    cache: Path | None,
+    offline: bool,
+    pull: models.Pull | None = None,
+    properties: ages.Properties | None = None,
 ) -> dict[str, Any] | None:
     """The derived row of one counts file, or None when the file is not a run of the deep set."""
     counts = load_counts(path)
@@ -225,6 +231,7 @@ def analyze_run(
         "counts_sha256": counts.sha256,
         "calibration": calibration.calibration_fingerprint,
         "marked": _marked(calibration, counts, cache, offline, pull),
+        "ages": {} if offline else _ages(calibration, counts, cache, properties),
         "stated": {
             "zero_readouts": models.zero_readouts(calibration),
             "ruled_out": {g: f.ruled_out for g, f in stated_forecasts.items()},
@@ -242,12 +249,17 @@ def analyze_run(
 
 
 def analyze(
-    root: Path, *, cache: Path | None = None, offline: bool = False, pull: models.Pull | None = None
+    root: Path,
+    *,
+    cache: Path | None = None,
+    offline: bool = False,
+    pull: models.Pull | None = None,
+    properties: ages.Properties | None = None,
 ) -> dict[str, Any]:
     rows, failures, skipped = [], [], 0
     for path in counts_files(root):
         try:
-            row = analyze_run(path, cache=cache, offline=offline, pull=pull)
+            row = analyze_run(path, cache=cache, offline=offline, pull=pull, properties=properties)
         except NoiseVaultError as exc:
             # A message can hold the path of the file, and a file name can hold an id of the
             # account. So a failure gives only the error type and the hash of the file.
@@ -352,6 +364,37 @@ def _marked(
     except NoiseVaultError:
         return None
     return None if found is None else not models.same_calibration(found, calibration)
+
+
+def _ages(
+    calibration: Profile,
+    counts: MeasuredCounts,
+    cache: Path | None,
+    properties: ages.Properties | None,
+) -> dict[str, Any]:
+    """For the calibration of the run and for each stale calibration, the age of the
+    calibration time and of the values of the chain at the run time, in hours. IBM dates each
+    value, so only an IBM device has ages."""
+    if calibration.device.vendor != "ibm":
+        return {}
+    device = calibration.device.name
+
+    def public(name: str, at: datetime) -> Mapping[str, Any] | None:
+        return ages.public_properties(name, at, cache)
+
+    fetch = properties or public
+    found: dict[str, Any] = {}
+    for name, days in (("calibration", 0), *zip(STALE, STALE_DAYS, strict=True)):
+        try:
+            reply = fetch(device, counts.run_at - timedelta(days=days))
+        except NoiseVaultError:
+            continue
+        if reply is not None:
+            found[name] = {
+                "calibration_h": ages.calibration_age(reply, counts.run_at),
+                "values": ages.value_ages(reply, counts.run_at, counts.qubits),
+            }
+    return found
 
 
 def _forecast(forecast: Forecast) -> dict[str, Any]:

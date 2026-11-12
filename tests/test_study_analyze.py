@@ -103,7 +103,12 @@ def result(tmp_path_factory: pytest.TempPathFactory) -> Iterator[dict[str, Any]]
     with pytest.MonkeyPatch.context() as patch:
         for name in ("two_factor", "readout_measured", "gate_factor", "locus"):
             patch.setattr(models, name, spy(name))
-        data = analyze.analyze(root / "campaign", cache=root / "cache", pull=source)
+        data = analyze.analyze(
+            root / "campaign",
+            cache=root / "cache",
+            pull=source,
+            properties=lambda device, at: None,
+        )
     out = root / "results"
     analyze.write(data, out)
     yield {"data": data, "seen": seen, "out": out, "root": root, "source": source}
@@ -247,3 +252,34 @@ def test_the_primary_comparisons_are_the_five_of_the_plan(result: dict[str, Any]
     secondary = {(t["a"], t["b"], t["group"]) for t in row["paired"] if not t["primary"]}
     assert ("two_factor", "calibration", "test_near") in secondary
     assert row["circuits"]["test"] == row["circuits"]["test_near"] + row["circuits"]["test_far"]
+
+
+def test_the_ages_of_a_run_come_from_the_reply_in_effect_at_each_time() -> None:
+    calibration = _device()
+    counts = simulate(calibration, plan(calibration), shots=10, seed=1, run_at=RUN_AT)
+    asked: list[datetime] = []
+
+    def properties(device: str, at: datetime) -> dict[str, Any] | None:
+        asked.append(at)
+        if at < RUN_AT - timedelta(days=100):
+            return None
+        stamp = (at - timedelta(hours=5)).isoformat()
+        value = {"name": "prob_meas1_prep0", "value": 0.01, "date": stamp}
+        return {"last_update_date": at.isoformat(), "qubits": [[value], [value]], "gates": []}
+
+    found = analyze._ages(calibration, counts, None, properties)
+
+    assert asked[0] == RUN_AT and len(asked) == 1 + len(analyze.STALE_DAYS)
+    assert set(found) == {"calibration", "stale(1)", "stale(7)", "stale(30)", "stale(90)"}
+    assert found["calibration"]["calibration_h"] == 0
+    assert found["calibration"]["values"]["readout"]["median_h"] == 5
+    assert found["stale(7)"]["values"]["readout"]["median_h"] == 7 * 24 + 5
+    assert found["stale(7)"]["values"]["t1"] is None
+
+
+def test_a_device_of_another_vendor_has_no_ages() -> None:
+    data = _device().to_dict()
+    data["device"]["vendor"] = "iqm"
+    other = Profile.model_validate(data)
+    counts = simulate(other, plan(other), shots=10, seed=1, run_at=RUN_AT)
+    assert analyze._ages(other, counts, None, lambda device, at: pytest.fail("asked")) == {}

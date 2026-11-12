@@ -8,12 +8,18 @@ reference time, for the whole device or for one chain of qubits.
 
 from __future__ import annotations
 
+import json
 import statistics
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
+from noisevault.sources import ibm_public
+
 KINDS = ("readout", "t1", "t2", "one_qubit", "two_qubit")
+# The reply for a device at a time, or None when the source has no calibration before the time.
+Properties = Callable[[str, datetime], Mapping[str, Any] | None]
 _QUBIT_KINDS = {
     "T1": "t1",
     "T2": "t2",
@@ -70,6 +76,24 @@ def value_ages(
         hours = [_hours(at, when) for when in times]
         ages[kind] = _summary(hours) if hours else None
     return ages
+
+
+def public_properties(
+    device: str, at: datetime, cache: Path | None = None
+) -> Mapping[str, Any] | None:
+    """The reply of IBM's public endpoint for the newest calibration of ``device`` before
+    ``at``, or None when the endpoint has none. ``cache`` is a folder that keeps each reply."""
+    saved = None if cache is None else cache / f"properties-{device}-{at:%Y%m%dT%H%M%SZ}.json"
+    if saved is not None and saved.exists():
+        return json.loads(saved.read_text(encoding="utf-8"))
+    try:
+        reply = json.loads(ibm_public.fetch(ibm_public.properties_url(device, at)))
+    except ibm_public._NotFound:
+        reply = None
+    if saved is not None:
+        saved.parent.mkdir(parents=True, exist_ok=True)
+        saved.write_text(json.dumps(reply), encoding="utf-8")
+    return reply
 
 
 def calibration_age(properties: Mapping[str, Any], at: datetime) -> float | None:
