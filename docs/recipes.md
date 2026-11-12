@@ -509,8 +509,9 @@ the usual kind, such errors point in changing directions, and the model is a fai
 circuit in which each gate turns about one axis, the errors add up, and no such model forecasts
 the result. On an IBM device, `sx` and `x` turn about one axis. Thus `suite` puts a random
 virtual Z rotation before each gate, undoes `sx` with `rz(pi) sx rz(pi)`, and puts the random
-Pauli gates in the middle. This is the design of randomized mirror circuits (Proctor et al.,
-Nature Physics 18, 75, 2022).
+Pauli gates in the middle. These rules follow the randomized mirror circuits of Proctor et al.
+(Nature Physics 18, 75, 2022), with virtual Z rotations in place of their layers of random
+gates.
 
 The circuits `axis_d64` and `axis_d256` are the opposite case on purpose. They apply one gate 64
 and 256 times on each qubit of the chain, and the ideal result is 0 on each qubit. They show the

@@ -64,8 +64,8 @@ No model sees a test circuit or a probe circuit before its score is computed.
 A mirror circuit has layers of random gates, then one random Pauli gate or no gate on each
 qubit, then the layers undone in the opposite order. On a device whose 1-qubit gates turn about
 one axis, a random virtual Z rotation by a multiple of 90 degrees, or none, comes before each
-1-qubit gate. This is the design of randomized mirror circuits (Proctor et al., Nature Physics
-18, 75, 2022). The depth of a circuit comes from the calibration with its stated errors: the
+1-qubit gate. The design follows the randomized mirror circuits of Proctor et al. (Nature
+Physics 18, 75, 2022). The depth of a circuit comes from the calibration with its stated errors: the
 first depth at which the predicted polarization is at or below a target. The polarization of a
 circuit on n qubits with the probability p of its ideal result is (p - 1/2^n) / (1 - 1/2^n). The
 targets are 0.8, 0.6 and 0.4 on the chain, 0.75 and 0.4 on a pair, 0.7 on a qubit, and 0.6 and
@@ -523,3 +523,10 @@ trial run of circuit set version 2 on `ibm_fez` on 2026-11-12. No run that count
   the fits that an earlier run made in 23 minutes. The number of threads can change a result in
   its last digits only. This entry changes the workflow and not the frozen code. No run that
   counts existed when this entry was written.
+- 2026-11-12: words on the source of the circuit design. The text said that a mirror circuit of
+  the study "is" the design of randomized mirror circuits of Proctor et al. It follows that
+  design in its main ideas: random layers, random Pauli gates in the middle, and the layers
+  undone. Three details differ: a virtual Z rotation changes the axis, in place of layers of
+  random Pauli or Clifford gates; the second half is the exact inverse, with no new random
+  gates; and no random layer comes first, so each circuit starts with all qubits in 0. This
+  entry changes words only. The circuits and the frozen code do not change.

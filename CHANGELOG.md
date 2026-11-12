@@ -47,8 +47,9 @@ This file lists all notable changes to NoiseVault. Versions follow
   hardware comparison exists.
 - **Deep circuit set.** `noisevault.suite.suite(profile)` gives the `nv compare` circuits and
   deep mirror circuits on the same chain. A mirror circuit applies layers of random native
-  gates, one random Pauli gate on each qubit, and the layers undone in the opposite order. This
-  is the design of randomized mirror circuits (Proctor et al., Nature Physics 18, 75, 2022). On
+  gates, one random Pauli gate on each qubit, and the layers undone in the opposite order. The
+  design follows the randomized mirror circuits of Proctor et al. (Nature Physics 18, 75, 2022).
+  On
   a device whose 1-qubit gates turn about one axis, such as `sx` and `x`, a random virtual Z
   rotation comes before each gate, and `sx` is undone by `rz(pi) sx rz(pi)`. A small systematic
   rotation error then does not add up over a circuit. The depth of a circuit comes from the

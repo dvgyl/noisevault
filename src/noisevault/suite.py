@@ -28,7 +28,11 @@ A circuit of the usual kind does neither. Three rules give a mirror circuit this
 - The random Pauli gates in the middle give the errors of the two halves random signs with
   respect to each other.
 
-This is the design of randomized mirror circuits (Proctor et al., Nature Physics 18, 75, 2022).
+These rules follow the randomized mirror circuits of Proctor et al. (Nature Physics 18, 75,
+2022), who put a random Pauli layer between a circuit and its inverse so that systematic errors
+do not cancel. Three details differ. Here a virtual Z rotation changes the axis, in place of
+layers of random Pauli or Clifford gates. The second half is the exact inverse, with no new
+random gates. And no random layer comes first, so each circuit starts with all qubits in 0.
 
 Two kinds of circuits are the opposite case on purpose. An ``axis_*`` circuit applies one gate
 many times on each qubit, and it shows the size of the systematic rotation error of that gate.
