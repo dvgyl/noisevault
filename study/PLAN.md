@@ -191,3 +191,18 @@ The adequacy test uses the `locus` model, which has the most fitted parameters: 
   fits on C as stated, and the zero floor applies after the fit. Each other model starts from C
   as stated too, and the zero floor applies to the result. A run that is in the data two times
   counts one time. No score of a deep run was read before this entry.
+- 2026-11-12: pilot runs. The runs before the week of 2026-11-16 are pilot runs. They are not in
+  the sign tests of the primary comparisons, and their results are exploratory. The reason is a
+  defect of the `qubit*` circuits, found in the fits on the `train` circuits of the six deep runs
+  of 2026-11-12. A `qubit*` circuit held only `sx`, `x` and `id` gates. Each of these is a
+  rotation about one axis, so a small systematic over-rotation of each gate adds up over the
+  circuit. A simulation with no noise shows the effect: an over-rotation of 0.005 rad for each
+  `sx` gate lowers the probability of the right result of the `qubit*` circuits of `ibm_kingston`
+  from 1 to between 0.35 and 0.66. Such an over-rotation adds about 0.000004 to the error of the
+  gate, so a calibration cannot show it. In the six runs, the total variation distance between
+  the forecast of the calibration and the counts was above 0.5 for 14 of the 24 `qubit*`
+  circuits. A value above 0.5 means that the wrong result was more frequent than the right
+  result. The fits of the pilot runs used these circuits, so their fitted factors do not give
+  the size of the errors in the other circuits. The circuit set changes before the first run
+  that counts, and a later entry gives the change. The five primary comparisons do not change.
+  No score of a test circuit was read before this entry.
