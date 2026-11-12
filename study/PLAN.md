@@ -286,3 +286,47 @@ The adequacy test uses the `locus` model, which has the most fitted parameters: 
   wide comparison, the summary gives the number of qubits of the 8-qubit chain that are in the
   chain of the run. (5) The summary gives the number of different calibrations in each median of
   `averaged(7)`, and the number of runs with a fitted factor that the fit does not identify.
+- 2026-11-12: the circuit set, version 2. From the week of 2026-11-16, the circuits of a run
+  change in six points. (1) A mirror circuit holds one random Pauli gate, or no gate, on each
+  qubit between its two halves. (2) On a device whose 1-qubit gates turn about one axis, a random
+  virtual Z rotation by a multiple of 90 degrees, or none, comes before each 1-qubit gate. (3)
+  The inverse of a gate is one gate where the device permits: `sx` is undone by
+  `rz(pi) sx rz(pi)`. Version 1 used three more `sx` gates. (4) The 1-qubit gates are the
+  calibrated natives with no parameter, without the identity: `sx` and `x` on the IBM devices.
+  (5) The depths come from the stated errors, not from 2 times the stated errors. A target is a
+  polarization: the predicted probability p of the ideal result on n qubits as
+  (p - 1/2^n) / (1 - 1/2^n). The targets are 0.8, 0.6 and 0.4 on the chain, 0.75 and 0.4 on a
+  pair, 0.7 on a qubit, and 0.6 and 0.35 on 8 qubits. The reason is the pilot: in four of the six
+  runs, the stated errors forecast the probability of the ideal result of each chain circuit
+  within 0.09. In one run the difference was up to 0.13, and in one run it was up to 0.29. (6)
+  Each job also holds three `test_near` circuits from a random stream of its ISO week, and the
+  circuits of a job run in a random order that the week and the chain fix. This is the design of
+  randomized mirror circuits (Proctor et al., Nature Physics 18, 75, 2022). With these rules, a
+  systematic rotation error of a gate does not add up over a circuit, and the two halves of a
+  circuit do not cancel it. In a simulation with no noise and an over-rotation of 0.01 rad for
+  each `sx` and `x` gate, each mirror circuit with random layers gives its ideal result with a
+  probability above 0.95 on the sets that were tested. The periodic circuit repeats two layers,
+  so it keeps a part of the effect (0.94 on one set).
+- 2026-11-12: probe circuits. A run holds two probe circuits, `axis_d64` and `axis_d256`: `sx`
+  64 and 256 times on each qubit of the chain, with the ideal result 0 on each qubit. They are in
+  no fit and in no comparison. For each qubit and each probe, the summary gives the measured
+  fraction of wrong bits and the forecasts of `calibration` and of `two_factor`. The fraction of
+  wrong bits of the `readout` circuit is the baseline. The growth ratio of a qubit is the
+  fraction above the baseline at 256 gates, divided by the fraction above the baseline at 64
+  gates. A systematic rotation error gives a ratio near 16 when the fractions are small. An
+  error with no direction gives a ratio near 4. This result is descriptive.
+- 2026-11-12: shots. From the week of 2026-11-16, a run has 1500 shots for each circuit, not
+  2000. A job of circuit set version 2 holds 37 circuits. The free time of the IBM plan is 600 s
+  in each period of 28 days, and such a period can hold five weekly runs. With 1500 shots, one
+  week of runs uses about 100 s. The spread between weeks limits the precision of a primary
+  estimate, and the number of shots does not.
+- 2026-11-12: trial runs. A trial run is one more run of the circuit set in a week that has its
+  runs, with the files `best-trial.*` and `median-trial.*`. It tests a change of the circuits on
+  a device before the weekly run. A trial run is in no estimate, and its results are
+  exploratory.
+- 2026-11-12: the model `two_factor_before`. It is a secondary model: the gate factor and the
+  readout factor that `two_factor` fitted in the run of the same device and the same chain kind
+  5 to 9 days before, on the calibration C of this run, with the zero floor after. Two secondary
+  comparisons on `test4` use it: against `calibration` and against `two_factor`. A fitted model
+  knows the state of the device in the seconds of its job. This model shows how much of the gain
+  of a fit is left after one week.
