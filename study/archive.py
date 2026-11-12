@@ -20,8 +20,10 @@ The change sizes and the regression to the mean exclude the failure-ceiling valu
 changes that each exclusion removes.
 
 The script excludes ibm_torino, which IBM retired in April 2026, unless ``--include-retired`` is
-given. ``--start`` and ``--end`` set the grid of times for the time since the last change. The
-other statistics use all rows of the file.
+given. ``--start`` and ``--end`` set the grid of times for the time since the last change.
+A series counts on the grid only from its first change to its last change, so a series that IBM
+stopped to update does not count after its last change. The other statistics use all rows of
+the file.
 """
 
 from __future__ import annotations
@@ -61,6 +63,7 @@ READOUT = ("prob_meas0_prep1", "prob_meas1_prep0")
 RANKED = ("prob_meas1_prep0", "cz_gate_error")
 RETIRED = ("ibm_torino",)
 GRID_STEP = timedelta(hours=6)
+ENDED_AFTER = timedelta(days=30)
 GAP_BINS = ("<12 h", "12-36 h", "36-72 h", "3-7 d", ">7 d")
 GAP_EDGES_H = (12.0, 36.0, 72.0, 168.0)
 GRID_DENOMINATORS = (1000, 1024, 2048, 4096, 8192, 10000)
@@ -305,29 +308,37 @@ def _intervals(rows: Rows, changes: Rows, label: Label) -> dict[str, dict[str, A
 def _since_change(
     changes: Rows, start: datetime, end: datetime, label: Label
 ) -> dict[str, dict[str, Any]]:
-    """Definition 4: at each grid time, the hours since the last change of each series that has
-    a change at or before the grid time."""
+    """Definition 4: at each grid time, the hours since the last change of each series. A series
+    counts at a grid time from its first change to its last change. ``ended`` counts the series
+    whose last change is more than ``ENDED_AFTER`` before ``end``."""
     grid = np.arange(_seconds(start), _seconds(end) + 1, int(GRID_STEP.total_seconds()))
     series = np.cumsum(changes.first) - 1
-    keys = series * _SERIES_STRIDE + changes.time_us // 1_000_000
+    seconds = changes.time_us // 1_000_000
+    keys = series * _SERIES_STRIDE + seconds
     labels, name = label(changes)
     series_labels = labels[changes.first]
+    last_change = seconds[np.append(np.flatnonzero(changes.first)[1:], seconds.size) - 1]
     ages: list[np.ndarray] = []
     owners: list[np.ndarray] = []
     for block in np.array_split(np.arange(series_labels.size), max(1, series_labels.size // 512)):
         query = (block[:, None] * _SERIES_STRIDE + grid[None, :]).ravel()
         last = np.searchsorted(keys, query, side="right") - 1
         valid = (last >= 0) & (series[np.maximum(last, 0)] == np.repeat(block, grid.size))
+        valid &= (grid[None, :] <= last_change[block][:, None]).ravel()
         ages.append(((query - keys[np.maximum(last, 0)]) / 3600.0)[valid].astype(np.float64))
         owners.append(series_labels[np.repeat(block, grid.size)][valid])
     grouped = _split(np.concatenate(owners), np.concatenate(ages)) if ages else {}
+    cutoff = _seconds(end - ENDED_AFTER)
     found: dict[str, dict[str, Any]] = {}
-    for key, hours in sorted(grouped.items()):
+    for key, ended in sorted(_split(series_labels, last_change < cutoff).items()):
         device, group = name(key)
+        hours = grouped.get(key, np.zeros(0))
         found.setdefault(device, {})[group] = {
+            "series": int(ended.size),
+            "ended": int(np.count_nonzero(ended)),
             **_quantiles(hours, (0.5, 0.9, 0.99)),
-            "above_24h": float(np.mean(hours > 24)),
-            "above_168h": float(np.mean(hours > 168)),
+            "above_24h": float(np.mean(hours > 24)) if hours.size else None,
+            "above_168h": float(np.mean(hours > 168)) if hours.size else None,
         }
     return found
 
@@ -528,15 +539,18 @@ def markdown(data: Mapping[str, Any]) -> str:
         "",
         "## Hours since the last change at a grid time",
         "",
-        "| Device | Kind | Points | Median | P90 | P99 | > 24 h | > 168 h |",
-        "|---|---|---:|---:|---:|---:|---:|---:|",
+        "A series counts from its first change to its last change. An ended series has its last"
+        f" change more than {ENDED_AFTER.days} days before the end of the grid.",
+        "",
+        "| Device | Kind | Series | Ended | Points | Median | P90 | P99 | > 24 h | > 168 h |",
+        "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for device, kinds in _by_kind(data["since_change"]):
         for kind, row in kinds:
             lines.append(
-                f"| {device} | {kind} | {row['count']} | {_f(row['median'], 1)}"
-                f" | {_f(row['p90'], 1)} | {_f(row['p99'], 0)} | {_f(row['above_24h'], 3)}"
-                f" | {_f(row['above_168h'], 3)} |"
+                f"| {device} | {kind} | {row['series']} | {row['ended']} | {row['count']}"
+                f" | {_f(row['median'], 1)} | {_f(row['p90'], 1)} | {_f(row['p99'], 0)}"
+                f" | {_f(row['above_24h'], 3)} | {_f(row['above_168h'], 3)} |"
             )
     lines += [
         "",

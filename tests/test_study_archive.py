@@ -65,6 +65,8 @@ def _rows() -> list[dict[str, Any]]:
         _row("T1", 1.0, -240, seen_after_h=0.5),
         _row("T1", 100e-6, -240, seen_after_h=1.0),
         _row("T1", 50e-6, 48),
+        # A T2 that IBM stopped to update 60 days before the grid.
+        _row("T2", 90e-6, -60 * 24),
         _row("prob_meas0_prep1", 0.01, 0),
         _row("cz_gate_error", 0.004, 0, qubit_a=0, qubit_b=1),
         _row("cz_gate_error", 0.004, 1, qubit_a=0, qubit_b=1),
@@ -104,7 +106,7 @@ def test_reads_only_the_kinds_and_excludes_the_retired_device(
     data: dict[str, Any], parquet: Path
 ) -> None:
     assert data["devices"] == ["ibm_fez", "ibm_kingston"]
-    assert data["rows"] == 5 + 2 + 1 + 2 + 6 + 42 + 38
+    assert data["rows"] == 5 + 2 + 1 + 1 + 2 + 6 + 42 + 38
     assert data["duplicate_times"] == {"rows": 1, "different_value": 1}
     retired = archive.analyze(parquet, T0, END, include_retired=True)["devices"]
     assert retired == ["ibm_fez", "ibm_kingston", "ibm_torino"]
@@ -129,19 +131,27 @@ def test_gives_the_time_since_the_last_change_at_each_grid_time(data: dict[str, 
     since = data["since_change"]["ibm_fez"]
     # The grid holds 9 times, 0 to 48 hours after T0. The T1 changes at -240 h and at 48 h.
     t1 = since["t1"]
-    assert t1["count"] == 9
+    assert (t1["series"], t1["ended"], t1["count"]) == (1, 0, 9)
     assert t1["median"] == 258.0
     assert t1["above_24h"] == pytest.approx(8 / 9)
     assert t1["above_168h"] == pytest.approx(8 / 9)
-    # Qubit 0 changes its sx error at 0 h and 24 h, qubit 1 at 0 h, 24 h and 48 h. The re-stamps
-    # do not reset the time.
+    # Qubit 0 changes its sx error at 0 h and 24 h, so it counts at 5 grid times. Qubit 1
+    # changes at 0 h, 24 h and 48 h, so it counts at 9 grid times. The re-stamps do not reset the
+    # time.
     sx = since["one_qubit"]
-    assert sx["count"] == 18
-    assert sx["median"] == 9.0
+    assert sx["count"] == 14
+    assert sx["median"] == 6.0
     assert sx["above_24h"] == 0.0
-    # The readout series start after the grid, but prob_meas0_prep1 starts at T0.
-    assert data["since_change_by_property"]["ibm_fez"]["prob_meas0_prep1"]["count"] == 9
-    assert "prob_meas1_prep0" not in data["since_change_by_property"]["ibm_fez"]
+    # prob_meas0_prep1 has one change, at T0. The prob_meas1_prep0 series start after the grid.
+    assert data["since_change_by_property"]["ibm_fez"]["prob_meas0_prep1"]["count"] == 1
+    assert data["since_change_by_property"]["ibm_fez"]["prob_meas1_prep0"]["count"] == 0
+
+
+def test_counts_a_series_that_ended_before_the_grid_but_not_its_age(data: dict[str, Any]) -> None:
+    t2 = data["since_change"]["ibm_fez"]["t2"]
+    assert (t2["series"], t2["ended"], t2["count"]) == (1, 1, 0)
+    assert t2["median"] is None
+    assert t2["above_168h"] is None
 
 
 def test_gives_the_size_of_a_change_by_its_gap(data: dict[str, Any]) -> None:
