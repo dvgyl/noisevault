@@ -19,6 +19,16 @@ counts of its own classical bits. The noise model of a profile has no crosstalk,
 gives each group the same marginal as a simulation of the whole program. The reference
 simulator runs at most 10 qubits, so the small circuits make the simulation possible.
 
+The SQ_RB and TQ_RB files check each data qubit for leakage after the sequence. An ancilla
+qubit gets ``x``, ``h``, two ZZ gates with the data qubit and ``h``. Then a measurement writes
+the ancilla to the register ``l``. A bit of 1 in ``l`` flags leakage. Each shot of the files
+holds the bits of ``c`` and of ``l``. Thus the default, ``--leakage measure``, keeps the ancilla
+and the gates of the check in each circuit, so the ops are the ops that the device ran.
+``--leakage postselect`` keeps only the shots in which the ancillas read 0, and leaves out the
+ancillas and their gates.
+
+``role`` gives ``train`` to a sequence with an even index and ``test_near`` to an odd index.
+
 The counts bind to the bundled profile of the same machine whose calibration date is the date
 of the folder. ``source`` is ``hardware``: the counts format has only ``hardware`` and
 ``simulated``. ``execution.client`` and ``execution.options`` say that the counts are published
