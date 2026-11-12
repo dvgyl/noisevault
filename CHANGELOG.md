@@ -25,6 +25,9 @@ This file lists all notable changes to NoiseVault. Versions follow
   Python, use `Profile.score(counts)`, `noisevault.score.paired(a, b)`, and
   `MeasuredCounts.select(names)` and `MeasuredCounts.split(fraction, seed)` for held-out data.
   [docs/scoring.md](docs/scoring.md)
+- **A first page for the question "Is my noise model any good?".**
+  [docs/first-score.md](docs/first-score.md) shows the three commands `nv show`, `nv score` and
+  `nv compare -o` on example counts, with their real output and with what a score cannot tell.
 - **A stated readout error of exactly 0.** Some calibrations state a readout error of exactly 0,
   and a device then gives results that the profile calls impossible: in 3 of 6 runs on IBM
   devices on 2026-11-12. `Profile.zero_readouts()` gives the qubits with such a value, and

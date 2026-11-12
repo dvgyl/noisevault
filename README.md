@@ -280,6 +280,7 @@ cannot express.
 
 | Page | What it covers |
 | --- | --- |
+| [Is my noise model any good?](docs/first-score.md) | Three commands that tell how far you can trust a profile for your device |
 | [Frameworks](docs/frameworks.md) | Each export, its options and what its report can list |
 | [Recipes](docs/recipes.md) | Pin and cite, drift, Mitiq, QEC with Stim, hypothetical devices, PennyLane training, hardware comparison |
 | [Mitiq tutorial](docs/tutorials/mitiq.md) | ZNE and PEC on IBM Fez noise, with PEC representations from the profile |
