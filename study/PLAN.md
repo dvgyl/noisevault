@@ -90,7 +90,7 @@ the counts bind to.
 | `ideal` | No noise |
 | `generic` | One fixed model for every device: depolarizing parameter 0.001 for 1-qubit gates and 0.01 for 2-qubit gates (average infidelities of 0.0005 and 0.0075), readout error 0.01, no relaxation |
 | `medians` | Each value of C replaced by the median of that value over the device |
-| `stale(d)` | The calibration of the same device that was in effect d days before the run, for d = 1, 7, 30, 90, 180 and 365 |
+| `stale(d)` | The calibration of the same device that was in effect d days before the run, for d = 1, 7, 30, 90, 180 and 365. When that calibration is C itself, the model is C |
 | `bundled` | The bundled profile of the device |
 | `symmetric` | C with the two readout errors of each qubit replaced by their mean |
 | `calibration` | C as stated |
@@ -153,11 +153,14 @@ and the summary gives the number of the others.
 For a device with n complete device-weeks, n at least 4, m is the mean of Y and s^2 is its
 sample variance. The estimate is the mean of m over the devices. Its standard error is the
 square root of the sum over the devices of f s^2 / n, divided by the number of devices. The
-factor f corrects for weeks that are correlated. rho is the pooled correlation of Y - m between
-weeks that are 7 days apart, plus (1 + 3 rho) / n with the mean n of the devices, limited to the
-range from 0 to 0.9. g is the sum for k from 1 to n - 1 of (1 - k / n) rho^k, and
-f = (1 + 2 g) / (1 - 2 g / (n - 1)). The test is the two-sided t-test with the sum of n - 1 over
-the devices as degrees of freedom.
+factor f corrects for weeks that are correlated. The first value of rho is a ratio. Its upper
+part is the sum, over the devices and over each pair of weeks of a device that are 7 days apart,
+of the product of the two values of Y - m. Its lower part is the sum, over the devices and over
+all their weeks, of (Y - m)^2. rho is this value plus (1 + 3 times this value) / n, with the
+mean n of the devices, limited to the range from 0 to 0.9. g is the sum for k from 1 to n - 1
+of (1 - k / n) rho^k, and f = (1 + 2 g) / (1 - 2 g / (n - 1)). The test is the two-sided t-test
+with the sum of n - 1 over the devices as degrees of freedom. The interval of an estimate is
+the 95% interval of this t distribution. A standard error of 0 gives no test and no interval.
 
 The five tests form one family with the Holm correction at the 5% level. A comparison with no
 test counts with a p-value of 1. A confirmed comparison holds for these devices in the weeks of
@@ -170,8 +173,8 @@ The primary result of a comparison uses all runs that count and the log score.
 
 Two properties of a run are strata: the chain kind (best or median), and whether the
 calibration states a readout probability of exactly 0 on a qubit of the chain. The summary gives
-each primary estimate for each chain kind, and for the runs with and without such a zero. For
-one chain kind, Y is the delta of the one run. The difference of delta between the best chain
+each primary estimate for each chain kind, and for the runs with and without such a zero. In a
+stratum, Y of a device-week is the mean of delta over its runs in the stratum, one or two. The difference of delta between the best chain
 and the median chain of a device-week is a secondary estimate with the same rule for the
 standard error. A confirmed comparison 5 is read with its two parts: `readout_measured` against
 `two_factor`, and `locus` against `readout_measured`.
@@ -215,7 +218,8 @@ Each result of this section is descriptive. None is in the family of tests.
 - A check of independent shots. For each circuit that both runs of a device-week hold, the two
   sets of counts are compared. On 8 qubits, the outcomes with fewer than 5 expected shots become
   one cell, and the statistic is the Pearson chi-square statistic of the 2 by K table. On a
-  circuit of 20, 40 or 80 qubits, the same statistic uses the number of wrong bits. The summary
+  circuit of 20, 40 or 80 qubits, the same statistic uses the number of wrong bits, with the
+  same rule for a cell. The summary
   gives the ratio of the statistic to its degrees of freedom for each device-week.
 
 ## Circuits on 20, 40 and 80 qubits
@@ -225,7 +229,9 @@ model, with each noise channel replaced by its Pauli twirl. Three scores apply: 
 string (right or wrong), the number of wrong bits, and each qubit alone (the sum over the qubits
 of the log probability of its bit). The score of each qubit judges each qubit alone, so it does
 not judge the correlations between qubits. The verdict of a comparison on these circuits is the
-verdict of the score of each qubit. The comparisons are `calibration` against `medians`,
+verdict of the score of each qubit. The log score of the number of wrong bits also has a test.
+The score of the ideal bit string and the quadratic score of the number of wrong bits are given
+as values, with no test. The comparisons are `calibration` against `medians`,
 `two_factor` against `calibration`, and `averaged(7)` against `calibration`. The fitted factors
 come from the `train` circuits on 4 qubits of the same run.
 
@@ -234,9 +240,11 @@ test holds the sampling variance of both forecasts. For the score of each qubit,
 variance of one model and one circuit is a^T C a / S. C is the covariance matrix of the
 wrong-bit values of the qubits over the S samples, and a holds N (f - q) / (q (1 - q)) for each
 qubit, with N shots, the measured fraction f and the forecast q of a wrong bit. The score of the
-number of wrong bits uses (N^2 / S) (sum over the cells of f^2 / p - 1). A test gives no verdict
-when the sampling variance is larger than the shot variance. The score of the ideal bit string
-gives no verdict on 40 and 80 qubits. Both runs of a device-week hold the same circuits on 8,
+number of wrong bits uses (N^2 / S) (sum over the cells of f^2 / p - 1). Each model and each
+circuit has random samples of its own. A test gives no verdict when the sampling variance is
+larger than the shot variance. It also gives no verdict when a qubit of a circuit has fewer
+than 100 sampled wrong bits or fewer than 100 sampled right bits, or when a cell of the number
+of wrong bits that holds a measured shot has fewer than 100 samples. Both runs of a device-week hold the same circuits on 8,
 20, 40 and 80 qubits, so a summary over these circuits uses the mean of the two runs of a
 device-week as one value. The size of the twirl approximation is measured on the 8-qubit
 circuits, where both forecasts exist, for each model that these comparisons use.
@@ -478,3 +486,14 @@ To be written before the first run that counts.
   then uses about 85 s of the free 600 s of a period of 28 days. The period that ends on
   2026-12-07 also holds the pilot runs and a trial run, and 1500 shots would leave almost no
   free time in that week.
+- 2026-11-12: text made exact, and defects of the analysis code corrected. A check of the
+  analysis code against this plan gave these changes. (1) The text now gives the exact
+  form of rho, the level of the interval and the rule for a standard error of 0. (2) In a
+  stratum, Y is the mean over the runs of the device-week in the stratum. (3) `stale(d)` is C
+  when the calibration of d days before is C itself; the code left such a run out. (4) On the
+  circuits of 20, 40 and 80 qubits, only the two tests that hold the sampling variance stay, each
+  model and each circuit has samples of its own, and a test needs at least 100 samples of each
+  kind for each qubit. (5) The ages of the values of a pair now use the order of the chain; the
+  code used the order of the circuits in the counts file, which is random from this week on.
+  (6) A row of the analysis that used an outside source that failed is computed again in the
+  next run. No run that counts existed when this entry was written.
