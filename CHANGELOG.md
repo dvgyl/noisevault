@@ -16,14 +16,20 @@ This file lists all notable changes to NoiseVault. Versions follow
   [docs/scoring.md](docs/scoring.md)
 - **Deep circuit set.** `noisevault.suite.suite(profile)` gives the `nv compare` circuits and
   deep mirror circuits on the same chain. Each deep circuit applies layers of random native
-  gates and then undoes them. Its depth comes from the profile, at the predicted probabilities
-  0.9, 0.75 and 0.55 of the ideal result. On the bundled `ibm_kingston` profile, 18,000 shots of
-  the fit circuits give the gate factor a relative standard error of 0.020. The `nv compare`
-  circuits give 0.149 with 16,000 shots. `noisevault.suite.role(name)` separates the circuits
+  gates and then undoes them. Its depth comes from the profile with gate errors 2 times the
+  stated errors, at the predicted probabilities 0.8, 0.6 and 0.4 of the ideal result. On the
+  bundled `ibm_kingston` profile, 18,000 shots of the fit circuits give the gate factor a
+  relative standard error of 0.021. The `nv compare` circuits give 0.149 with 16,000 shots. Both
+  numbers come from the Fisher information of the profile, not from a device.
+  `noisevault.suite.role(name)` separates the circuits
   for a fit from the circuits for a test. `scripts/run_on_ibm.py --suite` and
   `scripts/ibm_campaign.py --suite` run the set. The weekly campaign workflow now runs it on
   `ibm_kingston`, `ibm_fez` and `ibm_marrakesh`.
   [Run the deep circuit set](docs/recipes.md#run-the-deep-circuit-set) tells how.
+- **Design for a budget.** `noisevault.design.design(profile, circuits, budget=..., price=...)`
+  takes the circuits of the deep circuit set and the number of shots that give the smallest
+  predicted error of the gate factor for a price for each task and each shot. The design keeps
+  the readout circuits and one test circuit.
 - `study/derive.py` fits each counts file below a folder and writes the fitted factors, the
   intervals and the tests as `fits.json` and `fits.md`. The **Study results** workflow runs it
   on the campaign folder and publishes these derived numbers.
