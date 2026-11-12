@@ -15,9 +15,15 @@ of a series is a change. A re-stamp is a row that is not a change: IBM gives a g
 time with the same value about each hour, so a new ``calibrated_time`` is not always a new
 measurement.
 
+The change sizes and the regression to the mean exclude the failure-ceiling values: a row with
+``is_failure_ceiling`` true, and a gate error of 0.5 or more. The output gives the number of
+changes that each exclusion removes.
+
 The script excludes ibm_torino, which IBM retired in April 2026, unless ``--include-retired`` is
-given. ``--start`` and ``--end`` set the grid of times for the time since the last change. The
-other statistics use all rows of the file.
+given. ``--start`` and ``--end`` set the grid of times for the time since the last change.
+A series counts on the grid only from its first change to its last change, so a series that IBM
+stopped to update does not count after its last change. The other statistics use all rows of
+the file.
 """
 
 from __future__ import annotations
@@ -51,15 +57,24 @@ KINDS = {
     "rzz_gate_error": "rzz",
 }
 KIND_ORDER = ("t1", "t2", "readout", "one_qubit", "two_qubit", "rzz")
+GATE_KINDS = ("one_qubit", "two_qubit", "rzz")
+GATE_CEILING = 0.5
 READOUT = ("prob_meas0_prep1", "prob_meas1_prep0")
 RANKED = ("prob_meas1_prep0", "cz_gate_error")
 RETIRED = ("ibm_torino",)
 GRID_STEP = timedelta(hours=6)
+ENDED_AFTER = timedelta(days=30)
 GAP_BINS = ("<12 h", "12-36 h", "36-72 h", "3-7 d", ">7 d")
 GAP_EDGES_H = (12.0, 36.0, 72.0, 168.0)
+PERSISTENCE_GAP_H = (12.0, 36.0)
 GRID_DENOMINATORS = (1000, 1024, 2048, 4096, 8192, 10000)
 GRID_TOLERANCE = 1e-6
 PARTS = ("lowest tenth", "middle", "highest tenth")
+MIN_DAY_CHANGES = 20
+MIN_BIN_CHANGES = 100
+CHANGE_SIZE_NOTE = (
+    "The p90 of a change size is not stable: a value near 0 gives a very large log ratio."
+)
 _COLUMNS = (
     "backend",
     "property",
@@ -68,6 +83,7 @@ _COLUMNS = (
     "value",
     "calibrated_time",
     "observed_time",
+    "is_failure_ceiling",
 )
 _US_PER_HOUR = 3_600_000_000
 _US_PER_DAY = 24 * _US_PER_HOUR
@@ -81,6 +97,7 @@ class Rows:
 
     ``device`` and ``prop`` index ``devices`` and ``properties``. ``first`` marks the first row of
     each series. ``time_us`` is ``calibrated_time`` in microseconds since 1970-01-01 UTC.
+    ``flagged`` marks the rows with ``is_failure_ceiling`` true.
     ``duplicates`` counts the rows that the series dropped for a time that another row has, and
     ``conflicts`` counts the dropped rows with a different value.
     """
@@ -92,6 +109,7 @@ class Rows:
     first: np.ndarray
     time_us: np.ndarray
     value: np.ndarray
+    flagged: np.ndarray
     duplicates: int
     conflicts: int
 
@@ -108,6 +126,17 @@ class Rows:
         )
         return codes[self.prop]
 
+    @property
+    def high_gate(self) -> np.ndarray:
+        """The gate errors of ``GATE_CEILING`` or more."""
+        gates = np.isin(self.kind, [KIND_ORDER.index(k) for k in GATE_KINDS])
+        return gates & (self.value >= GATE_CEILING)
+
+    @property
+    def excluded(self) -> np.ndarray:
+        """The failure-ceiling values."""
+        return self.flagged | self.high_gate
+
     def select(self, mask: np.ndarray) -> Rows:
         """The rows of ``mask``. A row is first when no row of its series comes before it."""
         series = np.cumsum(self.first)[mask]
@@ -120,6 +149,7 @@ class Rows:
             first,
             self.time_us[mask],
             self.value[mask],
+            self.flagged[mask],
             self.duplicates,
             self.conflicts,
         )
@@ -147,13 +177,14 @@ def read_rows(path: Path, include_retired: bool = False) -> Rows:
     qubit_a = table["qubit_a"].to_numpy().astype(np.int32)
     qubit_b = pc.fill_null(table["qubit_b"], -1.0).to_numpy().astype(np.int32)
     value = table["value"].to_numpy()
+    flagged = pc.fill_null(table["is_failure_ceiling"], False).to_numpy(zero_copy_only=False)
     time_us = _micros(table["calibrated_time"])
     observed = _micros(table["observed_time"])
     del table
     order = np.lexsort((observed, time_us, qubit_b, qubit_a, prop, device))
     del observed
     device, prop, qubit_a, qubit_b = device[order], prop[order], qubit_a[order], qubit_b[order]
-    time_us, value = time_us[order], value[order]
+    time_us, value, flagged = time_us[order], value[order], flagged[order]
     del order
     new_series = np.ones(device.size, dtype=bool)
     new_series[1:] = (
@@ -174,6 +205,7 @@ def read_rows(path: Path, include_retired: bool = False) -> Rows:
         new_series,
         time_us,
         value,
+        flagged,
         int(np.count_nonzero(repeated)),
         conflicts,
     )
@@ -218,7 +250,10 @@ def analyze(
         "intervals_by_property": _intervals(rows, changes, _property_label),
         "since_change": _since_change(changes, start, end, _kind_label),
         "since_change_by_property": _since_change(changes, start, end, _property_label),
+        "excluded": _excluded(changes),
         "change_size": _change_size(changes),
+        "change_size_note": CHANGE_SIZE_NOTE,
+        "persistence": _persistence(changes),
         "readout_grid": _readout_grid(rows),
         "regression": {p: _regression(changes, p) for p in RANKED},
     }
@@ -275,40 +310,65 @@ def _intervals(rows: Rows, changes: Rows, label: Label) -> dict[str, dict[str, A
 def _since_change(
     changes: Rows, start: datetime, end: datetime, label: Label
 ) -> dict[str, dict[str, Any]]:
-    """Definition 4: at each grid time, the hours since the last change of each series that has
-    a change at or before the grid time."""
+    """Definition 4: at each grid time, the hours since the last change of each series. A series
+    counts at a grid time from its first change to its last change. ``ended`` counts the series
+    whose last change is more than ``ENDED_AFTER`` before ``end``."""
     grid = np.arange(_seconds(start), _seconds(end) + 1, int(GRID_STEP.total_seconds()))
     series = np.cumsum(changes.first) - 1
-    keys = series * _SERIES_STRIDE + changes.time_us // 1_000_000
+    seconds = changes.time_us // 1_000_000
+    keys = series * _SERIES_STRIDE + seconds
     labels, name = label(changes)
     series_labels = labels[changes.first]
+    last_change = seconds[np.append(np.flatnonzero(changes.first)[1:], seconds.size) - 1]
     ages: list[np.ndarray] = []
     owners: list[np.ndarray] = []
     for block in np.array_split(np.arange(series_labels.size), max(1, series_labels.size // 512)):
         query = (block[:, None] * _SERIES_STRIDE + grid[None, :]).ravel()
         last = np.searchsorted(keys, query, side="right") - 1
         valid = (last >= 0) & (series[np.maximum(last, 0)] == np.repeat(block, grid.size))
+        valid &= (grid[None, :] <= last_change[block][:, None]).ravel()
         ages.append(((query - keys[np.maximum(last, 0)]) / 3600.0)[valid].astype(np.float64))
         owners.append(series_labels[np.repeat(block, grid.size)][valid])
     grouped = _split(np.concatenate(owners), np.concatenate(ages)) if ages else {}
+    cutoff = _seconds(end - ENDED_AFTER)
     found: dict[str, dict[str, Any]] = {}
-    for key, hours in sorted(grouped.items()):
+    for key, ended in sorted(_split(series_labels, last_change < cutoff).items()):
         device, group = name(key)
+        hours = grouped.get(key, np.zeros(0))
         found.setdefault(device, {})[group] = {
+            "series": int(ended.size),
+            "ended": int(np.count_nonzero(ended)),
             **_quantiles(hours, (0.5, 0.9, 0.99)),
-            "above_24h": float(np.mean(hours > 24)),
-            "above_168h": float(np.mean(hours > 168)),
+            "above_24h": float(np.mean(hours > 24)) if hours.size else None,
+            "above_168h": float(np.mean(hours > 168)) if hours.size else None,
+        }
+    return found
+
+
+def _excluded(changes: Rows) -> dict[str, dict[str, int]]:
+    """The number of changes of each device that each exclusion removes. A flagged gate error of
+    ``GATE_CEILING`` or more counts only as flagged."""
+    found: dict[str, dict[str, int]] = {}
+    for code in np.unique(changes.device).tolist():
+        here = changes.device == code
+        found[changes.devices[code]] = {
+            "failure_ceiling": int(np.count_nonzero(here & changes.flagged)),
+            "gate_error_0.5_or_more": int(
+                np.count_nonzero(here & changes.high_gate & ~changes.flagged)
+            ),
         }
     return found
 
 
 def _change_size(changes: Rows) -> dict[str, dict[str, Any]]:
     """Definition 5: ``abs(ln(value / previous value))`` of each change after a change, by kind
-    and by the hours between the two changes. Both values are above 0."""
+    and by the hours between the two changes. Both values are above 0 and are not failure-ceiling
+    values."""
     later = np.flatnonzero(~changes.first)
     now, before = changes.value[later], changes.value[later - 1]
-    positive = (now > 0) & (before > 0)
-    later, now, before = later[positive], now[positive], before[positive]
+    excluded = changes.excluded
+    kept = (now > 0) & (before > 0) & ~excluded[later] & ~excluded[later - 1]
+    later, now, before = later[kept], now[kept], before[kept]
     gap_h = (changes.time_us[later] - changes.time_us[later - 1]) / _US_PER_HOUR
     bins = np.digitize(gap_h, GAP_EDGES_H)
     labels = changes.kind[later].astype(np.int32) * len(GAP_BINS) + bins
@@ -318,6 +378,40 @@ def _change_size(changes: Rows) -> dict[str, dict[str, Any]]:
         kind, gap = KIND_ORDER[key // len(GAP_BINS)], GAP_BINS[key % len(GAP_BINS)]
         found.setdefault(kind, {})[gap] = _quantiles(sizes, (0.5, 0.9))
     return found
+
+
+def _persistence(changes: Rows) -> dict[str, dict[str, Any]]:
+    """The Spearman rank correlation between the value of a change and the value of the next
+    change of the same series, for each device and kind. Only pairs with ``PERSISTENCE_GAP_H``
+    hours between the two changes count, and the pairs exclude the failure-ceiling values."""
+    later = np.flatnonzero(~changes.first)
+    gap_h = (changes.time_us[later] - changes.time_us[later - 1]) / _US_PER_HOUR
+    excluded = changes.excluded
+    low, high = PERSISTENCE_GAP_H
+    kept = (gap_h >= low) & (gap_h < high) & ~excluded[later] & ~excluded[later - 1]
+    later = later[kept]
+    labels, name = _kind_label(changes)
+    found: dict[str, dict[str, Any]] = {}
+    for key, index in sorted(_split(labels[later], later).items()):
+        device, kind = name(key)
+        found.setdefault(device, {})[kind] = {
+            "pairs": int(index.size),
+            "spearman": _spearman(changes.value[index - 1], changes.value[index]),
+        }
+    return found
+
+
+def _spearman(first: np.ndarray, second: np.ndarray) -> float | None:
+    """The Pearson correlation of the ranks of ``first`` and ``second``, or None when the ranks of
+    one array have no spread. Tied values share their mean rank: with ranks in the order of the
+    arrays, the ties of the two arrays would get the same order and push the correlation up."""
+    if first.size < 3:
+        return None
+    zero = np.zeros(first.size, dtype=np.int64)
+    ranks = [_percent_rank(zero, zero, v)[0] for v in (first, second)]
+    if min(np.ptp(r) for r in ranks) == 0:
+        return None
+    return float(np.corrcoef(ranks[0], ranks[1])[0, 1])
 
 
 def _readout_grid(rows: Rows) -> dict[str, dict[str, Any]]:
@@ -340,49 +434,70 @@ def _readout_grid(rows: Rows) -> dict[str, dict[str, Any]]:
 
 def _regression(changes: Rows, prop: str) -> dict[str, dict[str, Any]]:
     """Definition 7: the changes of ``prop`` by their percent rank among the changes of ``prop``
-    on the same device and UTC day, with the next change of the same series."""
+    on the same device and UTC day, with the next change of the same series.
+
+    The ranks and the pairs exclude the failure-ceiling values. A change with a failure-ceiling
+    value as its next change drops out. Only a device and day with ``MIN_DAY_CHANGES`` or more
+    ranked changes gives ranks.
+    """
     if prop not in changes.properties:
         return {}
     picked = changes.select(changes.prop == changes.properties.index(prop))
-    following = np.flatnonzero(~picked.first) - 1
-    rank = _percent_rank(
-        picked.device.astype(np.int64), picked.time_us // _US_PER_DAY, picked.value
+    kept = ~picked.excluded
+    day = picked.time_us // _US_PER_DAY
+    rank = np.full(kept.size, np.nan)
+    day_size = np.zeros(kept.size, dtype=np.int64)
+    rank[kept], day_size[kept] = _percent_rank(
+        picked.device[kept].astype(np.int64), day[kept], picked.value[kept]
     )
-    now, rank, device = picked.value[following], rank[following], picked.device[following]
+    ranked = kept & (day_size >= MIN_DAY_CHANGES)
+    following = np.flatnonzero(~picked.first) - 1
+    following = following[ranked[following]]
+    next_excluded = following[~kept[following + 1]]
+    following = following[kept[following + 1]]
+    now, part_rank, device = picked.value[following], rank[following], picked.device[following]
     after = picked.value[following + 1]
-    part = np.where(rank < 0.1, 0, np.where(rank > 0.9, 2, 1))
+    part = np.where(part_rank < 0.1, 0, np.where(part_rank > 0.9, 2, 1))
     found: dict[str, dict[str, Any]] = {}
-    for code in np.unique(device).tolist():
+    for code in np.unique(picked.device).tolist():
         here = device == code
+        days = np.unique(day[ranked & (picked.device == code)])
         found[picked.devices[code]] = {
-            name: _pair(now[here & (part == index)], after[here & (part == index)])
-            for index, name in enumerate(PARTS)
+            "days": int(days.size),
+            "next_excluded": int(np.count_nonzero(picked.device[next_excluded] == code)),
+            "parts": {
+                name: _pair(now[here & (part == index)], after[here & (part == index)])
+                for index, name in enumerate(PARTS)
+            },
         }
     return found
 
 
-def _percent_rank(device: np.ndarray, day: np.ndarray, value: np.ndarray) -> np.ndarray:
-    """The SQL ``percent_rank`` of each value within its device and day: (rank - 1) / (n - 1),
-    where tied values share the lowest rank, and 0 for a group of one."""
+def _percent_rank(
+    device: np.ndarray, day: np.ndarray, value: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:
+    """The percent rank of each value within its device and day, (rank - 1) / (n - 1), and the
+    size n of its group. Tied values share their mean rank. A group of one gives 0."""
     order = np.lexsort((value, day, device))
     group_device, group_day, ordered = device[order], day[order], value[order]
     size = ordered.size
     new_group = np.ones(size, dtype=bool)
     new_group[1:] = (group_device[1:] != group_device[:-1]) | (group_day[1:] != group_day[:-1])
-    tie = np.zeros(size, dtype=bool)
-    tie[1:] = ~new_group[1:] & (ordered[1:] == ordered[:-1])
-    index = np.arange(size)
-    group_start = np.maximum.accumulate(np.where(new_group, index, 0))
-    rank_start = np.maximum.accumulate(np.where(tie, 0, index))
-    starts = np.flatnonzero(new_group)
-    counts = np.diff(np.append(starts, size))
-    group_size = np.repeat(counts, counts)
-    rank = np.zeros(size)
-    many = group_size > 1
-    rank[many] = (rank_start - group_start)[many] / (group_size[many] - 1)
-    found = np.empty(size)
-    found[order] = rank
-    return found
+    new_value = new_group.copy()
+    new_value[1:] |= ordered[1:] != ordered[:-1]
+    group_starts = np.flatnonzero(new_group)
+    group = np.cumsum(new_group) - 1
+    group_size = np.diff(np.append(group_starts, size))[group]
+    value_starts = np.flatnonzero(new_value)
+    value_ends = np.append(value_starts[1:], size) - 1
+    mean_position = (value_starts + value_ends)[np.cumsum(new_value) - 1] / 2
+    position = mean_position - group_starts[group]
+    rank = np.where(group_size > 1, position / np.maximum(group_size - 1, 1), 0.0)
+    found_rank = np.empty(size)
+    found_size = np.empty(size, dtype=np.int64)
+    found_rank[order] = rank
+    found_size[order] = group_size
+    return found_rank, found_size
 
 
 def _pair(now: np.ndarray, after: np.ndarray) -> dict[str, Any]:
@@ -460,32 +575,57 @@ def markdown(data: Mapping[str, Any]) -> str:
         "",
         "## Hours since the last change at a grid time",
         "",
-        "| Device | Kind | Points | Median | P90 | P99 | > 24 h | > 168 h |",
-        "|---|---|---:|---:|---:|---:|---:|---:|",
+        "A series counts from its first change to its last change. An ended series has its last"
+        f" change more than {ENDED_AFTER.days} days before the end of the grid.",
+        "",
+        "| Device | Kind | Series | Ended | Points | Median | P90 | P99 | > 24 h | > 168 h |",
+        "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for device, kinds in _by_kind(data["since_change"]):
         for kind, row in kinds:
             lines.append(
-                f"| {device} | {kind} | {row['count']} | {_f(row['median'], 1)}"
-                f" | {_f(row['p90'], 1)} | {_f(row['p99'], 0)} | {_f(row['above_24h'], 3)}"
-                f" | {_f(row['above_168h'], 3)} |"
+                f"| {device} | {kind} | {row['series']} | {row['ended']} | {row['count']}"
+                f" | {_f(row['median'], 1)} | {_f(row['p90'], 1)} | {_f(row['p99'], 0)}"
+                f" | {_f(row['above_24h'], 3)} | {_f(row['above_168h'], 3)} |"
             )
+    lines += [
+        "",
+        "## Changes excluded from the change sizes and the regression to the mean",
+        "",
+        "| Device | is_failure_ceiling | Gate error of 0.5 or more |",
+        "|---|---:|---:|",
+    ]
+    for device, row in sorted(data["excluded"].items()):
+        lines.append(f"| {device} | {row['failure_ceiling']} | {row['gate_error_0.5_or_more']} |")
     lines += [
         "",
         "## Size of a change, abs(ln(value / previous value)), by the time since the previous"
         " change",
         "",
-        "| Kind | Gap | Changes | Median | P90 |",
-        "|---|---|---:|---:|---:|",
+        f"The table shows only a bin with {MIN_BIN_CHANGES} or more changes.",
+        "",
+        "| Kind | Gap | Changes | Median |",
+        "|---|---|---:|---:|",
     ]
     for kind in KIND_ORDER:
         for gap in GAP_BINS:
             row = data["change_size"].get(kind, {}).get(gap)
-            if row is not None:
-                lines.append(
-                    f"| {kind} | {gap} | {row['count']} | {_f(row['median'], 3)}"
-                    f" | {_f(row['p90'], 3)} |"
-                )
+            if row is not None and row["count"] >= MIN_BIN_CHANGES:
+                lines.append(f"| {kind} | {gap} | {row['count']} | {_f(row['median'], 3)} |")
+    low, high = PERSISTENCE_GAP_H
+    lines += [
+        "",
+        "## Persistence: Spearman correlation of a change and the next change of the same series",
+        "",
+        f"Only pairs with {low:.0f} to {high:.0f} hours between the two changes count. Tied values"
+        " share their mean rank.",
+        "",
+        "| Device | Kind | Pairs | Spearman |",
+        "|---|---|---:|---:|",
+    ]
+    for device, kinds in _by_kind(data["persistence"]):
+        for kind, row in kinds:
+            lines.append(f"| {device} | {kind} | {row['pairs']} | {_f(row['spearman'], 3)} |")
     denominators = [f"1/{n}" for n in GRID_DENOMINATORS]
     lines += [
         "",
@@ -504,13 +644,24 @@ def markdown(data: Mapping[str, Any]) -> str:
         "",
         "## Regression to the mean: changes by rank in their device and day, and the next change",
         "",
+        f"Only a device-day with {MIN_DAY_CHANGES} or more changes gives ranks. Tied values share"
+        " their mean rank.",
+        "",
+        "| Property | Device | Device-days | Next change excluded |",
+        "|---|---|---:|---:|",
+        *(
+            f"| {prop} | {device} | {found['days']} | {found['next_excluded']} |"
+            for prop in RANKED
+            for device, found in sorted(data["regression"][prop].items())
+        ),
+        "",
         "| Property | Device | Part | Changes | Mean now | Median now | Mean next | Median next |",
         "|---|---|---|---:|---:|---:|---:|---:|",
     ]
     for prop in RANKED:
-        for device, parts in sorted(data["regression"][prop].items()):
+        for device, found in sorted(data["regression"][prop].items()):
             for part in PARTS:
-                row = parts[part]
+                row = found["parts"][part]
                 lines.append(
                     f"| {prop} | {device} | {part} | {row['count']} | {_f(row['mean_now'], 5)}"
                     f" | {_f(row['median_now'], 5)} | {_f(row['mean_next'], 5)}"
