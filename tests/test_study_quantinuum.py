@@ -468,3 +468,83 @@ def test_the_gate_count_needs_two_qubit_gates_that_grow_with_the_length() -> Non
     doc = {"qasm": programs, "raw_data": {key: {"c": ["0"]} for key in programs}}
     with pytest.raises(qt.QasmError, match="do not grow"):
         qt.dressing_gates(doc)
+
+
+def uniform_profile() -> Profile:
+    return Profile.from_dict(
+        {
+            "noisevault": "1.0",
+            "device": {
+                "name": "demo",
+                "vendor": "example",
+                "technology": "trapped_ion",
+                "num_qubits": 3,
+            },
+            "connectivity": "all_to_all",
+            "gates": {
+                "rz": {"virtual": True},
+                "r": {"avg_infidelity": 3e-5, "includes": ["leakage"]},
+                "zz": {
+                    "avg_infidelity": 1e-3,
+                    "stderr": 1e-5,
+                    "includes": ["1q_dressing", "leakage"],
+                },
+                "plain": {"qubits": 2, "avg_infidelity": 2e-3},
+            },
+            "effects": [
+                {"type": "leakage", "gate": "r", "prob": 5e-6},
+                {"type": "leakage", "gate": "zz", "prob": 2e-4},
+            ],
+            "readout": {"p1_given_0": 0.001, "p0_given_1": 0.003},
+        }
+    )
+
+
+def process_error(profile: Profile, gate: str, qubits: tuple[int, ...]) -> float:
+    return sum(profile.pauli_error(gate, qubits, unknown_gates="error").values())
+
+
+def test_the_net_error_is_the_stated_error_minus_the_one_qubit_gates_of_the_benchmark() -> None:
+    net = qt.net_of_one_qubit_dressing(uniform_profile(), 1.25)
+    specs = net.to_dict()["gates"]
+    # r_net = r - (6 / 5) k (r_a + r_b), from e_net = e - k (e_a + e_b) in process infidelity.
+    assert specs["zz"] == {
+        "avg_infidelity": pytest.approx(1e-3 - 1.2 * 1.25 * 6e-5),
+        "includes": ["leakage"],
+    }
+    assert specs["r"] == uniform_profile().to_dict()["gates"]["r"]
+    assert specs["plain"] == {"qubits": 2, "avg_infidelity": 2e-3}
+    assert "1.25" in net.to_dict()["provenance"]["notes"][-1]
+
+
+def test_the_net_error_and_the_one_qubit_gates_give_the_stated_process_error() -> None:
+    stated = uniform_profile()
+    for k in (0.5, 1.25, 2.0):
+        net = qt.net_of_one_qubit_dressing(stated, k)
+        dressed = process_error(net, "zz", (0, 1)) + k * (
+            process_error(net, "r", (0,)) + process_error(net, "r", (1,))
+        )
+        assert dressed == pytest.approx(process_error(stated, "zz", (0, 1)), rel=1e-12)
+
+
+def test_a_count_of_zero_keeps_the_stated_error_and_a_net_error_is_never_below_zero() -> None:
+    stated = uniform_profile()
+    same = qt.net_of_one_qubit_dressing(stated, 0.0).to_dict()["gates"]["zz"]
+    assert same["avg_infidelity"] == 1e-3
+    none = qt.net_of_one_qubit_dressing(stated, 100.0).to_dict()["gates"]["zz"]
+    assert none["avg_infidelity"] == 0.0
+
+
+def test_a_pauli_vector_keeps_its_shape_in_the_net_error() -> None:
+    data = uniform_profile().to_dict()
+    vector = [1e-4] * 3 + [2e-4] * 12
+    data["gates"]["zz"] = {"pauli": vector, "includes": ["1q_dressing"]}
+    net = qt.net_of_one_qubit_dressing(Profile.from_dict(data), 1.25).to_dict()["gates"]["zz"]
+    # The process infidelity is the sum of the vector: 2.7e-3 - 2 k (3 / 2) 3e-5.
+    factor = (2.7e-3 - 2 * 1.25 * 4.5e-5) / 2.7e-3
+    assert net == {"pauli": pytest.approx([p * factor for p in vector])}
+
+
+def test_the_net_error_needs_one_error_for_each_gate_on_the_whole_device() -> None:
+    with pytest.raises(ValueError, match="calibration record"):
+        qt.net_of_one_qubit_dressing(tiny_profile(), 1.25)
