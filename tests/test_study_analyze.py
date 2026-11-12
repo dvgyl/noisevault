@@ -69,7 +69,7 @@ class FakeSource:
         return max(older, key=lambda p: p.device.calibrated_at)
 
 
-PROBES = ["axis_d64", "axis_d256"]
+AXIS = ["axis_d64", "axis_d256"]
 
 
 @pytest.fixture(scope="module")
@@ -82,7 +82,7 @@ def result(tmp_path_factory: pytest.TempPathFactory) -> Iterator[dict[str, Any]]
         update={"unmodeled_error": {"gates": {"factor": 2.0}}}
     )
     circuits = suite(calibration)
-    assert [c.name for c in circuits if role(c.name) == "probe"] == PROBES
+    assert [c.name for c in circuits if c.name.startswith("axis_")] == AXIS
     counts = simulate(truth, circuits, shots=1000, seed=4, run_at=RUN_AT)
     counts = counts.model_copy(
         update={
@@ -233,7 +233,11 @@ def test_the_deep_table_gives_the_ideal_result_of_each_deep_circuit(
     row = _row(result)
     names = [d["name"] for d in row["deep"]]
     assert any(n.startswith("deep_") for n in names)
-    assert any(n.startswith("periodic_") for n in names)
+    # A probe circuit, such as the periodic circuit, is in no group, so it has no deep row.
+    periodic = [c["name"] for c in row["probes"]["circuits"] if c["name"].startswith("periodic_")]
+    assert bool(periodic) == (role("periodic_d1") == "probe")
+    assert not any(n.startswith("periodic_") for n in names) or not periodic
+    assert not any(role(n) == "probe" for n in names)
     assert "readout" not in names
     for deep in row["deep"]:
         assert deep["models"]["ideal"] == pytest.approx(1.0)
@@ -300,9 +304,9 @@ def test_the_groups_hold_only_circuits_of_the_chain_and_no_probe(result: dict[st
     ]
     assert named["all4"] == expected
     assert named["test4"] == [n for n in expected if role(n) in ("test_near", "test_far")]
-    assert set(PROBES) <= set(by_name)
+    assert set(AXIS) <= set(by_name)
     for names in named.values():
-        assert not set(PROBES) & set(names)
+        assert not set(AXIS) & set(names)
     assert _row(result)["circuits"] == {g: len(names) for g, names in named.items()}
 
 
@@ -616,11 +620,11 @@ def test_the_groups_of_the_exact_simulator_hold_no_circuit_above_10_qubits(
 
     # Each circuit of 10 qubits or fewer is on the chain, a wide circuit or a probe circuit.
     probes = [n for n in clifford_result["small"] if role(n) == "probe"]
-    assert probes == PROBES
+    assert [n for n in probes if n.startswith("axis_")] == AXIS
     assert row["circuits"]["all4"] + row["circuits"]["wide"] + len(probes) == len(
         clifford_result["small"]
     )
-    assert [c["name"] for c in row["probes"]["circuits"]] == PROBES
+    assert [c["name"] for c in row["probes"]["circuits"]] == probes
     assert "calibration" not in row["failures"]
     assert len(row["qubits"]) < 20
 
@@ -680,21 +684,69 @@ def test_the_probe_table_gives_the_measured_and_the_forecast_wrong_bits(
     for i, base in enumerate(table["baseline"]):
         ones = sum(n for key, n in readout.counts.items() if key[i] == "1")
         assert base == {"qubit": chain[i], "measured": pytest.approx(ones / readout.shots)}
-    assert [c["name"] for c in table["circuits"]] == PROBES
+    probes = [c.name for c in counts.circuits if role(c.name) == "probe"]
+    assert [c["name"] for c in table["circuits"]] == probes
     for probe in table["circuits"]:
         circuit = next(c for c in counts.circuits if c.name == probe["name"])
-        # Each axis circuit is a whole number of full rotations, so its ideal result is all 0.
-        assert probe["ideal"] == "0" * len(chain)
-        assert probe["measured"] == pytest.approx(circuit.counts.get(probe["ideal"], 0) / 1000)
-        assert set(probe["forecast"]) == {"calibration", "two_factor"}
-        for i, q in enumerate(probe["qubits"]):
-            ones = sum(n for key, n in circuit.counts.items() if key[i] == "1")
-            assert q["qubit"] == chain[i]
-            assert q["measured"] == pytest.approx(ones / 1000)
-            assert set(q["forecast"]) == {"calibration", "two_factor"}
-            assert 0 < q["forecast"]["calibration"] < q["forecast"]["two_factor"] < 1
-    deep, shallow = table["circuits"][1], table["circuits"][0]
-    assert deep["forecast"]["calibration"] < shallow["forecast"]["calibration"]
+        if probe["name"].startswith("axis_"):
+            # An axis circuit is a whole number of full rotations, so its ideal result is all 0.
+            assert probe["ideal"] == "0" * len(chain)
+        _check_probe(probe, circuit, chain)
+    axis = [c for c in table["circuits"] if c["name"] in AXIS]
+    assert [c["name"] for c in axis] == AXIS
+    assert axis[1]["forecast"]["calibration"] < axis[0]["forecast"]["calibration"]
+
+
+def _check_probe(probe: dict[str, Any], circuit: Any, chain: Sequence[int]) -> None:
+    """The values of one probe of the table, computed again from the counts. A wrong bit of a
+    qubit is a bit that differs from the ideal bit of that qubit."""
+    shots = circuit.shots
+    assert probe["measured"] == pytest.approx(circuit.counts.get(probe["ideal"], 0) / shots)
+    assert set(probe["forecast"]) == {"calibration", "two_factor"}
+    for i, q in enumerate(probe["qubits"]):
+        wrong = sum(n for key, n in circuit.counts.items() if key[i] != probe["ideal"][i])
+        assert q["qubit"] == chain[i]
+        assert q["measured"] == pytest.approx(wrong / shots)
+        assert set(q["forecast"]) == {"calibration", "two_factor"}
+        assert 0 < q["forecast"]["calibration"] < q["forecast"]["two_factor"] < 1
+
+
+def test_a_probe_with_an_ideal_result_that_is_not_all_0_uses_the_ideal_bit_of_each_qubit(
+    result: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = result["root"] / "campaign" / "ibm_line" / "2026-04-13"
+    counts = load_counts(root / "best-deep.counts.json")
+    calibration = _device()
+    chain = analyze.chain_of(counts)
+    # The periodic circuit ends in a bit string that is not all 0. On main it is a probe.
+    monkeypatch.setattr(
+        analyze, "role", lambda name: "probe" if name.startswith("periodic_") else role(name)
+    )
+    built = {
+        "ideal": models.ideal(calibration),
+        "calibration": models.floored(calibration),
+        "two_factor": models.floored(models.with_factors(calibration, 2.0)),
+    }
+
+    table = analyze._probes(counts, built, chain, {})
+
+    (periodic,) = [c for c in table["circuits"] if c["name"].startswith("periodic_")]
+    assert periodic["ideal"] != "0" * len(chain)
+    _check_probe(periodic, next(c for c in counts.circuits if c.name == periodic["name"]), chain)
+    probability = analyze._forecast_wrong(np.array([0.0, 0.7, 0.2, 0.1]), "01")
+    # Outcomes 00, 01, 10 and 11: qubit 0 is wrong in 10 and 11, qubit 1 in 00 and 10.
+    assert probability == pytest.approx([0.3, 0.2])
+    # The growth ratio uses only the axis circuits, also when the periodic circuit has fewer
+    # cycles than the shortest axis circuit.
+    periodic["name"] = "periodic_d2"
+    row = {"device": "d", "chain": "best", "run_at": RUN_AT.isoformat(), "probes": table}
+    (found,) = summarize.probes([row])
+    base = {b["qubit"]: b["measured"] for b in table["baseline"]}
+    small, large = [c for c in table["circuits"] if c["name"] in AXIS]
+    for g, s, big in zip(found["growth"], small["qubits"], large["qubits"], strict=True):
+        divisor = s["measured"] - base[s["qubit"]]
+        expected = (big["measured"] - base[s["qubit"]]) / divisor if divisor > 0 else None
+        assert g["ratio"] == (None if expected is None else pytest.approx(expected))
 
 
 def test_the_summary_gives_the_growth_ratio_of_each_probe_qubit(result: dict[str, Any]) -> None:
@@ -703,7 +755,7 @@ def test_the_summary_gives_the_growth_ratio_of_each_probe_qubit(result: dict[str
     (found,) = summarize.probes([row])
 
     base = {b["qubit"]: b["measured"] for b in row["probes"]["baseline"]}
-    small, large = row["probes"]["circuits"]
+    small, large = [c for c in row["probes"]["circuits"] if c["name"] in AXIS]
     for g, s, big in zip(found["growth"], small["qubits"], large["qubits"], strict=True):
         divisor = s["measured"] - base[s["qubit"]]
         expected = (big["measured"] - base[s["qubit"]]) / divisor if divisor > 0 else None
