@@ -150,16 +150,19 @@ def build(
         return models.floored(fitted)
 
     def week() -> Profile | None:
-        """The median over the calibrations in effect at the run time and 1 to 6 days before."""
+        """The median over the calibrations in effect at the run time and 1 to 6 days before.
+
+        A calibration that is in effect at two of these times counts two times.
+        """
         if calibration.device.vendor != "ibm":
             return None
         device = calibration.device.name
-        earlier = [
+        pulls = [
             models.pulled(device, counts.run_at - timedelta(days=days), cache, pull)
-            for days in range(1, AVERAGED_DAYS)
+            for days in range(AVERAGED_DAYS)
         ]
-        others = [p for p in earlier if p is not None]
-        return models.floored(models.averaged(calibration, others)) if others else None
+        found = [p for p in pulls if p is not None]
+        return models.floored(models.averaged(calibration, found)) if found else None
 
     def measured() -> Profile:
         rates = models.floored(models.readout_measured(calibration, train))

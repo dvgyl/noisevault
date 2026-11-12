@@ -148,16 +148,19 @@ def medians(profile: Profile) -> Profile:
     return Profile.model_validate(data)
 
 
-def averaged(profile: Profile, others: Sequence[Profile]) -> Profile:
-    """C with each value replaced by the median of that value over C and ``others``.
+def averaged(profile: Profile, calibrations: Sequence[Profile]) -> Profile:
+    """``profile`` with each value replaced by the median of that value over ``calibrations``.
 
-    A value is the T1, T2, P(1|0) or P(0|1) of a qubit, or the average infidelity of a gate on
-    one locus. Only the records of C for one qubit or one locus change. A calibration counts for
-    a value only when it states the value and does not disable the gate or the qubit. A
-    calibration that is in ``others`` two times counts two times. The durations of C stay.
+    ``profile`` gives the structure: the records and the durations. ``calibrations`` gives the
+    values, and ``profile`` is not one of them unless the list holds it. A value is the T1, T2,
+    P(1|0) or P(0|1) of a qubit, or the average infidelity of a gate on one locus. Only the
+    records of ``profile`` for one qubit or one locus change. A calibration counts for a value
+    only when it states the value and does not disable the gate or the qubit. A calibration
+    that is in ``calibrations`` two times counts two times. A value that no calibration states
+    stays as ``profile`` states it.
     """
     base = profile.uncorrected()
-    every = [p.uncorrected() for p in (base, *others)]
+    every = [p.uncorrected() for p in calibrations]
     data = base.to_dict()
 
     def over(read: Callable[[Profile], float | None]) -> float | None:

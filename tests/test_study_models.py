@@ -389,7 +389,7 @@ def test_averaged_takes_the_median_of_each_value_over_the_calibrations() -> None
     newest = with_values(50.0, 0.0, 0.004)
     others = [with_values(200.0, 0.02, 0.010), with_values(120.0, 0.01, 0.020)]
 
-    found = models.averaged(newest, others)
+    found = models.averaged(newest, [newest, *others])
 
     qubit = found.table.qubit(0)
     assert qubit.t1_ns == pytest.approx(120_000.0)
@@ -397,8 +397,27 @@ def test_averaged_takes_the_median_of_each_value_over_the_calibrations() -> None
     assert found.table.gate("cz", (0, 1)).avg_infidelity == pytest.approx(0.010)
     assert found.table.qubit(1).t1_ns == newest.table.qubit(1).t1_ns
     assert models.averaged(newest, []).fingerprint == newest.fingerprint
-    twice = models.averaged(newest, [others[0], others[0]])
+    twice = models.averaged(newest, [newest, others[0], others[0]])
     assert twice.table.gate("cz", (0, 1)).avg_infidelity == pytest.approx(0.010)
+
+
+def test_averaged_takes_the_values_from_the_given_calibrations_only() -> None:
+    def with_values(t1: float, cz: float) -> Profile:
+        data = uneven(2).to_dict()
+        data["qubits"][0]["t1_us"] = t1
+        data["calibrations"] = [{"gate": "cz", "qubits": [0, 1], "avg_infidelity": cz}]
+        return Profile.model_validate(data)
+
+    structure = with_values(50.0, 0.004)
+    week = [with_values(200.0, 0.010), with_values(120.0, 0.020)]
+
+    found = models.averaged(structure, week)
+
+    assert found.table.qubit(0).t1_ns == pytest.approx(160_000.0)
+    assert found.table.gate("cz", (0, 1)).avg_infidelity == pytest.approx(0.015)
+    assert (
+        found.table.gate("cz", (0, 1)).duration_ns == structure.table.gate("cz", (0, 1)).duration_ns
+    )
 
 
 def test_pulled_calls_the_public_source_with_the_time_as_a_keyword(monkeypatch, tmp_path) -> None:

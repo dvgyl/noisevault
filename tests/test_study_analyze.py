@@ -335,6 +335,37 @@ def test_each_model_starts_from_the_stated_calibration_and_is_floored_after(
         assert models.zero_readouts(built[name]) == 0
 
 
+def test_the_week_model_takes_the_calibrations_in_effect_at_the_run_time_and_6_days_before(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calibration = _device()
+    counts = simulate(calibration, plan(calibration), shots=10, seed=1, run_at=RUN_AT)
+    source = FakeSource(calibration)
+    given: list[list[datetime | None]] = []
+    real = models.averaged
+
+    def spy(profile: Profile, calibrations: list[Profile]) -> Profile:
+        given.append([p.device.calibrated_at for p in calibrations])
+        return real(profile, calibrations)
+
+    def skipped(*args: Any) -> Any:
+        raise ValueError("not needed")
+
+    monkeypatch.setattr(models, "averaged", spy)
+    for name in ("two_factor", "readout_measured", "locus"):
+        monkeypatch.setattr(models, name, skipped)
+
+    built, _, _ = analyze.build(calibration, counts, cache=None, offline=False, pull=source)
+
+    c, older = (
+        source.calibrations[0].device.calibrated_at,
+        source.calibrations[1].device.calibrated_at,
+    )
+    assert given == [[c, c] + [older] * 5]
+    assert source.asked[-7:] == [RUN_AT - timedelta(days=d) for d in range(7)]
+    assert "averaged(7)" in built
+
+
 def test_a_failure_reason_holds_no_message_and_no_input_value(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
