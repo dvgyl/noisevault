@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import shutil
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -403,3 +404,15 @@ def test_rank_puts_ruled_out_models_last_by_quadratic_score() -> None:
     assert [name for name, _ in ranking.models][:2] == ["near", "far"]
     assert {name for name, _ in ranking.models[2:]} == {"none", "zero"}
     assert len(ranking.tests) == 3
+
+
+def test_the_scoring_page_shows_the_output_of_a_current_run(tmp_path: Path, monkeypatch) -> None:
+    root = Path(__file__).resolve().parents[1]
+    page = (root / "docs" / "scoring.md").read_text(encoding="utf-8")
+    shown = page.split("```text\n$ nv score ", 1)[1].split("\n```", 1)[0]
+    command, expected = shown.split("\n", 1)
+    shutil.copy(root / "examples" / "kingston-simulated.counts.json", tmp_path)
+    monkeypatch.chdir(tmp_path)
+    result = runner.invoke(app, ["score", *command.split()], env={"COLUMNS": "80"})
+    assert result.exit_code == 0, result.output
+    assert result.stdout.rstrip("\n") == expected, result.stdout
