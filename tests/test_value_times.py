@@ -10,6 +10,7 @@ from conftest import toy
 from typer.testing import CliRunner
 
 import noisevault as nv
+from noisevault import value_times
 from noisevault.cli import app
 from noisevault.sources import Origin, ibm_public
 from noisevault.sources.qiskit_backend import calibration_from_properties, to_profile
@@ -184,6 +185,22 @@ def test_a_parameter_with_no_value_gives_no_time_and_a_value_of_0_does() -> None
         "values": 1,
     }
     assert times["readout"]["oldest"] == "2026-10-30T16:00:00Z"
+
+
+def test_the_median_of_extreme_dates_stays_in_datetime_arithmetic() -> None:
+    last = datetime(9999, 12, 31, 23, 59, 59, 999999, tzinfo=UTC)
+    first = datetime(1, 1, 1, tzinfo=UTC)
+    earlier = datetime(9999, 12, 31, 23, 59, 57, 999999, tzinfo=UTC)
+
+    found = value_times.summary({"t1": [last, earlier], "t2": [first, first, last]})
+
+    assert found["t1"]["median"] == "9999-12-31T23:59:58.999999Z"
+    assert found["t1"]["newest"] == "9999-12-31T23:59:59.999999Z"
+    assert found["t2"]["median"] == "0001-01-01T00:00:00Z"
+    props = copy.deepcopy(PROPERTIES)
+    props["qubits"][0][0]["date"] = "9999-12-31T23:59:59.999999Z"
+    props["qubits"][1][0]["date"] = "9999-12-31T23:59:59.999999Z"
+    assert _profile(props).provenance.extra["value_times"]["t1"]["values"] == 2
 
 
 def test_the_fingerprint_does_not_depend_on_the_dates() -> None:
