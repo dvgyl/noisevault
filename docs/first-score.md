@@ -103,4 +103,6 @@ A score holds for circuits like the ones in the counts file. Two limits matter i
   how large an error is, not its direction. Small errors with one direction add up in such a
   circuit. On an IBM device, 256 `sx` gates in a row gave the right result in about 1% of the
   shots, and the profile predicted about 70%.
-  [Limitations](limitations.md#comparison-with-hardware) has the numbers.
+  [Limitations](limitations.md#comparison-with-hardware) has the numbers. When the counts hold
+  such probe circuits, `nv score` leaves them out of the score and shows them in a
+  [probe report](scoring.md#probe-circuits-and-what-a-score-leaves-out).

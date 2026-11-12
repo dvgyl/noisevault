@@ -7,6 +7,15 @@ This file lists all notable changes to NoiseVault. Versions follow
 
 ### Added
 
+- **`nv score` works on a run of the deep circuit set and shows its probe circuits.** By
+  default, `score` and `nv score` leave out the probe circuits (`axis_d*`, `periodic_d*`) and
+  each circuit on more than 10 qubits, and `Forecast.left_out` names them. A call with
+  `circuits=` keeps the earlier behaviour. `noisevault.score.probe_report(profile, counts)` and
+  `Profile.probe_report(counts)` give the measured and the forecast result of each probe
+  circuit, the wrong bits of each qubit against the `readout` circuit, and the growth of the
+  wrong bits from `axis_d64` to `axis_d256`. `nv score` prints this report after the ranking,
+  with the forecast of the best profile, and `--json` gives it under `probes`.
+  [docs/scoring.md](docs/scoring.md#probe-circuits-and-what-a-score-leaves-out)
 - **The age of each kind of IBM value.** IBM gives a calibration one time and each value its
   own date. The IBM sources and the bundled IBM profiles now keep the oldest, median and newest
   date of the readout values, T1, T2, 1-qubit gate errors and 2-qubit gate errors in

@@ -533,9 +533,9 @@ applies the Pauli twirl of the noise that the reference applies. The depth of su
 the first whole depth at which the profile predicts a wrong bit with a mean probability of 0.15
 or more over the qubits. On 80 qubits, readout error alone makes the ideal result rare, so the
 ideal result does not set the depth. The names are `clifford_n20_d16` and similar. Without Stim
-(the `stim` extra), `suite` makes no such circuit. `nv compare` and `nv score` refuse these
-circuits, so select the circuits of 10 qubits or fewer first. `study/wide.py` scores two models
-on them.
+(the `stim` extra), `suite` makes no such circuit. `nv score` leaves these circuits and the
+probe circuits out of the score and names them. `nv compare` refuses these circuits, so select
+the circuits of 10 qubits or fewer first. `study/wide.py` scores two models on them.
 
 To run the set, add `--suite` to `scripts/run_on_ibm.py` or to the campaign:
 

@@ -135,10 +135,11 @@ A file has two qubit limits:
 | 10 qubits | Each circuit that `nv compare`, `nv score`, `simulate` or `circuit.vector()` reads. These use the exact reference simulator, which holds 2^n outcomes. |
 
 A circuit on 11 to 256 qubits loads, saves, and goes through `select` and `split`. Its counts stay
-a dict of bit strings. `nv compare`, `nv score` and `simulate` refuse such a circuit and name it.
-Select the circuits of 10 qubits or fewer first. For a wide Clifford circuit, use the stabilizer
-forecast of `noisevault.wide` instead. The circuits of 10 qubits or fewer in one file hold at most
-4096 outcomes in all, where a circuit on n qubits has 2^n.
+a dict of bit strings. `nv compare` and `simulate` refuse such a circuit and name it, so select
+the circuits of 10 qubits or fewer first. `nv score` and `score` leave such a circuit out and
+name it, and `score` refuses it when `circuits=` names it. For a wide Clifford circuit, use the
+stabilizer forecast of `noisevault.wide` instead. The circuits of 10 qubits or fewer in one file
+hold at most 4096 outcomes in all, where a circuit on n qubits has 2^n.
 
 ### Ops
 
