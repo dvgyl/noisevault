@@ -23,6 +23,7 @@ from noisevault.suite import (
     TEST_SEED,
     _circuit,
     _clifford_circuits,
+    _cycles,
     _layers,
     _mirror,
     _natives,
@@ -200,14 +201,15 @@ def test_the_roles_separate_the_fit_circuits_from_the_test_circuits(circuits) ->
     roles = {c.name: role(c.name) for c in circuits}
     assert set(roles.values()) == {"train", "test_near", "test_far", "probe"}
     assert {name for name, found in roles.items() if found == "probe"} == {
-        f"axis_d{m}" for m in AXIS_REPEATS
+        *(f"axis_d{m}" for m in AXIS_REPEATS),
+        *(name for name in roles if name.startswith("periodic_")),
     }
     assert roles["readout"] == roles["readout_1"] == "train"
     assert roles["ghz_chain"] == roles["mirror"] == "test_far"
     for name, found in roles.items():
         if name.startswith("deep_"):
             assert (found == "test_near") == name.endswith(f"_s{TEST_SEED}")
-        if name.startswith(("qubits_", "periodic_")):
+        if name.startswith("qubits_"):
             assert found == "test_far"
         if name.startswith(("pair", "qubit")) and not name.startswith("qubits_"):
             assert found == "train"
@@ -398,12 +400,13 @@ def test_the_clifford_natives_take_each_clifford_angle_of_a_gate_with_parameters
     assert [(op.name, op.params) for op in found.pairs] == [("ms", (0.0, 0.0))] * 2
 
 
-def _over_rotated(circuit: PlannedCircuit, angle: float) -> float:
+def _over_rotated(circuit: PlannedCircuit, angle: float, zz_angle: float = 0.0) -> float:
     """The probability of the ideal result when each ``sx`` and each ``x`` turns ``angle`` rad
-    too far, and nothing else is wrong."""
+    too far, each ``cz`` adds a ZZ rotation of ``zz_angle`` rad, and nothing else is wrong."""
     n = len(circuit.qubits)
     half = angle / 2
     extra = np.array([[np.cos(half), -1j * np.sin(half)], [-1j * np.sin(half), np.cos(half)]])
+    zz = np.diag(np.exp(-0.5j * zz_angle * np.array([1, -1, -1, 1])))
     state = np.zeros((2,) * n, dtype=complex)
     state[(0,) * n] = 1.0
     for op in circuit.ops:
@@ -412,6 +415,8 @@ def _over_rotated(circuit: PlannedCircuit, angle: float) -> float:
         unitary = gates.unitary(op.name, op.params)
         if op.name in ("sx", "x"):
             unitary = extra @ unitary
+        if op.name == "cz":
+            unitary = zz @ unitary
         k = len(op.qubits)
         moved = np.tensordot(
             unitary.reshape((2,) * (2 * k)), state, axes=(list(range(k, 2 * k)), list(op.qubits))
@@ -436,6 +441,169 @@ def test_a_small_over_rotation_does_not_add_up_in_a_mirror_circuit(ibm_suite) ->
     for circuit in deep:
         assert _over_rotated(circuit, 0.0) == pytest.approx(1.0, abs=1e-9), circuit.name
         assert _over_rotated(circuit, 0.01) > 0.95, circuit.name
+
+
+def _mean_loss(depth: int, *, angle: float = 0.0, zz_angle: float = 0.0, periodic: bool) -> float:
+    """The mean loss of the ideal result over 40 random streams, divided by the angle squared,
+    for mirror circuits of ``depth`` cycles on two qubits with the IBM gate set."""
+    profile = _ibm_line(2)
+    natives = _natives(profile, (0, 1))
+    losses = []
+    for stream in range(40):
+        if periodic:
+            first, second = _cycles(natives, 2, 2, (stream, 9))
+            layers = [layer for i in range(depth) for layer in (second if i % 2 else first)]
+        else:
+            layers = _layers(natives, 2, depth, (stream, 9))
+        circuit = _mirror(profile, "deep", (0, 1), natives, layers, (stream, 9))
+        losses.append(1 - _over_rotated(circuit, angle, zz_angle))
+    return float(np.mean(losses)) / (angle**2 + zz_angle**2)
+
+
+@pytest.mark.parametrize("error", [{"angle": 1e-3}, {"zz_angle": 1e-3}])
+def test_a_systematic_error_grows_with_the_depth_and_not_with_its_square(error) -> None:
+    # An error that the two halves cancel would give no loss. An error that adds up would give
+    # 4 times the loss at 2 times the depth. A random mirror circuit does neither.
+    shallow = _mean_loss(16, periodic=False, **error)
+    deep = _mean_loss(32, periodic=False, **error)
+
+    assert shallow > 4
+    assert 1.5 < deep / shallow < 3
+
+
+@pytest.mark.parametrize("error", [{"angle": 1e-3}, {"zz_angle": 1e-3}])
+def test_a_systematic_error_adds_up_in_a_periodic_circuit(error) -> None:
+    shallow = _mean_loss(16, periodic=True, **error)
+    deep = _mean_loss(32, periodic=True, **error)
+
+    assert deep / shallow > 3.3
+    assert deep > 2 * _mean_loss(32, periodic=False, **error)
+
+
+def test_the_name_of_the_periodic_circuit_gives_its_number_of_cycles(ibm_suite) -> None:
+    (circuit,) = [c for c in ibm_suite if c.name.startswith("periodic_")]
+    depth = int(circuit.name.rsplit("_d", 1)[1])
+    # On 4 qubits, a cycle has two cz gates or one, in turns. Each cz is undone by one cz.
+    forward = 2 * ((depth + 1) // 2) + depth // 2
+
+    assert role(circuit.name) == "probe"
+    assert sum(op.name == "cz" for op in circuit.ops) == 2 * forward
+
+
+def _gate_set(natives: tuple[str, ...], num_qubits: int = 3) -> Profile:
+    data = Profile.uniform(
+        "set",
+        technology="superconducting",
+        num_qubits=num_qubits,
+        connectivity=[(q, q + 1) for q in range(num_qubits - 1)],
+        one_qubit_error=1e-3,
+        two_qubit_error=1e-2,
+        one_qubit_ns=32.0,
+        two_qubit_ns=68.0,
+    ).to_dict()
+    data["gates"] = {k: v for k, v in data["gates"].items() if k in natives}
+    return Profile.model_validate(data)
+
+
+def _operator(circuit: PlannedCircuit) -> np.ndarray:
+    n = len(circuit.qubits)
+    full = np.eye(2**n, dtype=complex).reshape((2,) * (2 * n))
+    for op in circuit.ops:
+        if op.name == "delay":
+            continue
+        k = len(op.qubits)
+        unitary = gates.unitary(op.name, op.params).reshape((2,) * (2 * k))
+        moved = np.tensordot(unitary, full, axes=(list(range(k, 2 * k)), list(op.qubits)))
+        full = np.moveaxis(moved, list(range(k)), list(op.qubits))
+    return full.reshape(2**n, 2**n)
+
+
+@pytest.mark.parametrize(
+    "natives",
+    [
+        ("rz", "sx", "x", "cz"),
+        ("rz", "sx", "x", "ecr"),
+        ("rz", "sx", "x", "cx"),
+        ("rz", "sx", "x", "iswap"),
+        ("rz", "rx", "cz"),
+        ("r", "ms"),
+        ("r", "zz"),
+        ("x", "cz"),
+    ],
+)
+def test_each_mirror_circuit_is_a_pauli_operator_for_each_gate_set(natives) -> None:
+    # The ideal result of |00..0> alone would not show a wrong phase or a wrong operand order
+    # of an inverse. The whole operator must be one Pauli string, up to a global phase.
+    profile = _gate_set(natives)
+    paulis = {
+        "I": np.eye(2),
+        "X": np.array([[0, 1], [1, 0]]),
+        "Y": np.array([[0, -1j], [1j, 0]]),
+        "Z": np.diag([1, -1]),
+    }
+    mirrors = [c for c in suite(profile) if c.name.startswith(("deep_", "pair", "qubit"))]
+
+    assert any(len(c.qubits) == 3 for c in mirrors)
+    for circuit in mirrors:
+        operator = _operator(circuit)
+        n = len(circuit.qubits)
+        row = int(np.argmax(np.abs(operator[:, 0])))
+        best = 0.0
+        for letters in np.ndindex(*(4,) * n):
+            string = np.eye(1)
+            for letter in letters:
+                string = np.kron(string, list(paulis.values())[letter])
+            if abs(string[row, 0]) > 0:
+                best = max(best, abs(np.trace(string.conj().T @ operator)) / 2**n)
+        assert best == pytest.approx(1.0, abs=1e-9), (natives, circuit.name)
+
+
+def test_a_gate_set_with_no_clifford_entangler_gets_no_circuit_on_a_pair() -> None:
+    names = [c.name for c in suite(_gate_set(("rz", "sx", "x", "sqrt_iswap")))]
+
+    assert not any(name.startswith(("deep_", "pair", "periodic_")) for name in names)
+    assert any(name.startswith("qubit0_") for name in names)
+
+
+def test_one_depth_that_reaches_each_target_gives_one_circuit() -> None:
+    # With this readout error, depth 1 is below each target of the chain.
+    data = _ibm_line(4).to_dict()
+    noisy = Profile.uniform(
+        "line",
+        technology="superconducting",
+        num_qubits=4,
+        connectivity=LINE,
+        one_qubit_error=1e-3,
+        two_qubit_error=1e-2,
+        readout_error=0.3,
+        one_qubit_ns=32.0,
+        two_qubit_ns=68.0,
+    ).to_dict()
+    noisy["gates"] = data["gates"]
+    names = [c.name for c in suite(Profile.model_validate(noisy))]
+
+    assert [name for name in names if name.startswith("deep_")] == [
+        "deep_d1_s0",
+        "deep_d1_s1",
+        "deep_d1_s2",
+    ]
+
+
+def test_a_target_that_no_depth_reaches_gives_the_largest_depth() -> None:
+    clean = _ibm_line(1).to_dict()
+    data = Profile.uniform(
+        "one",
+        technology="superconducting",
+        num_qubits=1,
+        one_qubit_error=1e-6,
+        readout_error=1e-3,
+        t1_us=1e9,
+        t2_us=1e9,
+        one_qubit_ns=32.0,
+    ).to_dict()
+    data["gates"] = {k: v for k, v in data["gates"].items() if k in clean["gates"]}
+
+    assert f"qubit0_d{DEPTHS[-1]}" in [c.name for c in suite(Profile.model_validate(data))]
 
 
 def test_the_same_over_rotation_adds_up_in_an_axis_circuit(ibm_suite) -> None:

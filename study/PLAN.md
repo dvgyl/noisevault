@@ -53,10 +53,11 @@ scores of the pilot runs" on were written.
 - `test_near`: mirror circuits on the chain from two other random streams. One stream is the
   same in each week. The other stream is new in each week.
 - `test_far`: circuits of another kind. These are the `nv compare` circuits other than
-  `readout`, a periodic circuit, a circuit with 1-qubit gates on all qubits at the same time,
-  mirror circuits on a chain of 8 qubits, and one mirror circuit on a chain of 20, 40 and 80
-  qubits.
-- `probe`: `axis_d64` and `axis_d256`, one gate 64 and 256 times on each qubit of the chain.
+  `readout`, a circuit with 1-qubit gates on all qubits at the same time, mirror circuits on a
+  chain of 8 qubits, and one mirror circuit on a chain of 20, 40 and 80 qubits.
+- `probe`: circuits in which a systematic error of a gate adds up. These are `axis_d64` and
+  `axis_d256`, one gate 64 and 256 times on each qubit of the chain, and `periodic_d*`, a mirror
+  circuit on the chain that repeats two layers.
 
 No model sees a test circuit or a probe circuit before its score is computed.
 
@@ -209,7 +210,8 @@ Each result of this section is descriptive. None is in the family of tests.
   `readout` circuit is the baseline. The growth ratio of a qubit is the fraction above the
   baseline at 256 gates, divided by the fraction above the baseline at 64 gates. A systematic
   rotation error gives a ratio near 16 when the fractions are small. An error with no direction
-  gives a ratio near 4.
+  gives a ratio near 4. For the periodic probe, the summary gives the measured probability of
+  the ideal result and the forecasts of `calibration` and of `two_factor`.
 - A check of independent shots. For each circuit that both runs of a device-week hold, the two
   sets of counts are compared. On 8 qubits, the outcomes with fewer than 5 expected shots become
   one cell, and the statistic is the Pearson chi-square statistic of the 2 by K table. On a
@@ -460,3 +462,11 @@ To be written before the first run that counts.
   of the 8-qubit chain then left primary comparison 2, which uses only the circuits of the
   4-qubit chain. From now on, a model that cannot simulate a circuit of a group has no score for
   that group only.
+- 2026-11-12: the periodic circuit is a probe. In the first version, the periodic circuit was a
+  `test_far` circuit. It repeats two layers with the same virtual rotations, so a systematic
+  error of a gate adds up in it. A simulation with no noise on two qubits shows this: at 2 times
+  the depth, a small systematic error of each `sx` and `x` gate or of each `cz` gate gives about
+  4 times the loss of the ideal result in the periodic circuit, and about 2 times the loss in a
+  mirror circuit with random layers. A comparison of models must use circuits in which such an
+  error does not add up, so the periodic circuit is in no comparison. Its name now gives its
+  true number of cycles.

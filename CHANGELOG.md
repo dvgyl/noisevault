@@ -42,13 +42,14 @@ This file lists all notable changes to NoiseVault. Versions follow
   campaign workflow runs it on `ibm_kingston`, `ibm_fez` and `ibm_marrakesh`, with new random
   test circuits each week and the circuits of a job in a random order.
   [Run the deep circuit set](docs/recipes.md#run-the-deep-circuit-set) tells how.
-- **Probe circuits for systematic rotation error.** The deep circuit set holds `axis_d64` and
+- **Probe circuits for systematic gate error.** The deep circuit set holds `axis_d64` and
   `axis_d256`: one gate 64 and 256 times on each qubit of the chain. A noise model from a
   calibration cannot forecast a circuit in which each gate turns about one axis, because a small
   systematic error of each gate adds up. In six runs on IBM devices on 2026-11-12, such a
   circuit on 4 qubits gave its ideal result in 0.6% to 3.1% of the shots, and the calibration
-  predicted 27% to 55%. The probe circuits have the role `probe`. No fit and no comparison of
-  models uses them.
+  predicted 27% to 55%. The circuit `periodic_d*` repeats two layers of a mirror circuit, so a
+  systematic error of a 2-qubit gate adds up in it too. These circuits have the role `probe`.
+  No fit and no comparison of models uses them.
 - **Clifford circuits on 20, 40 and 80 qubits.** `noisevault.suite.suite(profile)` adds one
   Clifford mirror circuit on a chain of each size that the device has, with the role
   `test_far`. `noisevault.wide` gives the forecast of a profile for such a circuit from the

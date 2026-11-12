@@ -30,19 +30,30 @@ A circuit of the usual kind does neither. Three rules give a mirror circuit this
 
 This is the design of randomized mirror circuits (Proctor et al., Nature Physics 18, 75, 2022).
 
-The ``axis_*`` circuits are the opposite case on purpose: one gate, many times, on each qubit.
-They show the size of the systematic rotation error of that gate. No model sees them in a fit,
-and no comparison of models uses them.
+Two kinds of circuits are the opposite case on purpose. An ``axis_*`` circuit applies one gate
+many times on each qubit, and it shows the size of the systematic rotation error of that gate.
+The ``periodic_*`` circuit is a mirror circuit that repeats two layers, with the same frames in
+each repeat, so a systematic error of a 1-qubit gate or of a 2-qubit gate adds up in it. No
+model sees these circuits in a fit, and no comparison of models uses them.
+
+The three rules need a device that permits them. A device whose 1-qubit gates turn about one
+axis and that has no virtual Z rotation gets no frames, and the Pauli gates in the middle are
+then only the ones that its gates can make. On such a device, a systematic rotation error still
+adds up in each mirror circuit. No bundled device is of this kind.
 
 The set has four roles, which ``role`` gives for each circuit name:
 
 - ``train``: the readout circuits, mirror circuits on the chain, on each pair and on each qubit.
   A fit uses these circuits.
 - ``test_near``: mirror circuits on the chain from other random seeds.
-- ``test_far``: the ``nv check`` circuits, a periodic circuit, a circuit with 1-qubit gates on
-  all qubits at the same time, mirror circuits on a chain of ``WIDE_QUBITS`` qubits, and one
-  mirror circuit on a chain of each size in ``CLIFFORD_QUBITS``. No fit sees these circuits.
-- ``probe``: the ``axis_*`` circuits.
+- ``test_far``: the ``nv check`` circuits, a circuit with 1-qubit gates on all qubits at the
+  same time, mirror circuits on a chain of ``WIDE_QUBITS`` qubits, and one mirror circuit on a
+  chain of each size in ``CLIFFORD_QUBITS``. No fit sees these circuits.
+- ``probe``: the ``axis_*`` circuits and the ``periodic_*`` circuit.
+
+A family takes one depth for each target. When no depth of ``DEPTHS`` reaches a target, the
+family takes the largest depth. When one depth reaches two targets, the family has one circuit
+for both, so a device with very large errors gets fewer circuits.
 
 A circuit on a chain of ``CLIFFORD_QUBITS`` has more qubits than the reference simulator holds,
 so the stabilizer forecast of ``noisevault.wide`` gives its depth. On many qubits, readout error
@@ -213,8 +224,8 @@ def suite(
         layers = _layers(only_ones, n, longest, (seed, _QUBIT, n))
         circuits.append(_mirror(base, f"qubits_d{longest}", chain, only_ones, layers, (seed, n)))
     if middle is not None:
-        period = _layers(natives, n, 2, (seed, _CHAIN, TEST_SEED + 1))
-        layers = period * (middle // 2 or 1)
+        first, second = _cycles(natives, n, 2, (seed, _CHAIN, TEST_SEED + 1))
+        layers = [layer for i in range(middle) for layer in (second if i % 2 else first)]
         circuits.append(_mirror(base, f"periodic_d{middle}", chain, natives, layers, (seed, 0)))
     circuits += _axis_circuits(base, chain, natives)
     eight = _wide_chain(base) if middle is not None else None
@@ -234,7 +245,7 @@ def role(name: str) -> Role:
     A ``probe`` circuit is not in a fit and not in a comparison of models. Its result is given
     alone.
     """
-    if name.startswith("axis_"):
+    if name.startswith(("axis_", "periodic_")):
         return "probe"
     if name.startswith("deep_"):
         train = name.endswith(tuple(f"_s{s}" for s in TRAIN_SEEDS))
@@ -529,17 +540,18 @@ def _columns(runs: Mapping[int, Sequence[Op]], natives: _Natives) -> list[Layer]
     return layers
 
 
-def _layers(natives: _Natives, n: int, depth: int, stream: Sequence[int]) -> list[Layer]:
-    """``depth`` layers. A layer is one random 1-qubit gate on each qubit, then 2-qubit gates.
+def _cycles(natives: _Natives, n: int, depth: int, stream: Sequence[int]) -> list[list[Layer]]:
+    """``depth`` cycles. A cycle is one random 1-qubit gate on each qubit, then 2-qubit gates.
 
     With frames, a random frame or no frame comes before the gate of each qubit. The 2-qubit
-    gates take the even pairs of the chain in one layer and the odd pairs in the next. A chain of
-    two qubits has its one pair in each layer. The first ``m`` layers of a stream are the same
+    gates take the even pairs of the chain in one cycle and the odd pairs in the next. A chain of
+    two qubits has its one pair in each cycle. The first ``m`` cycles of a stream are the same
     for each ``depth`` of ``m`` or more.
     """
     rng = np.random.default_rng([*stream])
-    layers: list[Layer] = []
+    cycles: list[list[Layer]] = []
     for index in range(depth):
+        layers: list[Layer] = []
         if natives.frames:
             picks = rng.integers(len(natives.frames) + 1, size=n)
             frame = tuple(_on(natives.frames[k - 1], q) for q, k in enumerate(picks) if k)
@@ -551,7 +563,13 @@ def _layers(natives: _Natives, n: int, depth: int, stream: Sequence[int]) -> lis
         twos = tuple(op for op in natives.pairs[parity::2] if op is not None)
         if twos:
             layers.append(twos)
-    return layers
+        cycles.append(layers)
+    return cycles
+
+
+def _layers(natives: _Natives, n: int, depth: int, stream: Sequence[int]) -> list[Layer]:
+    """The layers of ``depth`` cycles of ``_cycles``, in their order."""
+    return [layer for cycle in _cycles(natives, n, depth, stream) for layer in cycle]
 
 
 def _on(op: Op, qubit: int) -> Op:

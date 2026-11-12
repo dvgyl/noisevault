@@ -516,6 +516,12 @@ size of the systematic rotation error of that gate. A systematic error gives abo
 wrong bits at 256 gates than at 64 gates, and an error with no direction gives about 4 times
 more. In six runs on IBM devices on 2026-11-12, a circuit of 4 qubits with only gates about one
 axis gave its ideal result in 0.6% to 3.1% of the shots. The calibration predicted 27% to 55%.
+The circuit `periodic_d*` is a third probe: a mirror circuit that repeats two layers, with
+2-qubit gates. A systematic error of a 1-qubit gate or of a 2-qubit gate adds up in it too.
+
+These rules need a device that permits them. A device whose 1-qubit gates turn about one axis
+and that has no virtual Z rotation gets no random rotation, and a systematic error still adds
+up in its mirror circuits. No bundled device is of this kind.
 
 The set also has one mirror circuit on a chain of 20, 40 and 80 qubits, when the device has such
 a chain. These circuits use only the Clifford gates and angles of `noisevault.wide.CLIFFORD`,
@@ -555,8 +561,8 @@ gives the rules and an example.
 | --- | --- | --- |
 | `train` | `readout`, `readout_1`, `deep_d*_s0`, `deep_d*_s1`, `pair*`, `qubit*` | Fit a model on these circuits |
 | `test_near` | `deep_d*_s2`, `deep_d*_f*` | Deep circuits from other random seeds |
-| `test_far` | the `nv compare` circuits, `periodic_d*`, `qubits_d*`, `wide_d*`, `clifford_n*` | Circuits of another kind |
-| `probe` | `axis_d*` | Show the systematic rotation error. No fit and no comparison of models uses them |
+| `test_far` | the `nv compare` circuits, `qubits_d*`, `wide_d*`, `clifford_n*` | Circuits of another kind |
+| `probe` | `axis_d*`, `periodic_d*` | Show the systematic error of a gate. No fit and no comparison of models uses them |
 
 Fit on the `train` circuits and score on the test circuits. A model that fits the `train`
 circuits and fails on the test circuits does not describe the device.
