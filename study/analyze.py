@@ -387,7 +387,8 @@ def analyze_run(
     when = calibration.device.calibrated_at
     age = None if when is None else (counts.run_at - when).total_seconds() / 3600
     shots = {c.shots for c in counts.circuits}
-    return {
+    marked, marked_failed = _marked(calibration, counts, cache, offline, pull)
+    row = {
         "device": calibration.device.name,
         "vendor": calibration.device.vendor,
         "technology": calibration.device.technology,
@@ -401,7 +402,7 @@ def analyze_run(
         "circuits": {g: len(names) for g, names in named.items()},
         "counts_sha256": counts.sha256,
         "calibration": calibration.calibration_fingerprint,
-        "marked": _marked(calibration, counts, cache, offline, pull),
+        "marked": marked,
         "ages": {} if offline else _ages(calibration, counts, cache, properties, narrow),
         "stated": {
             "zero_readouts": models.zero_readouts(calibration),
@@ -423,6 +424,8 @@ def analyze_run(
         "fits": fits,
         "failures": dict(sorted(missing.items(), key=lambda item: _order(item[0]))),
     }
+    row["pending"] = pending(row, marked_failed)
+    return row
 
 
 def zero_on(calibration: Profile, qubits: Sequence[int]) -> bool:
@@ -477,7 +480,16 @@ def analyze(
                 continue
             seen.add(digest)
             beside = profile_beside(path)
-            row = kept(rows_folder, kind, [path, beside] if beside.exists() else [path], run)
+            # The row takes the chain kind and the trial status from the file name, so they are
+            # in the key. A row that waits for a source is computed again in the next run.
+            row = kept(
+                rows_folder,
+                kind,
+                [path, beside] if beside.exists() else [path],
+                run,
+                names=f"chain={chain_kind(path)} trial={is_trial(path)}",
+                keep=lambda found: found is None or not found.get("pending"),
+            )
         except NoiseVaultError as exc:
             # A message can hold the path of the file, and a file name can hold an id of the
             # account. So a failure gives only the error type and the hash of the file.
@@ -759,16 +771,36 @@ def _marked(
     cache: Path | None,
     offline: bool,
     pull: models.Pull | None,
-) -> bool | None:
+) -> tuple[bool | None, bool]:
     """True when the calibration in effect at the run is not C, so the counts bind to the
-    planned calibration. None when the script cannot tell."""
+    planned calibration. None when the script cannot tell. The second value is True when the
+    source failed, so that a later run can tell."""
     if offline or calibration.device.vendor != "ibm":
-        return None
+        return None, False
     try:
         found = models.pulled(calibration.device.name, counts.run_at, cache, pull)
     except NoiseVaultError:
-        return None
-    return None if found is None else not models.same_calibration(found, calibration)
+        return None, True
+    return (None if found is None else not models.same_calibration(found, calibration)), False
+
+
+# The reasons of the ages that a later run can change: the source failed or had no reply.
+PASSING_AGES = ("source_failed", "no_reply")
+
+
+def pending(row: Mapping[str, Any], marked_failed: bool = False) -> list[str]:
+    """The parts of a row that depend on an outside source that failed for a reason that can
+    pass: a model whose pull failed (``SourceUnavailable``), the ages, and the mark. A row with
+    such a part is computed again in the next run, so it is not kept. A reason that cannot pass,
+    such as a stale calibration that does not define a gate, does not make a part pending."""
+    found = [
+        name for name, reason in row["failures"].items() if "SourceUnavailable" in reason.split(" ")
+    ]
+    if any(r in PASSING_AGES for r in row["ages"].get("missing", {}).values()):
+        found.append("ages")
+    if marked_failed:
+        found.append("marked")
+    return found
 
 
 def _ages(
@@ -835,6 +867,7 @@ def _ages(
         try:
             reply = fetch(device, counts.run_at - timedelta(days=days))
         except NoiseVaultError:
+            missing[name] = "source_failed"
             continue
         if reply is not None:
             found[name] = entry(reply)
