@@ -836,7 +836,7 @@ def test_each_function_that_needs_the_reference_refuses_a_wide_circuit_by_name(
     counts = load_counts(_write(tmp_path / "wide.counts.json", _wide_run()))
     calls: dict[str, Callable[[], Any]] = {
         "vector": counts.circuits[2].vector,
-        "score": lambda: kingston().score(counts),
+        "score": lambda: kingston().score(counts, circuits=[c.name for c in counts.circuits]),
         "compare": lambda: kingston().compare(counts),
         "simulate": lambda: simulate(kingston(), counts.circuits, shots=10, seed=0),
     }
@@ -849,7 +849,7 @@ def test_the_refusal_of_a_wide_circuit_says_what_to_do_instead(tmp_path: Path) -
     counts = load_counts(_write(tmp_path / "wide.counts.json", _wide_run()))
 
     with pytest.raises(CountsError) as caught:
-        kingston().score(counts)
+        kingston().score(counts, circuits=[c.name for c in counts.circuits])
 
     assert caught.value.hint == (
         "select the circuits of 10 qubits or fewer, or score the wider circuits with the"
