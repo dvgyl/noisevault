@@ -293,3 +293,23 @@ def test_a_deep_circuit_gives_the_results_of_the_first_version() -> None:
     new, _ = _run(probabilities, profile, ops, 5, new_report, layout=layout)
     _same_outcome(old, new)
     _same_report(old_report, new_report)
+
+
+@pytest.mark.parametrize(
+    "op",
+    [Op("cz", (0, 0)), Op("cz", (0, 2)), Op("sx", (0, 1)), Op("cz", (1,)), Op("sx", (-1,))],
+    ids=["repeated", "outside", "too-many", "too-few", "negative"],
+)
+def test_a_malformed_op_raises_the_error_of_the_first_version(op) -> None:
+    profile = nv.Profile.uniform(
+        "uniform",
+        technology="superconducting",
+        num_qubits=2,
+        one_qubit_error=1e-3,
+        two_qubit_error=1e-2,
+    )
+    ops = [Op("sx", (0,)), op]
+    old, _ = _run(_old_probabilities, profile, ops, 2, None)
+    new, _ = _run(probabilities, profile, ops, 2, None)
+    assert isinstance(old, tuple)
+    assert new == old
