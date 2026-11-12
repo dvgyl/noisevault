@@ -24,6 +24,11 @@ durations, and the plan holds no delay. The counts bind to that calibration, whi
 saves beside the counts file. Idle error during the gates of other qubits goes into the gate
 factor that ``nv compare`` fits.
 
+``--suite`` runs the deep circuit set of ``noisevault.suite.suite`` in place of the ``nv compare``
+circuits. ``--budget USD`` runs the circuits of that set and the shots that
+``noisevault.design.design`` chooses for at most USD, with the task price of the way that the
+script submits them.
+
 ``--local PROPERTIES`` runs the circuits on the free Braket ``LocalEmulator`` of a saved
 properties file, with no AWS account. The emulator refuses a gate that is not native and a pair
 that is not connected, as the device would.
@@ -62,6 +67,8 @@ from noisevault.counts import (  # noqa: E402
     PlannedCircuit,
     plan,
 )
+from noisevault.design import MIN_SHOTS, Design, design  # noqa: E402
+from noisevault.design import Price as DesignPrice  # noqa: E402
 from noisevault.errors import (  # noqa: E402
     NoiseVaultError,
     install_hint,
@@ -69,6 +76,7 @@ from noisevault.errors import (  # noqa: E402
     qubit_loci,
 )
 from noisevault.profile import Profile, file_bytes, ref_on_day  # noqa: E402
+from noisevault.suite import role, suite  # noqa: E402
 
 DEFAULT_SHOTS = 4000
 LABEL = 16
@@ -143,6 +151,9 @@ class Batch:
     program_set: bool
     cost: Decimal
     price: Price
+    deep: bool = False
+    design: Design | None = None
+    budget: Decimal | None = None
 
 
 @dataclass(frozen=True)
@@ -288,10 +299,21 @@ def estimate(price: Price, circuits: int, shots: int, program_set: bool) -> Deci
     return tasks * price.task + circuits * shots * price.shot
 
 
-def prepare(target: Target, shots: int, price: Price) -> Batch:
+def prepare(
+    target: Target,
+    shots: int,
+    price: Price,
+    *,
+    deep: bool = False,
+    budget: Decimal | None = None,
+) -> Batch:
+    """The circuits, the shots and the cost of a run.
+
+    ``deep`` runs ``suite`` in place of ``plan``. ``budget`` runs the circuits and the shots of
+    ``noisevault.design.design`` for that budget, from the circuits of ``suite``.
+    """
     properties = target.properties
     profile = calibration(properties, target.name)
-    planned = plan(profile)
     action = properties.get("action") or {}
     pragmas = (action.get(OPENQASM) or {}).get("supportedPragmas") or []
     if "verbatim" not in pragmas:
@@ -300,18 +322,21 @@ def prepare(target: Target, shots: int, price: Price) -> Batch:
             hint="run on a device that runs verbatim boxes, so the counts list the gates that ran",
         )
     natives = [g.lower() for g in (properties.get("paradigm") or {}).get("nativeGateSet") or []]
-    circuits = tuple(braket_circuit(c, natives, target.name) for c in planned)
     low, high = (properties.get("service") or {}).get("shotsRange") or (1, math.inf)
+    limits = action.get(PROGRAM_SET) or {}
+    chosen = None
+    if budget is None:
+        planned = suite(profile) if deep else plan(profile)
+    else:
+        chosen = _design(profile, suite(profile), budget, price, limits, (low, high))
+        planned, shots = chosen.circuits, chosen.shots
+    circuits = tuple(braket_circuit(c, natives, target.name) for c in planned)
     if not low <= shots <= high:
         raise NoiseVaultError(
             f"{target.name} runs {low} to {high} shots per task, not {shots}",
             hint="give --shots a number in that range",
         )
-    limits = action.get(PROGRAM_SET) or {}
-    program_set = bool(limits) and (
-        len(circuits) <= limits.get("maximumExecutables", 0)
-        and len(circuits) * shots <= limits.get("maximumTotalShots", 0)
-    )
+    program_set = _fits(limits, len(circuits), shots)
     return Batch(
         profile=profile,
         planned=planned,
@@ -320,7 +345,84 @@ def prepare(target: Target, shots: int, price: Price) -> Batch:
         program_set=program_set,
         cost=estimate(price, len(circuits), shots, program_set),
         price=price,
+        deep=deep or budget is not None,
+        design=chosen,
+        budget=budget,
     )
+
+
+def _fits(limits: Mapping[str, Any], circuits: int, shots: int) -> bool:
+    """True when ``circuits`` with ``shots`` each fit in one program set task."""
+    return bool(limits) and (
+        circuits <= limits.get("maximumExecutables", 0)
+        and circuits * shots <= limits.get("maximumTotalShots", 0)
+    )
+
+
+def _design(
+    profile: Profile,
+    circuits: Sequence[PlannedCircuit],
+    budget: Decimal,
+    price: Price,
+    limits: Mapping[str, Any],
+    shots_range: tuple[int, float],
+) -> Design:
+    """The design with the smallest predicted error of the gate factor that costs at most
+    ``budget``, with the task price of the way that the run submits it.
+
+    A design for one program set task can hold more shots than the device limits allow. Then the
+    design is made again with fewer shots per circuit. A design for one task per circuit is also
+    made, and the better design is taken.
+    """
+    low, high = shots_range
+    least = max(MIN_SHOTS, int(low))
+
+    def make(one_task: bool, most: int | None) -> Design:
+        task_price = DesignPrice(float(price.task), float(price.shot), one_task)
+        while True:
+            found = design(
+                profile,
+                circuits,
+                budget=float(budget),
+                price=task_price,
+                min_shots=least,
+                max_shots=most,
+            )
+            exact = estimate(price, len(found.circuits), found.shots, one_task)
+            if exact <= budget:
+                return found
+            # The design computes in floats, and the exact cost can then be a fraction of a cent
+            # above the budget.
+            most = found.shots - 1
+
+    top = None if math.isinf(high) else int(high)
+    designs: list[Design] = []
+    failure: NoiseVaultError | None = None
+    if limits:
+        most = top
+        while True:
+            try:
+                found = make(True, most)
+            except NoiseVaultError as exc:
+                if most == top:
+                    failure = exc
+                break
+            if _fits(limits, len(found.circuits), found.shots):
+                designs.append(found)
+                break
+            if len(found.circuits) > limits.get("maximumExecutables", 0):
+                break
+            most = limits.get("maximumTotalShots", 0) // len(found.circuits)
+    try:
+        designs.append(make(False, top))
+    except NoiseVaultError as exc:
+        failure = failure or exc
+    if not designs:
+        assert failure is not None
+        raise NoiseVaultError(
+            f"{failure.message}. The script submitted nothing", hint="give a larger --budget"
+        )
+    return min(designs, key=lambda d: math.inf if d.gate_error is None else d.gate_error)
 
 
 def submit(target: Target, batch: Batch, record: Callable[[Any, tuple[str, ...]], None]) -> None:
@@ -435,8 +537,13 @@ def run(
     confirm_cost: Decimal | None,
     collect_only: bool = False,
     partial: bool = False,
+    deep: bool = False,
+    budget: Decimal | None = None,
 ) -> MeasuredCounts | None:
-    """Plan, show the cost, submit and collect. Returns None when the script submits nothing."""
+    """Plan, show the cost, submit and collect. Returns None when the script submits nothing.
+
+    ``deep`` and ``budget`` choose the circuits as ``prepare`` does.
+    """
     tasks: list[Any]
     if collect_only or pending.exists():
         record, submitted = _resume(pending, partial)
@@ -464,7 +571,7 @@ def run(
         target = open_target()
         if price is None:
             price = _price(target.arn)
-        batch = prepare(target, shots, price)
+        batch = prepare(target, shots, price, deep=deep, budget=budget)
         print(summary(batch, target, output))
         print()
         if target.local is None:
@@ -643,11 +750,19 @@ def run(
 def summary(batch: Batch, target: Target, output: Path) -> str:
     profile = batch.profile
     chain = tuple(dict.fromkeys(q for c in batch.planned for q in c.qubits))
-    rows = [("circuit", "qubits", "gates")] + [
-        (c.name, "-".join(map(str, c.qubits)), str(len(c.ops))) for c in batch.planned
+    rows = [("circuit", "qubits", "gates", "role")] + [
+        (c.name, "-".join(map(str, c.qubits)), str(len(c.ops)), role(c.name)) for c in batch.planned
     ]
-    widths = [max(len(row[i]) for row in rows) for i in range(3)]
-    table = [f"{a:<{widths[0]}}  {b:<{widths[1]}}  {c:>{widths[2]}}" for a, b, c in rows]
+    if not batch.deep:
+        rows = [row[:3] for row in rows]
+    widths = [max(len(row[i]) for row in rows) for i in range(len(rows[0]))]
+    table = [
+        "  ".join(
+            f"{cell:>{width}}" if i == 2 else f"{cell:<{width}}"
+            for i, (cell, width) in enumerate(zip(row, widths, strict=True))
+        ).rstrip()
+        for row in rows
+    ]
     n = len(batch.planned)
     tasks = "1 program set task" if batch.program_set else f"{n} tasks, one per circuit"
     cost = f"about ${batch.cost:.2f} (${batch.price.task} a task, ${batch.price.shot} a shot)"
@@ -658,8 +773,16 @@ def summary(batch: Batch, target: Target, output: Path) -> str:
     labels = [
         ("shots", f"{batch.shots} per circuit, {n} circuits in {tasks}"),
         ("cost", cost),
-        ("counts file", str(output)),
     ]
+    if batch.design is not None:
+        labels.insert(0, ("budget", f"${batch.budget}"))
+        for axis, error in (
+            ("gate factor", batch.design.gate_error),
+            ("readout factor", batch.design.readout_error),
+        ):
+            found = "not identified" if error is None else f"{100 * error:.1f}%"
+            labels.append((axis, f"predicted standard error {found}"))
+    labels.append(("counts file", str(output)))
     return "\n".join(
         [
             f"{calibrated} {profile.short_fingerprint} on {qubit_loci(chain)}",
@@ -931,6 +1054,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     collect_only = args.collect is not None or pending.exists()
     if (args.task_price is None) != (args.shot_price is None):
         return _fail("give --task-price and --shot-price together")
+    if args.budget is not None and args.shots is not None:
+        return _fail(
+            "give --budget or --shots, not both",
+            "--budget chooses the shots of each circuit",
+        )
     price = None if args.task_price is None else Price(args.task_price, args.shot_price)
     try:
         arn = arn_of(args.device)
@@ -952,7 +1080,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 f"cannot write to {folder}", hint="give -o a folder you can write to"
             )
         measured = run(
-            shots=args.shots,
+            shots=DEFAULT_SHOTS if args.shots is None else args.shots,
             output=args.output,
             pending=pending,
             open_target=(
@@ -965,6 +1093,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             confirm_cost=args.confirm_cost,
             collect_only=collect_only,
             partial=args.partial,
+            deep=args.suite,
+            budget=args.budget,
         )
     except NoiseVaultError as exc:
         return _fail(exc.message, exc.hint)
@@ -1000,8 +1130,20 @@ def _parser() -> argparse.ArgumentParser:
         "--shots",
         metavar="N",
         type=_positive,
-        default=DEFAULT_SHOTS,
         help=f"shots per circuit (default {DEFAULT_SHOTS})",
+    )
+    parser.add_argument(
+        "--suite",
+        action="store_true",
+        help="run the deep circuit set of noisevault.suite, which holds the nv compare circuits"
+        " and deep mirror circuits",
+    )
+    parser.add_argument(
+        "--budget",
+        metavar="USD",
+        type=_dollars,
+        help="run the circuits of the deep circuit set and the shots that give the smallest"
+        " predicted error of the gate factor for at most USD. Implies --suite",
     )
     parser.add_argument(
         "--confirm-cost",
