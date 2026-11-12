@@ -190,6 +190,8 @@ def _tests(circuits: Sequence[PlannedCircuit], count: int) -> list[PlannedCircui
 def _shots(budget: float, price: Price, circuits: int, max_shots: int | None) -> int:
     tasks = 1 if price.one_task else circuits
     left = budget - tasks * price.task
+    if left < 0:
+        return 0
     shots = math.floor(left / (circuits * price.shot) + 1e-9) if price.shot > 0 else 10**9
     return shots if max_shots is None else min(shots, max_shots)
 

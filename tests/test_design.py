@@ -108,6 +108,11 @@ def test_a_factor_with_zero_information_leaves_the_other_factor_identified():
     assert gate == pytest.approx(1e-9 / (2e-9 - 1e-10))
 
 
+def test_task_fees_above_the_budget_pay_no_shots_also_when_shots_are_free(device, circuits):
+    with pytest.raises(NoiseVaultError, match="does not pay 100 shots"):
+        design(device, circuits, budget=1.0, price=Price(task=0.30, shot=0.0))
+
+
 def test_a_profile_with_no_readout_error_gives_the_readout_axis_zero_information():
     profile = Profile.uniform(
         "one", technology="superconducting", num_qubits=1, one_qubit_error=0.01
