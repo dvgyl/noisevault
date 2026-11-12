@@ -28,6 +28,8 @@ if TYPE_CHECKING:
 
 MIN_SHOTS = 100
 _STEP = 1e-3
+# The finite differences of a rank-1 matrix leave 1 - correlation**2 near 1e-10.
+_RANK_TOLERANCE = 1e-6
 _READOUT = ("readout", "readout_1")
 
 
@@ -203,14 +205,22 @@ def _errors(
 
 def _variances(matrix: np.ndarray) -> tuple[float | None, float | None]:
     """The variance of each log factor from its Fisher information, with the other factor
-    unknown. A factor that the information does not identify gives None."""
+    unknown. A factor that the information does not identify gives None.
+
+    A diagonal entry of exactly 0 means that the circuits do not see that factor, so the other
+    factor alone is identified. Otherwise the rank test uses normalized axes: when the
+    correlation ``cross / sqrt(gate * readout)`` is 1 within ``_RANK_TOLERANCE``, the matrix has
+    rank 1 and neither factor is identified.
+    """
     gate, readout, cross = matrix[0, 0], matrix[1, 1], matrix[0, 1]
-    if readout <= 1e-12 * max(gate, 1e-300):
-        return (None if gate <= 0 else 1 / gate), None
-    if gate <= 1e-12 * readout:
+    if gate <= 0 and readout <= 0:
+        return None, None
+    if readout <= 0:
+        return 1 / gate, None
+    if gate <= 0:
         return None, 1 / readout
     det = gate * readout - cross * cross
-    if det <= 1e-12 * gate * readout:
+    if det <= _RANK_TOLERANCE * gate * readout:
         return None, None
     return readout / det, gate / det
 
