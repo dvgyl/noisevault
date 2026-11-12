@@ -48,10 +48,8 @@ def holm(p_values: Sequence[float]) -> list[float]:
 
 def summarize(analysis: dict[str, Any]) -> dict[str, Any]:
     rows = analysis["rows"]
-    comparisons = [_comparison(rows, a, b, group) for a, b, group in PRIMARY]
-    for found, adjusted in zip(comparisons, holm([c["p_value"] for c in comparisons]), strict=True):
-        found["p_holm"] = adjusted
-        found["confirmed"] = adjusted < LEVEL
+    comparisons = _family(rows)
+    unmarked = _family([r for r in rows if r.get("marked") is not True])
     stated = [r["stated"]["ruled_out"].get("all", 0) for r in rows]
     return {
         "nv_study_summary": FORMAT,
@@ -63,6 +61,8 @@ def summarize(analysis: dict[str, Any]) -> dict[str, Any]:
             "runs_with_a_zero_readout": sum(1 for r in rows if r["stated"]["zero_readouts"]),
         },
         "primary": comparisons,
+        "runs_marked": sum(1 for r in rows if r.get("marked") is True),
+        "primary_without_marked_runs": unmarked,
         "staleness": _staleness(rows),
     }
 
@@ -72,18 +72,31 @@ def markdown(summary: dict[str, Any]) -> str:
     lines = [
         f"{summary['runs']} runs on {', '.join(summary['devices']) or 'no device'}.",
         f"The calibration as stated is ruled out in {stated['runs_ruled_out']} runs.",
-        "",
-        "| First model | Second model | Circuits | First better | Second better | Neither |"
-        " p (sign test) | p (Holm) | Confirmed |",
-        "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
-    for c in summary["primary"]:
-        total = c["total"]
-        lines.append(
-            f"| {c['a']} | {c['b']} | {c['group']} | {total['a']} | {total['b']} |"
-            f" {total['neither']} | {c['p_value']:.3g} | {c['p_holm']:.3g} |"
-            f" {'yes' if c['confirmed'] else 'no'} |"
+    tables = [("All runs", summary["primary"])]
+    if summary["runs_marked"]:
+        tables.append(
+            (
+                f"Without the {summary['runs_marked']} marked runs",
+                summary["primary_without_marked_runs"],
+            )
         )
+    for title, comparisons in tables:
+        lines += [
+            "",
+            f"{title}:",
+            "",
+            "| First model | Second model | Circuits | First better | Second better | Neither |"
+            " p (sign test) | p (Holm) | Confirmed |",
+            "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+        ]
+        for c in comparisons:
+            total = c["total"]
+            lines.append(
+                f"| {c['a']} | {c['b']} | {c['group']} | {total['a']} | {total['b']} |"
+                f" {total['neither']} | {c['p_value']:.3g} | {c['p_holm']:.3g} |"
+                f" {'yes' if c['confirmed'] else 'no'} |"
+            )
     lines += [
         "",
         "| Device | Chain | Run | Model | Age of the calibration (h) | Readout (h) |"
@@ -117,6 +130,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     return 0
 
 
+def _family(rows: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The five primary comparisons over ``rows``, with the Holm correction of their tests."""
+    comparisons = [_comparison(rows, a, b, group) for a, b, group in PRIMARY]
+    adjusted = holm([c["p_value"] for c in comparisons])
+    for found, p_holm in zip(comparisons, adjusted, strict=True):
+        found["p_holm"] = p_holm
+        found["confirmed"] = p_holm < LEVEL
+    return comparisons
+
+
 def _comparison(rows: Sequence[dict[str, Any]], a: str, b: str, group: str) -> dict[str, Any]:
     by_device: dict[str, dict[str, int]] = {}
     for row in rows:
@@ -124,7 +147,8 @@ def _comparison(rows: Sequence[dict[str, Any]], a: str, b: str, group: str) -> d
         if test is None:
             continue
         counts = by_device.setdefault(row["device"], {"a": 0, "b": 0, "neither": 0})
-        counts[test["better"]] += 1
+        # The plan takes the verdict of the log score. The quadratic score decides nothing here.
+        counts[test["log"]["better"]] += 1
     total = {
         key: sum(counts[key] for counts in by_device.values()) for key in ("a", "b", "neither")
     }

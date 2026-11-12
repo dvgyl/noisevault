@@ -17,8 +17,14 @@ def _row(device: str, better: dict[tuple[str, str, str], str], **more: Any) -> d
             "b": b,
             "group": group,
             "primary": True,
-            "better": better.get((a, b, group), "neither"),
-            "log": {"outcome": "tested", "difference": 0.01, "standard_error": 0.002, "z": 5.0},
+            "better": "neither",
+            "log": {
+                "outcome": "tested",
+                "difference": 0.01,
+                "standard_error": 0.002,
+                "z": 5.0,
+                "better": better.get((a, b, group), "neither"),
+            },
         }
         for a, b, group in PRIMARY
     ]
@@ -82,7 +88,13 @@ def test_the_staleness_points_give_the_model_minus_the_calibration(tmp_path: Pat
             "group": "all",
             "primary": False,
             "better": "a",
-            "log": {"outcome": "tested", "difference": 0.02, "standard_error": 0.004, "z": 5.0},
+            "log": {
+                "outcome": "tested",
+                "difference": 0.02,
+                "standard_error": 0.004,
+                "z": 5.0,
+                "better": "a",
+            },
         }
     )
     analysis = tmp_path / "analysis.json"
@@ -96,3 +108,17 @@ def test_the_staleness_points_give_the_model_minus_the_calibration(tmp_path: Pat
     assert points[1]["difference"] == pytest.approx(-0.02) and points[1]["z"] == -5.0
     assert points[1]["median_age_h"] == {"readout": 51.0, "one_qubit": 151.0, "two_qubit": None}
     assert "| ibm_fez | best |" in (tmp_path / "summary.md").read_text()
+
+
+def test_the_summary_also_gives_the_comparisons_without_the_marked_runs() -> None:
+    first = PRIMARY[0]
+    rows = [_row("ibm_fez", {first: "a"}) for _ in range(3)]
+    rows.append(_row("ibm_fez", {first: "b"}, marked=True))
+    rows.append(_row("ibm_fez", {first: "a"}, marked=None))
+
+    summary = summarize.summarize({"rows": rows})
+
+    assert summary["runs_marked"] == 1
+    assert summary["primary"][0]["total"] == {"a": 4, "b": 1, "neither": 0}
+    assert summary["primary_without_marked_runs"][0]["total"] == {"a": 4, "b": 0, "neither": 0}
+    assert "p_holm" in summary["primary_without_marked_runs"][0]

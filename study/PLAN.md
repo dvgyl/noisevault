@@ -25,8 +25,9 @@ counts bind to the calibration in effect when the job ran.
 
 - `train`: a model can fit its parameters on these circuits.
 - `test_near`: deep circuits of the same kind as the `train` circuits, from another random seed.
-- `test_far`: circuits of another kind. These are the `nv compare` circuits, a periodic circuit,
-  a circuit with 1-qubit gates on all qubits at the same time, and wide circuits on 8 qubits.
+- `test_far`: circuits of another kind. These are the `nv compare` circuits other than `readout`,
+  a periodic circuit, a circuit with 1-qubit gates on all qubits at the same time, and wide
+  circuits on 8 qubits. The `readout` circuit is a `train` circuit.
 
 No model sees a test circuit before its score is computed.
 
@@ -54,10 +55,11 @@ the counts bind to.
 | `locus` | `readout_measured` with one factor for each qubit fitted on its `qubit*` circuit, and one factor for each pair fitted on its `pair*` circuits, in place of the one gate factor |
 
 Zero floor: a calibration can state a probability of exactly 0, and a device then gives the
-outcome that the model calls impossible. Each model from a calibration is scored two times: as
-stated, and with each readout probability of exactly 0 replaced by half of the smallest readout
-probability above 0 in the same calibration. The floored form is the form in each comparison. The
-number of runs that the stated form rules out is a result of its own.
+outcome that the model calls impossible. Each model from a calibration is therefore scored in
+its floored form: each readout probability of exactly 0 is replaced by half of the smallest
+readout probability above 0 in the same calibration. The floored form is the form in each
+comparison. The calibration C is also scored as stated. The number of runs in which C as stated
+is ruled out is a result of its own.
 
 A measured readout probability is (k + 1/2) / (n + 1) for k wrong results in n shots.
 
@@ -92,8 +94,10 @@ The five primary comparisons are:
    each pair forecast better than two factors?
 
 For each primary comparison, the result over all runs is the number of runs in which the first
-model is better, the second model is better, or neither, for each device. The test of a primary
-comparison is the two-sided sign test over the runs with a verdict, against equal chances. The
+model is better, the second model is better, or neither, for each device. The verdict of a run is
+the verdict of the log score. A run in which the log score gives no test counts as neither. The
+test of a primary comparison is the two-sided sign test over the runs with a verdict, against
+equal chances. The
 five sign tests form one family, with the Holm correction at the 5% level. Runs of one device in
 different weeks are not independent draws of devices, so the result is also given for each
 device.
@@ -108,11 +112,13 @@ The secondary comparisons are not in the family, and their results are descripti
 - Each primary comparison on `test_near` and on `test_far` separately, and with the quadratic
   score.
 
-- The age of a value against its error. The `locus` model gives a fitted factor for each qubit
-  and each pair, and IBM gives the age of the value of each qubit and each pair. The analysis
-  relates the two, with the device and the week as groups.
+- The age of a value against its error. The `locus` model gives a fitted factor f for each qubit
+  and each pair, and IBM gives the age of the value of each qubit and each pair. The measure is
+  the Spearman rank correlation between the age and the absolute value of ln f, for the qubits
+  and for the pairs of each device.
 
-The adequacy of the best model is its excess on `test_far`, with the p-value of `nv score`.
+The adequacy test uses the `locus` model, which has the most fitted parameters: its excess on
+`test_far`, with the p-value of `nv score`.
 
 ## Rules
 
@@ -139,24 +145,32 @@ The adequacy of the best model is its excess on `test_far`, with the p-value of 
   its Holm correction counted. The plan now names five primary comparisons, one sign test for
   each, and the secondary comparisons that are descriptive. This entry was written before a test
   circuit of the deep circuit set was scored.
-- 2026-11-12: wide circuits. From the week of 2026-11-16, a run also holds deep circuits on a
-  chain of 8 qubits, most of them qubits that no `train` circuit uses. These circuits are in
-  `test_far`. Three secondary comparisons use the wide circuits alone: `two_factor` against
-  `calibration`, `locus` against `two_factor`, and `calibration` against `medians`. They test
-  whether a model that was fitted on 4 qubits forecasts 8 qubits.
+- 2026-11-12: wide circuits. From the week of 2026-11-16, a run also holds deep circuits on the
+  suggested chain of 8 qubits of the device. This chain can hold the qubits of the `train`
+  circuits, and it holds at least 4 other qubits. These circuits are in `test_far`. Three
+  secondary comparisons use the wide circuits alone: `two_factor` against `calibration`, `locus`
+  against `two_factor`, and `calibration` against `medians`. They test whether a model that was
+  fitted on 4 qubits forecasts 8 qubits. No score of a deep run was read before this entry.
 - 2026-11-12: the model `averaged(7)` and its secondary comparison. A public archive of IBM
   calibrations from February to November 2026 shows that a value changes about one time each
   day, and that the change does not grow much with the time between two measurements. It also
-  shows that the lowest readout errors of a calibration are biased low: the next measured value
-  of the same qubit is 2 to 3 times higher. A median over a week removes a part of this noise.
-  This entry was written before a score of a deep run was read.
+  shows that the lowest readout errors of a calibration are biased low: for the lowest tenth of
+  the P(1|0) values of a calibration, the median of the next measured value of the same qubit
+  is 2.2 to 3.7 times higher. A median over a week removes a part of this noise. This entry was
+  written before a score of a deep run was read.
 - 2026-11-12: one more secondary comparison, the age of a value against its fitted factor. This
   entry was written before a fitted factor of a qubit or a pair was read.
 - 2026-11-12: the `generic` model. Its depolarizing error is the depolarizing parameter: 0.001
   for 1-qubit gates and 0.01 for 2-qubit gates. These values are average infidelities of 0.0005
-  and 0.0075.
+  and 0.0075. No score of a deep run was read before this entry.
 - 2026-11-12: the depths of the deep circuit set. From the week of 2026-11-16, `suite` takes the
   depths at which the profile with a gate factor of 2 predicts the ideal result with the
   probabilities 0.8, 0.6 and 0.4 (pairs: 0.8 and 0.55, qubits: 0.85). The runs of the week of
   2026-11-09 used the stated errors and the probabilities 0.9, 0.75 and 0.55 (pairs: 0.85 and
-  0.6, qubits: 0.9).
+  0.6, qubits: 0.9). The reason is the gate factors of the exploratory runs. No score of a deep
+  run was read before this entry.
+- 2026-11-12: clarifications. The `readout` circuit is a `train` circuit. Only the calibration C
+  is also scored as stated. The verdict of a run in a sign test is the verdict of the log score.
+  The adequacy test uses the `locus` model. The relation of the age of a value to its fitted
+  factor is a Spearman rank correlation. The summary gives each result also without the marked
+  runs. No score of a deep run was read before this entry.
