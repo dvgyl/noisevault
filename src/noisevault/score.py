@@ -504,7 +504,7 @@ def _probabilities(profile: Profile, c: MeasuredCircuit) -> np.ndarray:
         raise CountsError(
             f"circuit {c.name}: {exc.message}",
             hint="score only circuits that the profile calibrates on their qubits",
-        ) from None
+        ) from exc
     probs = np.where(probs > 0, probs, 0.0)
     probs.setflags(write=False)
     return probs

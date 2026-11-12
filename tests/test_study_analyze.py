@@ -1,22 +1,25 @@
 from __future__ import annotations
 
+import copy
 import json
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pytest
 from conftest import require
 
-from noisevault.counts import MeasuredCounts, plan, simulate
+from noisevault.counts import MeasuredCounts, PlannedCircuit, load_counts, plan, simulate
 from noisevault.errors import SourceUnavailable
 from noisevault.profile import Profile
-from noisevault.reference import MAX_QUBITS
+from noisevault.reference import MAX_QUBITS, Op
 from noisevault.suite import role, suite
 from study import analyze, models, summarize, wide
 
 RUN_AT = datetime(2026, 4, 16, 9, 30, tzinfo=UTC)
+CLIFFORD_SAMPLES = 200_000
 
 
 def _device(**readout: float) -> Profile:
@@ -66,15 +69,30 @@ class FakeSource:
         return max(older, key=lambda p: p.device.calibrated_at)
 
 
+def _probes(calibration: Profile) -> list[PlannedCircuit]:
+    """Two probe circuits on the chain of the suite: m x gates on each qubit, m = 4 and 64."""
+    chain = next(c.qubits for c in suite(calibration) if c.name == "readout")
+    return [
+        PlannedCircuit(
+            name=f"axis_d{m}",
+            qubits=chain,
+            ops=tuple(Op("x", (i,)) for _ in range(m) for i in range(len(chain))),
+        )
+        for m in (4, 64)
+    ]
+
+
 @pytest.fixture(scope="module")
 def result(tmp_path_factory: pytest.TempPathFactory) -> Iterator[dict[str, Any]]:
-    """One run simulated from C with gate factor 2, analyzed with spies on every fit."""
+    """One run simulated from C with gate factor 2, analyzed with spies on every fit. The run
+    also holds two probe circuits."""
     root = tmp_path_factory.mktemp("analysis")
     calibration = _device()
     truth = models.floored(calibration).model_copy(
         update={"unmodeled_error": {"gates": {"factor": 2.0}}}
     )
-    counts = simulate(truth, suite(calibration), shots=1000, seed=4, run_at=RUN_AT)
+    circuits = [*suite(calibration), *_probes(calibration)]
+    counts = simulate(truth, circuits, shots=1000, seed=4, run_at=RUN_AT)
     counts = counts.model_copy(
         update={
             "profile": {"id": calibration.id, "fingerprint": calibration.calibration_fingerprint}
@@ -165,8 +183,15 @@ def test_the_stated_calibration_is_ruled_out_and_the_floored_one_is_not(
 ) -> None:
     row = _row(result)
     assert row["stated"]["zero_readouts"] == 1
-    assert row["stated"]["ruled_out"]["all"] > 0
-    assert row["scores"]["calibration"]["all"]["ruled_out"] == 0
+    assert row["stated"]["zero_on_chain"] is True
+    assert row["stated"]["ruled_out"]["all4"] > 0
+    assert row["scores"]["calibration"]["all4"]["ruled_out"] == 0
+
+
+def test_a_zero_off_the_chain_is_not_a_zero_on_the_chain() -> None:
+    calibration = _device()
+    assert analyze.zero_on(calibration, [0]) is True
+    assert analyze.zero_on(calibration, [1, 2]) is False
 
 
 def test_each_model_has_a_score_or_a_reason(result: dict[str, Any]) -> None:
@@ -176,16 +201,19 @@ def test_each_model_has_a_score_or_a_reason(result: dict[str, Any]) -> None:
     assert set(row["scores"]) >= {"ideal", "generic", "medians", "stale(7)", "locus"}
     assert row["failures"]["stale(1)"].startswith("the source has no other calibration")
     assert row["failures"]["stale(180)"].startswith("the source has no other calibration")
-    assert row["failures"]["stale(30)"] == "CountsError"
-    assert row["scores"]["ideal"]["all"]["ruled_out"] > 0
+    # The reason gives the class of the error and the class of its first cause.
+    assert row["failures"]["stale(30)"] == "CountsError from MissingCalibrationError"
+    assert row["scores"]["ideal"]["all4"]["ruled_out"] > 0
 
 
-def test_stale_comparisons_use_every_circuit_and_the_cache(result: dict[str, Any]) -> None:
+def test_stale_comparisons_use_every_circuit_of_the_chain_and_the_cache(
+    result: dict[str, Any],
+) -> None:
     row = _row(result)
     groups = {t["group"] for t in row["paired"] if t["b"] == "stale(7)"}
-    assert groups == {"all"}
+    assert groups == {"all4"}
     assert {t["group"] for t in row["paired"] if t["b"] == "medians"} == {
-        "all",
+        "all4",
         "test_near",
         "test_far",
     }
@@ -250,27 +278,70 @@ def test_the_primary_comparisons_are_the_five_of_the_plan(result: dict[str, Any]
     row = _row(result)
     primary = [(t["a"], t["b"], t["group"]) for t in row["paired"] if t["primary"]]
     assert set(primary) <= set(analyze.PRIMARY)
-    assert ("two_factor", "calibration", "test") in primary
-    assert ("locus", "two_factor", "test") in primary
-    assert ("calibration", "medians", "all") in primary
+    assert ("two_factor", "calibration", "test4") in primary
+    assert ("locus", "two_factor", "test4") in primary
+    assert ("calibration", "medians", "all4") in primary
     secondary = {(t["a"], t["b"], t["group"]) for t in row["paired"] if not t["primary"]}
     assert ("two_factor", "calibration", "test_near") in secondary
-    assert row["circuits"]["test"] == row["circuits"]["test_near"] + row["circuits"]["test_far"]
+    assert row["circuits"]["test4"] == row["circuits"]["test_near"] + row["circuits"]["test_far"]
+
+
+def test_the_groups_hold_only_circuits_of_the_chain_and_no_probe(result: dict[str, Any]) -> None:
+    root = result["root"] / "campaign" / "ibm_line" / "2026-04-13"
+    counts = load_counts(root / "best-deep.counts.json")
+    named = analyze.groups(counts)
+    chain = set(analyze.chain_of(counts))
+    by_name = {c.name: c for c in counts.circuits}
+
+    expected = [
+        c.name for c in counts.circuits if set(c.qubits) <= chain and role(c.name) != "probe"
+    ]
+    assert named["all4"] == expected
+    assert named["test4"] == [n for n in expected if role(n) in ("test_near", "test_far")]
+    assert "axis_d4" in by_name and "axis_d64" in by_name
+    for names in named.values():
+        assert not {"axis_d4", "axis_d64"} & set(names)
+    assert _row(result)["circuits"] == {g: len(names) for g, names in named.items()}
+
+
+def test_a_wide_circuit_and_a_probe_circuit_are_in_no_primary_group(clifford_result) -> None:
+    (row,) = clifford_result["data"]["rows"]
+    named = clifford_result["groups"]
+    wide_names = [n for n in clifford_result["small"] if n.startswith("wide_")]
+
+    assert wide_names and named["wide"] == wide_names
+    for group in ("all4", "test4", "test_near", "test_far"):
+        assert not set(wide_names) & set(named[group])
+        assert not any(role(n) == "probe" for n in named[group])
+    for test in row["paired"]:
+        if test["primary"]:
+            assert test["group"] in ("all4", "test4")
+    assert row["wide_chain_overlap"] == len(
+        set(clifford_result["wide_qubits"]) & set(clifford_result["chain"])
+    )
 
 
 class FakeProperties:
     """IBM's properties endpoint. The device was calibrated 30 h before the run (C), 2 h before
-    the run, and 1 h before each stale time. Each value is 5 h older than its calibration."""
+    the run, and 1 h before each stale time. Each value is 5 h older than its calibration. A
+    calibration is published ``delay`` after its time."""
 
-    def __init__(self, *, without: datetime | None = None) -> None:
-        self.times = [RUN_AT - timedelta(hours=2), RUN_AT - timedelta(hours=30)]
+    def __init__(
+        self,
+        *,
+        without: datetime | None = None,
+        delay: timedelta = timedelta(0),
+        extra: Sequence[datetime] = (),
+    ) -> None:
+        self.times = [RUN_AT - timedelta(hours=2), RUN_AT - timedelta(hours=30), *extra]
         self.times += [RUN_AT - timedelta(days=d, hours=1) for d in analyze.STALE_DAYS if d < 100]
         self.times = [t for t in self.times if t != without]
+        self.delay = delay
         self.asked: list[datetime] = []
 
     def __call__(self, device: str, at: datetime) -> dict[str, Any] | None:
         self.asked.append(at)
-        older = [t for t in self.times if t < at]
+        older = [t for t in self.times if t + self.delay < at]
         if not older:
             return None
         newest = max(older)
@@ -444,10 +515,18 @@ def clifford_result(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any]:
     }
     week = root / "campaign" / "ibm_line" / "2026-04-13"
     week.mkdir(parents=True)
-    MeasuredCounts.model_validate(data).save(week / "best-deep.counts.json")
+    counts = MeasuredCounts.model_validate(data)
+    counts.save(week / "best-deep.counts.json")
     calibration.save(week / "best-deep.profile.json")
-    analysis = analyze.analyze(root / "campaign", offline=True)
-    return {"data": analysis, "small": [c.name for c in small], "large": [c.name for c in large]}
+    analysis = analyze.analyze(root / "campaign", offline=True, samples=CLIFFORD_SAMPLES)
+    return {
+        "data": analysis,
+        "small": [c.name for c in small],
+        "large": [c.name for c in large],
+        "groups": analyze.groups(counts),
+        "chain": analyze.chain_of(counts),
+        "wide_qubits": {q for c in small if c.name.startswith("wide_") for q in c.qubits},
+    }
 
 
 def test_the_clifford_block_ranks_two_factor_above_the_calibration(clifford_result) -> None:
@@ -480,6 +559,10 @@ def test_the_clifford_block_ranks_two_factor_above_the_calibration(clifford_resu
     )
     assert together["winner"] == "two_factor"
     assert together["qubit"]["log"]["better"] == "a"
+    assert 0 < together["qubit"]["sampling_ratio"] < 1
+    assert together["wrong"]["sampling_ratio"] > 0
+    assert together["success"]["verdict"] is True
+    assert block["samples"] == CLIFFORD_SAMPLES
     assert {(t["a"], t["b"]) for t in block["paired"]} == {
         ("calibration", "medians"),
         ("two_factor", "calibration"),
@@ -491,37 +574,256 @@ def test_the_groups_of_the_exact_simulator_hold_no_circuit_above_10_qubits(
 ) -> None:
     (row,) = clifford_result["data"]["rows"]
 
-    assert row["circuits"]["all"] == len(clifford_result["small"])
+    assert row["circuits"]["all4"] + row["circuits"]["wide"] == len(clifford_result["small"])
     assert "calibration" not in row["failures"]
     assert len(row["qubits"]) < 20
 
 
-def test_the_twirl_check_compares_the_two_forecasts_on_each_8_qubit_circuit(
+def test_the_twirl_check_compares_the_two_forecasts_of_each_clifford_model(
     clifford_result,
 ) -> None:
     (row,) = clifford_result["data"]["rows"]
 
     names = [name for name in clifford_result["small"] if name.startswith("wide_")]
-    assert names and [t["name"] for t in row["twirl_check"]] == names
+    models_ = [m for m in analyze.TWIRL_MODELS if m != "averaged(7)"]
+    assert models_ == ["calibration", "medians", "two_factor"]
+    assert [(t["model"], t["name"]) for t in row["twirl_check"]] == [
+        (m, n) for m in models_ for n in names
+    ]
     for check in row["twirl_check"]:
         assert check["difference"] == pytest.approx(check["stabilizer_log"] - check["exact_log"])
         assert abs(check["difference"]) < 0.05
 
 
-def test_the_summary_has_the_clifford_table_and_the_twirl_check(clifford_result) -> None:
+def test_the_summary_of_a_pilot_run_has_the_twirl_check_and_no_clifford_value(
+    clifford_result,
+) -> None:
     summary = summarize.summarize(clifford_result["data"])
 
     text = summarize.markdown(summary)
-    found = {(c["a"], c["b"]): c["total"] for c in summary["clifford"]}
-    assert found[("two_factor", "calibration")] == {"a": 1, "b": 0, "neither": 0}
-    assert found[("averaged(7)", "calibration")] == {"a": 0, "b": 0, "neither": 0}
-    assert "| two_factor | calibration | ibm_line | 1 | 0 | 0 |" in text
+    assert summary["periods"]["pilot"] == 1
+    assert all(c["device_weeks"] == [] for c in summary["clifford"])
     assert len(summary["twirl_check"]) == len(clifford_result["data"]["rows"][0]["twirl_check"])
+    assert "| ibm_line | best |" in text
     assert [(c["a"], c["b"]) for c in summary["primary"]] == [(a, b) for a, b, _ in analyze.PRIMARY]
 
 
 def test_a_run_with_no_clifford_circuit_has_an_empty_clifford_block(result: dict[str, Any]) -> None:
     row = _row(result)
 
-    assert row["clifford"] == {"circuits": [], "paired": [], "failures": {}}
+    assert row["clifford"] == {
+        "samples": wide.SAMPLES,
+        "circuits": [],
+        "paired": [],
+        "failures": {},
+    }
     assert row["twirl_check"] == []
+
+
+def test_the_probe_table_gives_the_measured_and_the_forecast_wrong_bits(
+    result: dict[str, Any],
+) -> None:
+    row = _row(result)
+    root = result["root"] / "campaign" / "ibm_line" / "2026-04-13"
+    counts = load_counts(root / "best-deep.counts.json")
+    table = row["probes"]
+    chain = analyze.chain_of(counts)
+
+    assert table["chain"] == list(chain)
+    readout = next(c for c in counts.circuits if c.name == "readout")
+    for i, base in enumerate(table["baseline"]):
+        ones = sum(n for key, n in readout.counts.items() if key[i] == "1")
+        assert base == {"qubit": chain[i], "measured": pytest.approx(ones / readout.shots)}
+    assert [c["name"] for c in table["circuits"]] == ["axis_d4", "axis_d64"]
+    for probe in table["circuits"]:
+        circuit = next(c for c in counts.circuits if c.name == probe["name"])
+        # An even number of x gates on each qubit gives the all-0 result.
+        assert probe["ideal"] == "0" * len(chain)
+        assert probe["measured"] == pytest.approx(circuit.counts.get(probe["ideal"], 0) / 1000)
+        assert set(probe["forecast"]) == {"calibration", "two_factor"}
+        for i, q in enumerate(probe["qubits"]):
+            ones = sum(n for key, n in circuit.counts.items() if key[i] == "1")
+            assert q["qubit"] == chain[i]
+            assert q["measured"] == pytest.approx(ones / 1000)
+            assert set(q["forecast"]) == {"calibration", "two_factor"}
+            assert 0 < q["forecast"]["calibration"] < q["forecast"]["two_factor"] < 1
+    deep, shallow = table["circuits"][1], table["circuits"][0]
+    assert deep["forecast"]["calibration"] < shallow["forecast"]["calibration"]
+
+
+def test_the_summary_gives_the_growth_ratio_of_each_probe_qubit(result: dict[str, Any]) -> None:
+    row = _row(result)
+
+    (found,) = summarize.probes([row])
+
+    base = {b["qubit"]: b["measured"] for b in row["probes"]["baseline"]}
+    small, large = row["probes"]["circuits"]
+    for g, s, big in zip(found["growth"], small["qubits"], large["qubits"], strict=True):
+        divisor = s["measured"] - base[s["qubit"]]
+        expected = (big["measured"] - base[s["qubit"]]) / divisor if divisor > 0 else None
+        assert g["qubit"] == s["qubit"]
+        assert g["ratio"] == (None if expected is None else pytest.approx(expected))
+    text = summarize.markdown(summarize.summarize(result["data"]))
+    assert "| axis_d64 |" in text and "Growth ratio" in text
+
+
+def test_a_growth_ratio_with_a_divisor_not_above_0_has_no_value() -> None:
+    def probe(name: str, wrong: float) -> dict[str, Any]:
+        return {"name": name, "qubits": [{"qubit": 5, "measured": wrong, "forecast": {}}]}
+
+    row = {
+        "device": "ibm_fez",
+        "chain": "best",
+        "run_at": "2026-11-17T03:00:00Z",
+        "probes": {
+            "baseline": [{"qubit": 5, "measured": 0.02}],
+            "circuits": [probe("axis_d64", 0.1), probe("axis_d8", 0.02)],
+        },
+    }
+    assert summarize.probes([row])[0]["growth"] == [{"qubit": 5, "ratio": None}]
+    row["probes"]["circuits"][1] = probe("axis_d8", 0.04)
+    assert summarize.probes([row])[0]["growth"] == [{"qubit": 5, "ratio": pytest.approx(4.0)}]
+
+
+def test_the_misfit_replaces_the_p_value_of_a_fitted_model(result: dict[str, Any]) -> None:
+    row = _row(result)
+
+    for name in analyze.FITTED:
+        assert all("p_value" not in by_group for by_group in row["scores"][name].values())
+    assert "p_value" in row["scores"]["calibration"]["all4"]
+    assert set(row["misfit"]) == {"locus", "two_factor", "calibration"}
+    for name, found in row["misfit"].items():
+        scores = row["scores"][name]["test_far"]
+        assert found["excess"] == pytest.approx(scores["excess"])
+        assert found["misfit"] == pytest.approx(scores["excess"] - scores["excess_noise_mean"])
+        assert 0 <= abs(found["rare"]) <= abs(found["excess"]) + 1e-9
+
+
+def test_the_log_verdict_is_the_winner_of_each_comparison(result: dict[str, Any]) -> None:
+    row = _row(result)
+    for test in row["paired"]:
+        expected = {"a": test["a"], "b": test["b"], "neither": None}[test["log"]["better"]]
+        assert test["winner"] == expected
+
+
+def test_the_chi_square_merges_rare_cells_and_has_k_minus_1_degrees_of_freedom() -> None:
+    table = np.array([[50.0, 30.0, 18.0, 2.0, 0.0], [45.0, 35.0, 17.0, 1.0, 2.0]])
+
+    statistic, df = analyze.chi_square(table)
+
+    merged = np.array([[50.0, 30.0, 18.0, 2.0], [45.0, 35.0, 17.0, 3.0]])
+    expected = merged.sum(axis=1, keepdims=True) * merged.sum(axis=0) / merged.sum()
+    assert df == 3
+    assert statistic == pytest.approx(((merged - expected) ** 2 / expected).sum())
+
+
+def test_the_check_of_independent_shots_uses_only_the_same_circuits(tmp_path: Path) -> None:
+    calibration = _device()
+    circuits = suite(calibration)
+    first = simulate(calibration, circuits, shots=4000, seed=1, run_at=RUN_AT)
+    second = simulate(calibration, circuits, shots=4000, seed=2, run_at=RUN_AT)
+    data = second.to_dict()
+    data["circuits"][0]["ops"] = data["circuits"][0]["ops"][:-1]
+    changed = MeasuredCounts.model_validate(data)
+    paths = {}
+    rows = []
+    for kind, counts in (("best", first), ("median", changed)):
+        path = tmp_path / f"{kind}-deep.counts.json"
+        counts.save(path)
+        paths[counts.sha256] = path
+        rows.append(
+            {"device": "ibm_line", "run_at": "2026-04-16T09:30:00Z", "chain": kind}
+            | {"counts_sha256": counts.sha256}
+        )
+
+    (check,) = analyze._shot_checks(rows, paths)
+
+    assert check["device"] == "ibm_line" and check["week"] == "2026-04-13"
+    assert check["not_the_same"] == 1
+    assert len(check["circuits"]) == len(circuits) - 1
+    statistic = sum(c["statistic"] for c in check["circuits"])
+    df = sum(c["df"] for c in check["circuits"])
+    # Two runs of one distribution give a ratio near 1.
+    assert 0.6 < statistic / df < 1.5
+    for c in check["circuits"]:
+        assert c["ratio"] == pytest.approx(c["statistic"] / c["df"])
+    assert analyze._shot_checks(rows[:1], paths) == []
+
+
+def test_the_ages_of_c_wait_for_the_publication_of_c() -> None:
+    calibration = _device()
+    counts = simulate(calibration, plan(calibration), shots=10, seed=1, run_at=RUN_AT)
+    c = calibration.device.calibrated_at
+    properties = FakeProperties(delay=timedelta(minutes=10))
+
+    found = analyze._ages(calibration, counts, None, properties)
+
+    assert properties.asked[:2] == [c + timedelta(seconds=1), c + timedelta(minutes=15)]
+    assert found["calibration"]["calibration_h"] == pytest.approx(30)
+    assert "missing" not in found
+
+
+def test_the_ages_of_c_stop_at_a_later_calibration() -> None:
+    calibration = _device()
+    counts = simulate(calibration, plan(calibration), shots=10, seed=1, run_at=RUN_AT)
+    c = calibration.device.calibrated_at
+    later = c + timedelta(minutes=20)
+    properties = FakeProperties(without=c, extra=[later])
+
+    found = analyze._ages(calibration, counts, None, properties)
+
+    waits = [c + wait for wait in analyze.PUBLICATION_WAITS]
+    assert properties.asked[:3] == waits[:3]
+    assert properties.asked[3] not in waits
+    assert found["missing"] == {"calibration": "other_calibration"}
+
+
+def test_the_ages_of_c_with_no_reply_at_all() -> None:
+    calibration = _device()
+    counts = simulate(calibration, plan(calibration), shots=10, seed=1, run_at=RUN_AT)
+
+    found = analyze._ages(calibration, counts, None, lambda device, at: None)
+
+    assert found == {"missing": {"calibration": "no_reply"}}
+
+
+def test_a_run_alone_has_no_model_with_the_factors_of_an_earlier_run(
+    result: dict[str, Any],
+) -> None:
+    assert _row(result)["before"] == {"missing": "no_earlier_run"}
+
+
+def test_the_model_before_takes_the_factors_of_the_run_5_to_9_days_before(
+    result: dict[str, Any],
+) -> None:
+    row = copy.deepcopy(_row(result))
+    path = result["root"] / "campaign" / "ibm_line" / "2026-04-13" / "best-deep.counts.json"
+    own = row["fits"]["two_factor"]
+
+    def run(days: float, chain: str = "best", **fits: Any) -> dict[str, Any]:
+        when = RUN_AT - timedelta(days=days)
+        stamp = when.isoformat().replace("+00:00", "Z")
+        return {"device": "ibm_line", "chain": chain, "run_at": stamp, "fits": fits}
+
+    same = {k: own[k] for k in ("gates", "readout")}
+    others = [run(4.9, **{"two_factor": same}), run(7, "median", **{"two_factor": same})]
+    assert analyze.earlier_run(row, [*others, row]) is None
+    week = run(7, two_factor=same)
+    older = run(9, two_factor={"gates": {"factor": 5.0}, "readout": {"factor": 1.0}})
+    assert analyze.earlier_run(row, [older, week, row]) is week
+
+    analyze._add_before(row, [older, week, row], path)
+
+    assert row["before"]["days"] == pytest.approx(7.0)
+    assert row["before"]["factors"] == {k: own[k]["factor"] for k in ("gates", "readout")}
+    with_own = _test(row, "two_factor_before", "two_factor", "test4")
+    assert with_own["log"]["outcome"] == "identical"
+    against = _test(row, "two_factor_before", "calibration", "test4")
+    first = _test(row, "two_factor", "calibration", "test4")
+    assert against["log"]["difference"] == pytest.approx(first["log"]["difference"], rel=1e-4)
+    assert "p_value" not in row["scores"]["two_factor_before"]["test4"]
+
+    row = copy.deepcopy(_row(result))
+    analyze._add_before(row, [older, row], path)
+    assert row["before"]["factors"] == {"gates": 5.0, "readout": 1.0}
+    assert _test(row, "two_factor_before", "two_factor", "test4")["winner"] == "two_factor"

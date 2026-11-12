@@ -9,11 +9,14 @@ For each run, it builds the models of ``PLAN.md``, scores each model on the ``te
 ``analysis.json`` and ``analysis.md`` to the output folder.
 
 The exact simulator scores only the circuits of 10 qubits or fewer, so each group holds only
-such circuits. The group ``all`` is all circuits of 10 qubits or fewer. The block ``clifford``
-of a row scores the Clifford circuits on 20 to 80 qubits with the stabilizer forecast of
+such circuits. The group ``all4`` is each circuit on the qubits of the chain of the run, and
+``test4`` is each test circuit among them (see :func:`groups`). No group holds a ``probe``
+circuit. The block ``probes`` gives the probe circuits alone. The block ``clifford`` of a row
+scores the Clifford circuits on 20 to 80 qubits with the stabilizer forecast of
 ``study/wide.py``. The block ``twirl_check`` compares the exact forecast and the stabilizer
-forecast of the ``calibration`` model on each 8-qubit ``wide_*`` circuit. The stabilizer
-samples take a seed from the SHA-256 of the counts and the model name, so a row repeats.
+forecast of each model of the Clifford comparisons on each 8-qubit ``wide_*`` circuit. The
+stabilizer samples take a seed from the SHA-256 of the counts and the model name, so a row
+repeats.
 
 A fitted model fits only on the ``train`` circuits. A model from a calibration is scored in the
 floored form of the plan. The row of a run also gives the ruled-out shots of the calibration as
@@ -35,7 +38,7 @@ import json
 import math
 import sys
 from collections.abc import Callable, Mapping, Sequence
-from datetime import datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -44,7 +47,7 @@ from pydantic import ValidationError
 
 import noisevault as nv
 from noisevault import wide as stabilizer
-from noisevault.counts import MeasuredCounts, load_counts
+from noisevault.counts import MeasuredCircuit, MeasuredCounts, load_counts
 from noisevault.errors import NoiseVaultError
 from noisevault.profile import Profile, iso_z
 from noisevault.reference import MAX_QUBITS, outcome_bits
@@ -52,14 +55,32 @@ from noisevault.score import Forecast, RuleTest, paired, score
 from noisevault.suite import role
 from study import ages, kept, models, wide
 from study.derive import counts_files, profile_beside
+from study.estimate import week_of
 
-FORMAT = "1"
+FORMAT = "2"
 STALE_DAYS = (1, 7, 30, 90, 180, 365)
 AVERAGED_DAYS = 7
-GROUPS = ("test", "test_near", "test_far", "wide", "all")
+GROUPS = ("test4", "test_near", "test_far", "wide", "all4")
 TEST_GROUPS = ("test_near", "test_far")
+FITTED = ("two_factor", "readout_measured", "locus")
+# The models of the misfit, on the test_far circuits of the chain.
+MISFIT_MODELS = ("locus", "two_factor", "calibration")
+# The models that give a forecast of each probe circuit.
+PROBE_MODELS = ("calibration", "two_factor")
+# The waits after the time of C at which the source is asked for the reply of C. IBM publishes a
+# calibration some minutes after its time, so an early request can give the calibration before.
+PUBLICATION_WAITS = (
+    timedelta(seconds=1),
+    timedelta(minutes=15),
+    timedelta(minutes=30),
+    timedelta(hours=1),
+    timedelta(hours=2),
+    timedelta(hours=4),
+)
 DEEP_PREFIXES = ("deep_", "pair", "qubit", "periodic_")
 CHAIN_KINDS = ("best", "median")
+# The cells of the check of independent shots have at least this many expected shots.
+CHECK_MIN_EXPECTED = 5
 STALE = tuple(f"stale({d})" for d in STALE_DAYS)
 MODELS = (
     "ideal",
@@ -75,23 +96,39 @@ MODELS = (
     "locus",
 )
 # The five primary comparisons of the plan: model a, model b and the circuit group. Two models
-# with no fitted parameter are tested on every circuit. A fitted model is tested on "test".
+# with no fitted parameter are tested on each circuit of the chain ("all4"). A fitted model is
+# tested on the test circuits of the chain ("test4").
 PRIMARY: tuple[tuple[str, str, str], ...] = (
-    ("calibration", "medians", "all"),
-    ("calibration", "stale(30)", "all"),
-    ("calibration", "symmetric", "all"),
-    ("two_factor", "calibration", "test"),
-    ("locus", "two_factor", "test"),
+    ("calibration", "medians", "all4"),
+    ("calibration", "stale(30)", "all4"),
+    ("calibration", "symmetric", "all4"),
+    ("two_factor", "calibration", "test4"),
+    ("locus", "two_factor", "test4"),
 )
-SECONDARY: tuple[tuple[str, str, str], ...] = (
-    *(("calibration", name, "all") for name in (*STALE, "bundled") if name != "stale(30)"),
-    ("readout_measured", "two_factor", "test"),
-    ("locus", "readout_measured", "test"),
-    ("averaged(7)", "calibration", "all"),
+# The two parts of primary comparison 5.
+PARTS_OF_5: tuple[tuple[str, str, str], ...] = (
+    ("readout_measured", "two_factor", "test4"),
+    ("locus", "readout_measured", "test4"),
+)
+WIDE_COMPARISONS: tuple[tuple[str, str, str], ...] = (
     ("two_factor", "calibration", "wide"),
     ("locus", "two_factor", "wide"),
     ("calibration", "medians", "wide"),
+)
+# The comparisons of the model with the factors of the run 5 to 9 days before. A second pass
+# over the runs gives them, because the model needs the fit of another run.
+BEFORE_DAYS = (5, 9)
+BEFORE_COMPARISONS: tuple[tuple[str, str, str], ...] = (
+    ("two_factor_before", "calibration", "test4"),
+    ("two_factor_before", "two_factor", "test4"),
+)
+SECONDARY: tuple[tuple[str, str, str], ...] = (
+    *(("calibration", name, "all4") for name in (*STALE, "bundled") if name != "stale(30)"),
+    *PARTS_OF_5,
+    ("averaged(7)", "calibration", "all4"),
+    *WIDE_COMPARISONS,
     *((a, b, group) for a, b, _ in PRIMARY for group in TEST_GROUPS),
+    *BEFORE_COMPARISONS,
 )
 _READOUT = ("readout", "readout_1")
 CLIFFORD_PREFIX = "clifford_"
@@ -110,6 +147,8 @@ CLIFFORD_COMPARISONS = (
     ("two_factor", "calibration"),
     ("averaged(7)", "calibration"),
 )
+# The models of the twirl check: each model that a Clifford comparison uses.
+TWIRL_MODELS = tuple(dict.fromkeys(name for pair in CLIFFORD_COMPARISONS for name in pair))
 TWIRL_SAMPLES = 1_000_000
 
 
@@ -122,17 +161,33 @@ def exact_names(counts: MeasuredCounts) -> list[str]:
     return [c.name for c in counts.circuits if len(c.qubits) <= MAX_QUBITS]
 
 
+def chain_of(counts: MeasuredCounts) -> tuple[int, ...] | None:
+    """The qubits of the ``readout`` circuit of a run: the chain of the run."""
+    return next((tuple(c.qubits) for c in counts.circuits if c.name == "readout"), None)
+
+
 def groups(counts: MeasuredCounts) -> dict[str, list[str]]:
     """The circuit names of each group that the plan scores. A group with no circuit is left out.
 
-    Each group holds only circuits of 10 qubits or fewer. ``all`` is all such circuits.
+    Each group holds only circuits of 10 qubits or fewer, and no ``probe`` circuit. ``all4`` is
+    each circuit whose qubits are all qubits of the chain, and ``test4`` is each test circuit
+    among them. ``test_near`` and ``test_far`` also hold only circuits of the chain. ``wide``
+    holds the ``wide_*`` circuits.
     """
-    names = exact_names(counts)
-    found = {g: [n for n in names if role(n) == g] for g in TEST_GROUPS}
-    found["test"] = [n for n in names if role(n) in TEST_GROUPS]
+    chain = set(chain_of(counts) or ())
+    by_name = {c.name: c for c in counts.circuits}
+    names = [n for n in exact_names(counts) if role(n) != "probe"]
+    on_chain = [n for n in names if chain and set(by_name[n].qubits) <= chain]
+    found = {g: [n for n in on_chain if role(n) == g] for g in TEST_GROUPS}
+    found["test4"] = [n for n in on_chain if role(n) in TEST_GROUPS]
     found["wide"] = [n for n in names if n.startswith("wide_")]
-    found["all"] = names
+    found["all4"] = on_chain
     return {g: found[g] for g in GROUPS if found[g]}
+
+
+def scored_names(named: Mapping[str, Sequence[str]]) -> list[str]:
+    """Each circuit of a group, in the order of the groups."""
+    return list(dict.fromkeys(n for names in named.values() for n in names))
 
 
 def chain_kind(path: Path) -> str | None:
@@ -195,7 +250,11 @@ def build(
             for days in range(AVERAGED_DAYS)
         ]
         found = [p for p in pulls if p is not None]
-        return models.floored(models.averaged(calibration, found)) if found else None
+        if not found:
+            return None
+        different = {p.device.calibrated_at or p.calibration_fingerprint for p in found}
+        fits["averaged(7)"] = {"pulls": len(found), "calibrations": len(different)}
+        return models.floored(models.averaged(calibration, found))
 
     def measured() -> Profile:
         rates = models.floored(models.readout_measured(calibration, train))
@@ -249,27 +308,35 @@ def analyze_run(
     offline: bool,
     pull: models.Pull | None = None,
     properties: ages.Properties | None = None,
+    samples: int = wide.SAMPLES,
 ) -> dict[str, Any] | None:
-    """The derived row of one counts file, or None when the file is not a run of the deep set."""
+    """The derived row of one counts file, or None when the file is not a run of the deep set.
+
+    ``samples`` is the number of stabilizer samples of each Clifford forecast.
+    """
     counts = load_counts(path)
     if not is_deep_run(counts):
         return None
     calibration = nv.load(str(profile_beside(path)))
     built, missing, fits = build(calibration, counts, cache=cache, offline=offline, pull=pull)
     named = groups(counts)
+    every = scored_names(named)
     forecasts: dict[str, dict[str, Forecast]] = {}
+    full: dict[str, Forecast] = {}
     done: dict[str, Forecast] = {}
 
-    def scored(profile: Profile, group: str) -> Forecast:
+    def scored(profile: Profile, group: str | None) -> Forecast:
         """Each circuit is simulated one time for a profile, and each group selects from it."""
         if profile.fingerprint not in done:
-            done[profile.fingerprint] = score(profile, counts, circuits=named["all"])
-        return done[profile.fingerprint].select(named[group])
+            done[profile.fingerprint] = score(profile, counts, circuits=every)
+        found = done[profile.fingerprint]
+        return found if group is None else found.select(named[group])
 
     for name in MODELS:
-        if name not in built:
+        if name not in built or not every:
             continue
         try:
+            full[name] = scored(built[name], None)
             forecasts[name] = {g: scored(built[name], g) for g in named}
         except NoiseVaultError as exc:
             missing[name] = _reason(exc)
@@ -282,6 +349,7 @@ def analyze_run(
     narrow = tuple(
         dict.fromkeys(q for c in counts.circuits if len(c.qubits) <= MAX_QUBITS for q in c.qubits)
     )
+    chain = chain_of(counts)
     when = calibration.device.calibrated_at
     age = None if when is None else (counts.run_at - when).total_seconds() / 3600
     shots = {c.shots for c in counts.circuits}
@@ -302,20 +370,31 @@ def analyze_run(
         "ages": {} if offline else _ages(calibration, counts, cache, properties, narrow),
         "stated": {
             "zero_readouts": models.zero_readouts(calibration),
+            "zero_on_chain": None if chain is None else zero_on(calibration, chain),
             "ruled_out": {g: f.ruled_out for g, f in stated_forecasts.items()},
             "log_score": {g: _finite(f.log_score) for g, f in stated_forecasts.items()},
         },
+        "wide_chain_overlap": _overlap(counts, chain),
         "scores": {
-            name: {g: _forecast(f) for g, f in by_group.items()}
+            name: {g: _forecast(f, fitted=name in FITTED) for g, f in by_group.items()}
             for name, by_group in forecasts.items()
         },
         "paired": _comparisons(forecasts),
-        "deep": _deep(counts, forecasts),
-        "clifford": _clifford(counts, built),
+        "misfit": _misfit(forecasts),
+        "deep": _deep(counts, full),
+        "probes": _probes(counts, built, chain, missing),
+        "clifford": _clifford(counts, built, samples),
         "twirl_check": _twirl_check(counts, built, forecasts),
         "fits": fits,
         "failures": dict(sorted(missing.items(), key=lambda item: _order(item[0]))),
     }
+
+
+def zero_on(calibration: Profile, qubits: Sequence[int]) -> bool:
+    """True when the calibration as stated has a readout probability of exactly 0 on one of
+    ``qubits``."""
+    stated = calibration.uncorrected().table
+    return any(value == 0 for q in qubits for value in stated.qubit(q).readout or ())
 
 
 def analyze(
@@ -326,6 +405,7 @@ def analyze(
     pull: models.Pull | None = None,
     properties: ages.Properties | None = None,
     rows_folder: Path | None = None,
+    samples: int = wide.SAMPLES,
 ) -> dict[str, Any]:
     """The analysis of each run of the deep circuit set below ``root``.
 
@@ -333,14 +413,27 @@ def analyze(
     same run again. A counts file with the same counts as an earlier file, for example the same
     run saved as ``.counts.json`` and ``.counts.json.gz``, is a duplicate. Only the first file
     gives a row, and ``duplicates`` gives the number of the other files.
+
+    A second pass opens the two counts files of each device-week and gives the check of
+    independent shots (see :func:`shot_check`).
     """
     rows, failures, skipped, duplicates = [], [], 0, 0
+    paths: dict[str, Path] = {}
     seen: set[str] = set()
     kind = "analysis-offline" if offline else "analysis"
+    if samples != wide.SAMPLES:
+        kind += f"-{samples}"
     for path in counts_files(root):
 
         def run(path: Path = path) -> dict[str, Any] | None:
-            return analyze_run(path, cache=cache, offline=offline, pull=pull, properties=properties)
+            return analyze_run(
+                path,
+                cache=cache,
+                offline=offline,
+                pull=pull,
+                properties=properties,
+                samples=samples,
+            )
 
         try:
             digest = load_counts(path).sha256
@@ -360,14 +453,174 @@ def analyze(
             skipped += 1
         else:
             rows.append(row)
+            paths[row["counts_sha256"]] = path
     rows.sort(key=lambda r: (r["device"], r["run_at"], r["chain"] or "", r["counts_sha256"]))
+    for row in rows:
+        _add_before(row, rows, paths[row["counts_sha256"]])
     return {
         "nv_study_analysis": FORMAT,
         "rows": rows,
         "skipped": skipped,
         "duplicates": duplicates,
         "failures": failures,
+        "shot_checks": _shot_checks(rows, paths),
     }
+
+
+def device_week(row: Mapping[str, Any]) -> tuple[str, date]:
+    """The device and the Monday of the ISO week of the run time in UTC."""
+    return row["device"], week_of(_run_time(row).date())
+
+
+def earlier_run(
+    row: Mapping[str, Any], rows: Sequence[Mapping[str, Any]]
+) -> Mapping[str, Any] | None:
+    """The newest run of the same device and the same chain kind from ``BEFORE_DAYS`` before
+    ``row``, or None when there is no such run."""
+    when = _run_time(row)
+    low, high = (timedelta(days=d) for d in BEFORE_DAYS)
+    found = [
+        r
+        for r in rows
+        if r["device"] == row["device"]
+        and r["chain"] == row["chain"]
+        and low <= when - _run_time(r) <= high
+    ]
+    return max(found, key=_run_time, default=None)
+
+
+def _add_before(row: dict[str, Any], rows: Sequence[Mapping[str, Any]], path: Path) -> None:
+    """Add the model ``two_factor_before`` to ``row``: the gate factor and the readout factor of
+    ``two_factor`` in the earlier run (see :func:`earlier_run`), on the calibration C of this
+    run, with the zero floor after. ``row["before"]`` gives the earlier run and the factors, or
+    the reason for no model. The comparisons of ``BEFORE_COMPARISONS`` go to ``row["paired"]``.
+    """
+    earlier = earlier_run(row, rows)
+    if earlier is None:
+        row["before"] = {"missing": "no_earlier_run"}
+        return
+    fitted = (earlier.get("fits") or {}).get("two_factor")
+    own = (row.get("fits") or {}).get("two_factor")
+    if not fitted or not own:
+        row["before"] = {"missing": "no_two_factor_fit"}
+        return
+    factors = {k: (fitted.get(k) or {}).get("factor") for k in ("gates", "readout")}
+    row["before"] = {
+        "run_at": earlier["run_at"],
+        "days": (_run_time(row) - _run_time(earlier)).total_seconds() / 86400,
+        "factors": factors,
+    }
+    try:
+        counts = load_counts(path)
+        calibration = nv.load(str(profile_beside(path)))
+        named = groups(counts)
+        if "test4" not in named:
+            row["before"]["missing"] = "no_test4_circuits"
+            return
+        mine = {k: (own.get(k) or {}).get("factor") for k in ("gates", "readout")}
+        built = {
+            "two_factor_before": models.with_factors(calibration, *factors.values()),
+            "two_factor": models.with_factors(calibration, *mine.values()),
+            "calibration": calibration,
+        }
+        forecasts = {
+            name: {"test4": score(models.floored(profile), counts, circuits=named["test4"])}
+            for name, profile in built.items()
+        }
+    except NoiseVaultError as exc:
+        row["before"]["missing"] = _reason(exc)
+        return
+    row["scores"]["two_factor_before"] = {
+        "test4": _forecast(forecasts["two_factor_before"]["test4"], fitted=True)
+    }
+    row["paired"] += _comparisons(forecasts, BEFORE_COMPARISONS)
+
+
+def _run_time(row: Mapping[str, Any]) -> datetime:
+    return datetime.fromisoformat(str(row["run_at"]).replace("Z", "+00:00")).astimezone(UTC)
+
+
+def _shot_checks(rows: Sequence[dict[str, Any]], paths: Mapping[str, Path]) -> list[dict[str, Any]]:
+    """The check of independent shots of each device-week with one run on each chain kind."""
+    weeks: dict[tuple[str, date], list[dict[str, Any]]] = {}
+    for row in rows:
+        weeks.setdefault(device_week(row), []).append(row)
+    checks = []
+    for (device, week), found in sorted(weeks.items()):
+        kinds = sorted(r["chain"] or "" for r in found)
+        if kinds != sorted(CHAIN_KINDS):
+            continue
+        first, second = (load_counts(paths[r["counts_sha256"]]) for r in found)
+        try:
+            check = shot_check(first, second)
+        except NoiseVaultError as exc:
+            check = {"circuits": [], "not_the_same": None, "reason": _reason(exc)}
+        checks.append({"device": device, "week": week.isoformat(), **check})
+    return checks
+
+
+def shot_check(first: MeasuredCounts, second: MeasuredCounts) -> dict[str, Any]:
+    """The Pearson chi-square statistic of the 2 by K table of each circuit that both runs hold.
+
+    Two circuits are the same when they have the same name, the same qubits and the same ops.
+    On a Clifford circuit, a cell is a number of wrong bits. On another circuit, a cell is an
+    outcome. The cells with fewer than ``CHECK_MIN_EXPECTED`` expected shots in a run, from the
+    pooled counts, become one cell. The result gives the statistic, its degrees of freedom K - 1
+    and their ratio for each circuit, and the number of circuits with one name in both runs that
+    are not the same.
+    """
+    others = {c.name: c for c in second.circuits}
+    circuits, different = [], 0
+    for a in first.circuits:
+        b = others.get(a.name)
+        if b is None:
+            continue
+        if (a.qubits, a.ops) != (b.qubits, b.ops):
+            different += 1
+            continue
+        if a.name.startswith(CLIFFORD_PREFIX):
+            ideal = stabilizer.ideal_bits(a)
+            table = np.array([_wrong_cells(c, ideal) for c in (a, b)])
+        else:
+            keys = sorted(set(a.counts) | set(b.counts))
+            table = np.array([[c.counts.get(k, 0) for k in keys] for c in (a, b)], dtype=float)
+        statistic, df = chi_square(table)
+        circuits.append(
+            {
+                "name": a.name,
+                "statistic": statistic,
+                "df": df,
+                "ratio": None if df == 0 else statistic / df,
+            }
+        )
+    return {"circuits": circuits, "not_the_same": different}
+
+
+def chi_square(table: np.ndarray) -> tuple[float, int]:
+    """The Pearson chi-square statistic of a 2 by K table and its degrees of freedom.
+
+    The columns with fewer than ``CHECK_MIN_EXPECTED`` expected shots in a row become one column
+    first. The expected shots of a cell are the shots of its row times the pooled fraction of its
+    column.
+    """
+    table = np.asarray(table, dtype=float)
+    table = table[:, table.sum(axis=0) > 0]
+    rows = table.sum(axis=1, keepdims=True)
+    expected = rows * table.sum(axis=0) / table.sum()
+    rare = (expected < CHECK_MIN_EXPECTED).any(axis=0)
+    if rare.any():
+        table = np.column_stack([table[:, ~rare], table[:, rare].sum(axis=1)])
+    if table.shape[1] < 2:
+        return 0.0, 0
+    expected = rows * table.sum(axis=0) / table.sum()
+    return float(((table - expected) ** 2 / expected).sum()), table.shape[1] - 1
+
+
+def _wrong_cells(circuit: MeasuredCircuit, ideal: str) -> np.ndarray:
+    """The shots of each number of wrong bits, 0 to the number of qubits."""
+    keys, times = wide._rows(circuit)
+    wrong = (keys != np.array([bit == "1" for bit in ideal])).sum(axis=1)
+    return np.bincount(wrong, weights=times, minlength=len(ideal) + 1)
 
 
 def markdown(data: dict[str, Any]) -> str:
@@ -379,17 +632,18 @@ def markdown(data: dict[str, Any]) -> str:
         for name, by_group in r["scores"].items():
             cells = [_score(by_group.get(g)) for g in GROUPS]
             lines.append(f"| {name} | " + " | ".join(cells) + " |")
-        ruled = r["stated"]["ruled_out"].get("all", 0)
+        ruled = r["stated"]["ruled_out"].get("all4", 0)
+        on_chain = {True: "yes", False: "no", None: "-"}[r["stated"]["zero_on_chain"]]
         lines += [
             "",
             f"Calibration as stated: {r['stated']['zero_readouts']} readout probabilities of 0,"
-            f" {ruled} ruled-out shots.",
+            f" a 0 on the chain: {on_chain}, {ruled} ruled-out shots on the chain.",
         ]
         for name, reason in r["failures"].items():
             lines.append(f"No {name}: {reason}")
         lines.append("")
     for title, primary in (("Primary comparisons", True), ("Secondary comparisons", False)):
-        lines += [f"## {title}", ""]
+        lines += [f"## {title}", "", "Better is the verdict of the log score.", ""]
         lines.append("| Device | Chain | Run | A | B | Group | Better | z | p |")
         lines.append("| --- | --- | --- | --- | --- | --- | --- | --- | --- |")
         for r in data["rows"]:
@@ -429,11 +683,23 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--rows", type=Path, default=None, help="a folder that keeps the row of each run"
     )
+    parser.add_argument(
+        "--samples",
+        type=int,
+        default=wide.SAMPLES,
+        help="the stabilizer samples of each Clifford forecast",
+    )
     args = parser.parse_args(argv)
     if not args.root.is_dir():
         print(f"error: {args.root} is not a folder", file=sys.stderr)
         return 2
-    data = analyze(args.root, cache=args.cache, offline=args.offline, rows_folder=args.rows)
+    data = analyze(
+        args.root,
+        cache=args.cache,
+        offline=args.offline,
+        rows_folder=args.rows,
+        samples=args.samples,
+    )
     write(data, args.out)
     print(f"wrote {len(data['rows'])} runs and {len(data['failures'])} failures to {args.out}")
     return 0 if data["rows"] and not data["failures"] else 1
@@ -478,10 +744,12 @@ def _ages(
     of the values of ``qubits`` at the run time, in hours. IBM dates each value, so only an IBM
     device has ages. Without ``qubits``, the ages are of every qubit that ``counts`` measures.
 
-    The entry ``"calibration"`` comes from the reply of C itself: the newest reply at or before
-    the time of C. Its ``last_update_date`` must be the time of C. When it is not, or when the
-    source gives no reply, the result has no entry ``"calibration"``, and ``"missing"`` gives
-    the reason: ``undated``, ``no_reply``, ``source_failed`` or ``other_calibration``.
+    The entry ``"calibration"`` comes from the reply of C itself, whose ``last_update_date`` is
+    the time of C. IBM publishes a calibration some minutes after that time, so the source is
+    asked at the time of C plus each wait of ``PUBLICATION_WAITS``, in that order, and the first
+    reply of C is used. A reply with a later calibration time stops the search. When no reply
+    is of C, the result has no entry ``"calibration"``, and ``"missing"`` gives the reason:
+    ``undated``, ``no_reply`` (no reply at all), ``source_failed`` or ``other_calibration``.
     """
     if calibration.device.vendor != "ibm":
         return {}
@@ -506,18 +774,25 @@ def _ages(
     if when is None:
         missing["calibration"] = "undated"
     else:
-        try:
-            # The source gives the newest reply before the requested time.
-            reply = fetch(device, when + timedelta(seconds=1))
-        except NoiseVaultError:
-            missing["calibration"] = "source_failed"
-        else:
+        reason = "no_reply"
+        for wait in PUBLICATION_WAITS:
+            try:
+                # The source gives the newest published reply before the requested time.
+                reply = fetch(device, when + wait)
+            except NoiseVaultError:
+                reason = "source_failed"
+                break
             if reply is None:
-                missing["calibration"] = "no_reply"
-            elif ages.calibration_time(reply) != when:
-                missing["calibration"] = "other_calibration"
-            else:
+                continue
+            published = ages.calibration_time(reply)
+            if published == when:
                 found["calibration"] = entry(reply)
+                break
+            reason = "other_calibration"
+            if published is not None and published > when:
+                break
+        if "calibration" not in found:
+            missing["calibration"] = reason
     for name, days in zip(STALE, STALE_DAYS, strict=True):
         try:
             reply = fetch(device, counts.run_at - timedelta(days=days))
@@ -530,16 +805,145 @@ def _ages(
     return found
 
 
-def _forecast(forecast: Forecast) -> dict[str, Any]:
+def _forecast(forecast: Forecast, *, fitted: bool) -> dict[str, Any]:
+    """The scores of one model on one group. A fitted model has no p-value of its excess, because
+    the reference of ``nv score`` does not hold the error of the fit."""
     data = forecast.to_dict()
-    for key in ("circuits", "counts"):
+    for key in ("circuits", "counts", *(("p_value",) if fitted else ())):
         data.pop(key)
     return data
 
 
-def _comparisons(forecasts: dict[str, dict[str, Forecast]]) -> list[dict[str, Any]]:
+def _misfit(forecasts: Mapping[str, Mapping[str, Forecast]]) -> dict[str, Any]:
+    """For each model of ``MISFIT_MODELS``, the size of its misfit on the ``test_far`` circuits
+    of the chain, per shot.
+
+    ``misfit`` is the excess minus the mean excess of counts drawn from the model. ``rare`` is
+    the part of the excess from the outcomes that the model expects fewer than 1 time in the
+    shots of their circuit. Both values are None when the model rules out a shot.
+    """
+    found: dict[str, Any] = {}
+    for name in MISFIT_MODELS:
+        forecast = forecasts.get(name, {}).get("test_far")
+        if forecast is None:
+            continue
+        names = {c.name for c in forecast.circuits}
+        measured = {c.name: c.vector() for c in forecast.counts.circuits if c.name in names}
+        rare = 0.0
+        for c in forecast.circuits:
+            n, p = measured[c.name], c.probabilities
+            chosen = (n > 0) & (c.shots * p < 1) & (p > 0)
+            rare += float(n[chosen] @ (np.log(n[chosen]) - math.log(c.shots) - np.log(p[chosen])))
+        excess = _finite(forecast.excess)
+        found[name] = {
+            "excess": excess,
+            "noise_mean": forecast.excess_noise_mean,
+            "misfit": None if excess is None else excess - forecast.excess_noise_mean,
+            "rare": None if excess is None else rare / forecast.shots,
+        }
+    return found
+
+
+def _overlap(counts: MeasuredCounts, chain: Sequence[int] | None) -> int | None:
+    """The number of qubits of the ``wide_*`` circuits that are in the chain of the run."""
+    wide_qubits = {q for c in counts.circuits if c.name.startswith("wide_") for q in c.qubits}
+    if not wide_qubits or chain is None:
+        return None
+    return len(wide_qubits & set(chain))
+
+
+def _probes(
+    counts: MeasuredCounts,
+    built: Mapping[str, Profile],
+    chain: Sequence[int] | None,
+    missing: dict[str, str],
+) -> dict[str, Any]:
+    """The table of the ``probe`` circuits of a run.
+
+    ``baseline`` gives the measured fraction of wrong bits of each chain qubit in the
+    ``readout`` circuit. For each probe circuit, the table gives the ideal bit string (the most
+    probable result of the ``ideal`` model), the measured and the forecast probability of it,
+    and for each qubit the measured and the forecast fraction of wrong bits. The forecasts come
+    from each model of ``PROBE_MODELS``.
+    """
+    by_name = {c.name: c for c in counts.circuits}
+    baseline = []
+    if "readout" in by_name:
+        readout = by_name["readout"]
+        wrong = _wrong_fractions(readout, "0" * len(readout.qubits))
+        baseline = [{"qubit": q, "measured": w} for q, w in zip(readout.qubits, wrong, strict=True)]
+    probes = [c for c in counts.circuits if role(c.name) == "probe" and len(c.qubits) <= MAX_QUBITS]
+    result: dict[str, Any] = {"chain": None if chain is None else list(chain)}
+    result |= {"baseline": baseline, "circuits": []}
+    if not probes or "ideal" not in built:
+        return result
+    names = [c.name for c in probes]
+    probabilities: dict[str, dict[str, np.ndarray]] = {}
+    for name in ("ideal", *PROBE_MODELS):
+        if name not in built:
+            continue
+        try:
+            found = score(built[name], counts, circuits=names)
+        except NoiseVaultError as exc:
+            missing[f"{name} (probe)"] = _reason(exc)
+            continue
+        probabilities[name] = {c.name: c.probabilities for c in found.circuits}
+    if "ideal" not in probabilities:
+        return result
+    for c in probes:
+        width = len(c.qubits)
+        index = int(np.argmax(probabilities["ideal"][c.name]))
+        bits = outcome_bits(index, width)
+        wrong = _wrong_fractions(c, bits)
+        models_ = {m: p[c.name] for m, p in probabilities.items() if m != "ideal"}
+        forecast_wrong = {m: _forecast_wrong(p, bits) for m, p in models_.items()}
+        result["circuits"].append(
+            {
+                "name": c.name,
+                "ideal": bits,
+                "measured": c.counts.get(bits, 0) / c.shots,
+                "forecast": {m: float(p[index]) for m, p in models_.items()},
+                "qubits": [
+                    {
+                        "qubit": q,
+                        "measured": wrong[i],
+                        "forecast": {m: values[i] for m, values in forecast_wrong.items()},
+                    }
+                    for i, q in enumerate(c.qubits)
+                ],
+            }
+        )
+    return result
+
+
+def _wrong_fractions(circuit: MeasuredCircuit, ideal: str) -> list[float]:
+    """The measured fraction of wrong bits of each circuit qubit."""
+    keys, times = wide._rows(circuit)
+    wrong = keys != np.array([bit == "1" for bit in ideal])
+    return [float(v) for v in times @ wrong / circuit.shots]
+
+
+def _forecast_wrong(probabilities: np.ndarray, ideal: str) -> list[float]:
+    """The forecast fraction of wrong bits of each circuit qubit. Outcome index i has the bits of
+    ``outcome_bits(i, n)``, circuit qubit 0 first."""
+    width = len(ideal)
+    index = np.arange(2**width)
+    found = []
+    for i, bit in enumerate(ideal):
+        ones = (index >> (width - 1 - i)) & 1
+        found.append(float(probabilities[ones != int(bit)].sum()))
+    return found
+
+
+def _comparisons(
+    forecasts: Mapping[str, Mapping[str, Forecast]],
+    secondary: Sequence[tuple[str, str, str]] | None = None,
+) -> list[dict[str, Any]]:
+    """The paired tests of the primary and the secondary comparisons. With ``secondary``, only
+    the tests of those secondary comparisons."""
     tests = []
-    for primary, comparisons in ((True, PRIMARY), (False, SECONDARY)):
+    chosen = [(True, PRIMARY), (False, SECONDARY)] if secondary is None else [(False, secondary)]
+    for primary, comparisons in chosen:
         for a, b, group in comparisons:
             if a not in forecasts or b not in forecasts or group not in forecasts[a]:
                 continue
@@ -551,7 +955,8 @@ def _comparisons(forecasts: dict[str, dict[str, Forecast]]) -> list[dict[str, An
                     "b": b,
                     "group": group,
                     "primary": primary,
-                    "winner": {"a": a, "b": b, "neither": None}[test.better],
+                    # The plan takes the verdict of the log score, in each output.
+                    "winner": {"a": a, "b": b, "neither": None}[test.log.better],
                     "level": data["level"],
                     "log": data["log"],
                     "quadratic": data["quadratic"],
@@ -561,20 +966,17 @@ def _comparisons(forecasts: dict[str, dict[str, Forecast]]) -> list[dict[str, An
     return tests
 
 
-def _deep(
-    counts: MeasuredCounts, forecasts: dict[str, dict[str, Forecast]]
-) -> list[dict[str, Any]]:
+def _deep(counts: MeasuredCounts, forecasts: Mapping[str, Forecast]) -> list[dict[str, Any]]:
     """For each deep circuit, the ideal result, its measured frequency and its probability in
     each model. The ideal result is the most probable result under the ``ideal`` model."""
     if "ideal" not in forecasts:
         return []
     by_model = {
-        name: {c.name: c.probabilities for c in by_group["all"].circuits}
-        for name, by_group in forecasts.items()
+        name: {c.name: c.probabilities for c in found.circuits} for name, found in forecasts.items()
     }
     rows = []
     for c in counts.circuits:
-        if not c.name.startswith(DEEP_PREFIXES):
+        if not c.name.startswith(DEEP_PREFIXES) or c.name not in by_model["ideal"]:
             continue
         index = int(np.argmax(by_model["ideal"][c.name]))
         bits = outcome_bits(index, len(c.qubits))
@@ -590,22 +992,29 @@ def _deep(
     return rows
 
 
-def _clifford(counts: MeasuredCounts, built: dict[str, Profile]) -> dict[str, Any]:
+def _clifford(counts: MeasuredCounts, built: dict[str, Profile], samples: int) -> dict[str, Any]:
     """The stabilizer scores of the models on each Clifford circuit, and the paired tests of
-    ``CLIFFORD_COMPARISONS`` on each circuit and on all of them together."""
+    ``CLIFFORD_COMPARISONS`` on each circuit and on all of them together.
+
+    Each forecast uses ``samples`` stabilizer samples. The tests of the qubit score and of the
+    log rule of the wrong-bit score hold the sampling variance of both forecasts, and
+    ``sampling_ratio`` gives the sampling variance divided by the shot variance."""
     circuits = [c for c in counts.circuits if c.name.startswith(CLIFFORD_PREFIX)]
     found: dict[str, list[wide.Forecast]] = {}
     failures: dict[str, str] = {}
     if not circuits:
-        return {"circuits": [], "paired": [], "failures": failures}
+        return {"samples": samples, "circuits": [], "paired": [], "failures": failures}
     if not stabilizer.has_stim():
-        return {"circuits": [], "paired": [], "failures": {"stabilizer": "ImportError"}}
+        failures = {"stabilizer": "ImportError"}
+        return {"samples": samples, "circuits": [], "paired": [], "failures": failures}
     for name in CLIFFORD_MODELS:
         if name not in built:
             continue
         seed = wide.seed_of(counts.sha256, name)
         try:
-            found[name] = [wide.forecast(built[name], c, seed=seed) for c in circuits]
+            found[name] = [
+                wide.forecast(built[name], c, samples=samples, seed=seed) for c in circuits
+            ]
         except Exception as exc:
             # A model that cannot simulate a circuit has no score, as the plan states.
             failures[name] = _reason(exc)
@@ -649,36 +1058,59 @@ def _clifford(counts: MeasuredCounts, built: dict[str, Profile]) -> dict[str, An
                     "success": {
                         "log": _rule(result.success_log),
                         "quadratic": _rule(result.success_quadratic),
+                        "verdict": result.success_verdict,
                     },
                     "wrong": {
                         "log": _rule(result.wrong_log),
                         "quadratic": _rule(result.wrong_quadratic),
+                        "sampling_ratio": result.wrong_sampling.ratio,
                     },
-                    "qubit": {"log": _rule(result.qubit_log)},
+                    "qubit": {
+                        "log": _rule(result.qubit_log),
+                        "sampling_ratio": result.qubit_sampling.ratio,
+                    },
                 }
             )
-    return {"circuits": rows, "paired": tests, "failures": failures}
+    return {"samples": samples, "circuits": rows, "paired": tests, "failures": failures}
 
 
 def _twirl_check(
     counts: MeasuredCounts, built: dict[str, Profile], forecasts: dict[str, dict[str, Forecast]]
 ) -> list[dict[str, Any]]:
-    """For each ``wide_*`` circuit, the log score of ``calibration`` from the exact simulator
-    and from ``TWIRL_SAMPLES`` stabilizer samples with add-half smoothing over the outcomes."""
-    exact = forecasts.get("calibration", {}).get("wide")
-    if exact is None:
-        return []
+    """For each model of ``TWIRL_MODELS`` and each ``wide_*`` circuit, the log score from the
+    exact simulator and from ``TWIRL_SAMPLES`` stabilizer samples with add-half smoothing over
+    the outcomes."""
     by_name = {c.name: c for c in counts.circuits}
+    rows = []
+    for model in TWIRL_MODELS:
+        exact = forecasts.get(model, {}).get("wide")
+        if exact is None:
+            continue
+        rows += _twirl_rows(counts, by_name, built[model], model, exact)
+    return rows
+
+
+def _twirl_rows(
+    counts: MeasuredCounts,
+    by_name: Mapping[str, MeasuredCircuit],
+    profile: Profile,
+    model: str,
+    exact: Forecast,
+) -> list[dict[str, Any]]:
     rows = []
     for found in exact.circuits:
         c = by_name[found.name]
-        row: dict[str, Any] = {"name": c.name, "exact_log": _finite(found.log_score)}
+        row: dict[str, Any] = {
+            "model": model,
+            "name": c.name,
+            "exact_log": _finite(found.log_score),
+        }
         try:
             bits = stabilizer.sample(
-                built["calibration"],
+                profile,
                 c,
                 TWIRL_SAMPLES,
-                seed=wide.seed_of(counts.sha256, "calibration twirl"),
+                seed=wide.seed_of(counts.sha256, f"{model} twirl"),
             )
         except Exception as exc:
             # A circuit with a gate outside the Clifford table has no stabilizer forecast.
@@ -716,9 +1148,15 @@ def _reason(exc: Exception) -> str:
     The reason holds no message text and no input value, because a message can hold a file
     name, a job id or a calibration value. Of the path of a failed field, only the first part
     is kept, and only when it is a field of the profile format. A later part can be a key that
-    the user wrote, such as a key of ``provenance.extra``.
+    the user wrote, such as a key of ``provenance.extra``. When ``exc`` has a cause, the reason
+    also gives the type of the first cause, such as "CountsError from MissingCalibrationError".
     """
     name = type(exc).__name__
+    cause = exc.__cause__
+    while cause is not None and cause.__cause__ is not None:
+        cause = cause.__cause__
+    if cause is not None:
+        name = f"{name} from {type(cause).__name__}"
     if not isinstance(exc, ValidationError):
         return name
     fields = []
