@@ -114,7 +114,13 @@ def test_the_summary_of_pilot_runs_only_has_no_test_and_an_exploratory_table() -
 
     summary = summarize.summarize({"rows": rows})
 
-    assert summary["periods"] == {"pilot": 11, "counted": 0, "late": 0, "secondary": 0}
+    assert summary["periods"] == {
+        "pilot": 11,
+        "counted": 0,
+        "late": 0,
+        "secondary": 0,
+        "trial": 0,
+    }
     assert summary["primary_note"] == summarize.NO_ESTIMATE
     pilot = summary["exploratory"]["pilot"][0]
     assert pilot["by_device"]["ibm_fez"] == {"a": 6, "b": 0, "neither": 0}
@@ -136,6 +142,34 @@ def test_a_late_run_is_only_in_the_exploratory_table() -> None:
     assert summary["exploratory"]["late"][0]["total"] == {"a": 1, "b": 0, "neither": 0}
     assert all(c["verdicts"]["total"]["a"] == 0 for c in summary["primary"])
     assert "## Late runs, exploratory" in summarize.markdown(summary)
+
+
+def test_a_trial_run_is_in_no_estimate_and_has_an_exploratory_table() -> None:
+    rows, _ = _study()
+    before = summarize.summarize({"rows": rows})
+    # Trial runs in complete device-weeks, and a trial run alone in a week with no normal run.
+    trials = [
+        _row(r["device"], r["run_at"], r["chain"], better={PRIMARY[0]: "b"}, trial=True)
+        for r in rows[:3]
+    ]
+    trials.append(_row("ibm_fez", FIRST + timedelta(days=28), "best", trial=True))
+    for row in trials:
+        for test in row["paired"]:
+            test["log"]["difference"] = 5.0
+
+    summary = summarize.summarize({"rows": [*rows, *trials]})
+
+    assert summarize.period(trials[0]) == "trial"
+    assert summary["periods"]["trial"] == 4 and summary["periods"]["counted"] == 24
+    for found, old in zip(summary["primary"], before["primary"], strict=True):
+        assert found["estimate"] == old["estimate"]
+        assert found["estimate"]["incomplete"] == {}
+        assert found["verdicts"] == old["verdicts"]
+    trial = summary["exploratory"]["trial"][0]
+    assert trial["total"] == {"a": 0, "b": 3, "neither": 1}
+    text = summarize.markdown(summary)
+    assert "## Trial runs, exploratory" in text
+    assert "4 trial runs" in text
 
 
 def _study(seed: int = 3, weeks: int = 4) -> tuple[list[dict[str, Any]], dict[str, Any]]:

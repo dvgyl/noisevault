@@ -197,6 +197,13 @@ def chain_kind(path: Path) -> str | None:
     return kind if kind in CHAIN_KINDS else None
 
 
+def is_trial(path: Path) -> bool:
+    """True for a trial run: a counts file such as ``best-trial.counts.json``. A trial run is one
+    more run of the circuit set in a week that has its runs. It is in no estimate."""
+    parts = path.name.split(".")[0].split("-")
+    return len(parts) > 1 and parts[1] == "trial"
+
+
 def build(
     calibration: Profile,
     counts: MeasuredCounts,
@@ -362,6 +369,7 @@ def analyze_run(
         "calibration_age_hours": age,
         "qubits": list(narrow),
         "chain": chain_kind(path),
+        "trial": is_trial(path),
         "shots": shots.pop() if len(shots) == 1 else None,
         "circuits": {g: len(names) for g, names in named.items()},
         "counts_sha256": counts.sha256,
@@ -476,7 +484,7 @@ def earlier_run(
     row: Mapping[str, Any], rows: Sequence[Mapping[str, Any]]
 ) -> Mapping[str, Any] | None:
     """The newest run of the same device and the same chain kind from ``BEFORE_DAYS`` before
-    ``row``, or None when there is no such run."""
+    ``row``, or None when there is no such run. A trial run is never the earlier run."""
     when = _run_time(row)
     low, high = (timedelta(days=d) for d in BEFORE_DAYS)
     found = [
@@ -484,6 +492,7 @@ def earlier_run(
         for r in rows
         if r["device"] == row["device"]
         and r["chain"] == row["chain"]
+        and not r.get("trial")
         and low <= when - _run_time(r) <= high
     ]
     return max(found, key=_run_time, default=None)
@@ -541,10 +550,12 @@ def _run_time(row: Mapping[str, Any]) -> datetime:
 
 
 def _shot_checks(rows: Sequence[dict[str, Any]], paths: Mapping[str, Path]) -> list[dict[str, Any]]:
-    """The check of independent shots of each device-week with one run on each chain kind."""
+    """The check of independent shots of each device-week with one run on each chain kind. The
+    check uses the two normal runs, not the trial runs."""
     weeks: dict[tuple[str, date], list[dict[str, Any]]] = {}
     for row in rows:
-        weeks.setdefault(device_week(row), []).append(row)
+        if not row.get("trial"):
+            weeks.setdefault(device_week(row), []).append(row)
     checks = []
     for (device, week), found in sorted(weeks.items()):
         kinds = sorted(r["chain"] or "" for r in found)

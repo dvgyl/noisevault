@@ -7,7 +7,9 @@ The script reads ``analysis.json`` of ``study.analyze`` and writes ``summary.jso
 
 The runs that count are the IBM runs from the week of 2026-11-16 to the week of 2027-01-04. A
 run before that window is a pilot run, a run after it is a late run, and a run of another vendor
-in the window is a secondary run. The primary estimates use only the runs that count.
+in the window is a secondary run. A trial run (``best-trial.*`` or ``median-trial.*``) is one
+more run in a week that has its runs. The primary estimates use only the runs that count, and a
+trial run never counts.
 
 For each primary comparison of ``PLAN.md``, the result is the estimate over device-weeks of
 ``study.estimate``, with the Holm correction of the five tests. A device-week is the set of runs
@@ -17,7 +19,7 @@ f = 1, m and s of each device, the interval for a new week, the median standard 
 of a run, the sign test of Y, the verdict counts of the runs, the estimate with the quadratic
 score and without the marked runs, and the strata. The secondary results use the same estimate.
 
-The verdict counts of the pilot runs and of the late runs are exploratory.
+The verdict counts of the pilot runs, of the late runs and of the trial runs are exploratory.
 """
 
 from __future__ import annotations
@@ -55,7 +57,7 @@ MIN_POINTS = 5
 # The runs that count: from the first week to the end of the last week, in UTC.
 FIRST_WEEK = datetime(2026, 11, 16, tzinfo=UTC)
 AFTER_LAST_WEEK = datetime(2027, 1, 11, tzinfo=UTC)
-PERIODS = ("pilot", "counted", "late", "secondary")
+PERIODS = ("pilot", "counted", "late", "secondary", "trial")
 # A fitted factor is at a limit of the search when ln f is this near to the ln of a limit.
 LIMIT_TOLERANCE = 0.01
 # The forms of a device-week value: the mean of the two runs, the run of one chain kind, the
@@ -68,8 +70,12 @@ NO_ESTIMATE = (
 
 
 def period(row: Mapping[str, Any]) -> str:
-    """``pilot`` before the first week, ``late`` after the last week, ``counted`` for an IBM run
-    in the window and ``secondary`` for a run of another vendor in the window."""
+    """``trial`` for a trial run, at any time. Else ``pilot`` before the first week, ``late``
+    after the last week, ``counted`` for an IBM run in the window and ``secondary`` for a run of
+    another vendor in the window. A trial run is in no estimate, so it never makes a device-week
+    complete or not complete."""
+    if row.get("trial"):
+        return "trial"
     when = _time(row["run_at"])
     if when < FIRST_WEEK:
         return "pilot"
@@ -167,7 +173,8 @@ def summarize(analysis: Mapping[str, Any]) -> dict[str, Any]:
         "twirl_check": twirl_check(rows),
         "shot_checks": shot_checks(analysis.get("shot_checks", ())),
         "exploratory": {
-            name: verdict_family(by_period[name]) for name in ("pilot", "late", "secondary")
+            name: verdict_family(by_period[name])
+            for name in ("pilot", "late", "secondary", "trial")
         },
     }
 
@@ -507,7 +514,8 @@ def markdown(summary: Mapping[str, Any]) -> str:
     lines = [
         f"{summary['runs']} runs on {', '.join(summary['devices']) or 'no device'}:"
         f" {periods['counted']} runs that count, {periods['pilot']} pilot runs,"
-        f" {periods['late']} late runs, {periods['secondary']} runs of other vendors.",
+        f" {periods['late']} late runs, {periods['secondary']} runs of other vendors,"
+        f" {periods['trial']} trial runs.",
         f"Of the runs that count, the calibration as stated is ruled out in"
         f" {stated['runs_ruled_out']} runs and has a readout probability of 0 on the chain in"
         f" {stated['runs_with_a_zero_on_the_chain']} runs.",
@@ -536,6 +544,7 @@ def markdown(summary: Mapping[str, Any]) -> str:
         "pilot": "Pilot runs, exploratory",
         "late": "Late runs, exploratory",
         "secondary": "Runs of other vendors, secondary",
+        "trial": "Trial runs, exploratory",
     }
     for name, comparisons in summary["exploratory"].items():
         if not periods[name]:

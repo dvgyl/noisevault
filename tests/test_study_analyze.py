@@ -141,7 +141,7 @@ def test_only_the_run_of_the_deep_set_is_analyzed(result: dict[str, Any]) -> Non
     assert data["skipped"] == 1
     assert data["duplicates"] == 1
     row = _row(result)
-    assert row["chain"] == "best"
+    assert row["chain"] == "best" and row["trial"] is False
     assert row["shots"] == 1000
     assert row["calibration_age_hours"] == pytest.approx(30.0)
     assert row["marked"] is False
@@ -756,6 +756,19 @@ def test_the_check_of_independent_shots_uses_only_the_same_circuits(tmp_path: Pa
     for c in check["circuits"]:
         assert c["ratio"] == pytest.approx(c["statistic"] / c["df"])
     assert analyze._shot_checks(rows[:1], paths) == []
+    # A trial run in the device-week does not change the check of the two normal runs.
+    trial = rows[0] | {"trial": True, "counts_sha256": "trial"}
+    assert analyze._shot_checks([*rows, trial], paths) == [check]
+
+
+def test_a_trial_run_is_named_by_its_file_and_is_never_the_earlier_run() -> None:
+    assert analyze.is_trial(Path("best-trial.counts.json"))
+    assert analyze.is_trial(Path("median-trial.counts.json.gz"))
+    assert not analyze.is_trial(Path("best-deep.counts.json"))
+    assert analyze.chain_kind(Path("median-trial.counts.json")) == "median"
+    row = {"device": "d", "chain": "best", "run_at": "2026-11-24T03:00:00Z"}
+    trial = row | {"run_at": "2026-11-17T03:00:00Z", "trial": True}
+    assert analyze.earlier_run(row, [trial, row]) is None
 
 
 def test_the_ages_of_c_wait_for_the_publication_of_c() -> None:
