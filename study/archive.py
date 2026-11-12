@@ -66,6 +66,7 @@ GAP_EDGES_H = (12.0, 36.0, 72.0, 168.0)
 GRID_DENOMINATORS = (1000, 1024, 2048, 4096, 8192, 10000)
 GRID_TOLERANCE = 1e-6
 PARTS = ("lowest tenth", "middle", "highest tenth")
+MIN_DAY_CHANGES = 20
 _COLUMNS = (
     "backend",
     "property",
@@ -381,55 +382,70 @@ def _readout_grid(rows: Rows) -> dict[str, dict[str, Any]]:
 
 def _regression(changes: Rows, prop: str) -> dict[str, dict[str, Any]]:
     """Definition 7: the changes of ``prop`` by their percent rank among the changes of ``prop``
-    on the same device and UTC day, with the next change of the same series. The ranks and the
-    pairs exclude the failure-ceiling values."""
+    on the same device and UTC day, with the next change of the same series.
+
+    The ranks and the pairs exclude the failure-ceiling values. A change with a failure-ceiling
+    value as its next change drops out. Only a device and day with ``MIN_DAY_CHANGES`` or more
+    ranked changes gives ranks.
+    """
     if prop not in changes.properties:
         return {}
     picked = changes.select(changes.prop == changes.properties.index(prop))
     kept = ~picked.excluded
+    day = picked.time_us // _US_PER_DAY
     rank = np.full(kept.size, np.nan)
-    rank[kept] = _percent_rank(
-        picked.device[kept].astype(np.int64),
-        picked.time_us[kept] // _US_PER_DAY,
-        picked.value[kept],
+    day_size = np.zeros(kept.size, dtype=np.int64)
+    rank[kept], day_size[kept] = _percent_rank(
+        picked.device[kept].astype(np.int64), day[kept], picked.value[kept]
     )
+    ranked = kept & (day_size >= MIN_DAY_CHANGES)
     following = np.flatnonzero(~picked.first) - 1
-    following = following[kept[following] & kept[following + 1]]
-    now, rank, device = picked.value[following], rank[following], picked.device[following]
+    following = following[ranked[following]]
+    next_excluded = following[~kept[following + 1]]
+    following = following[kept[following + 1]]
+    now, part_rank, device = picked.value[following], rank[following], picked.device[following]
     after = picked.value[following + 1]
-    part = np.where(rank < 0.1, 0, np.where(rank > 0.9, 2, 1))
+    part = np.where(part_rank < 0.1, 0, np.where(part_rank > 0.9, 2, 1))
     found: dict[str, dict[str, Any]] = {}
-    for code in np.unique(device).tolist():
+    for code in np.unique(picked.device).tolist():
         here = device == code
+        days = np.unique(day[ranked & (picked.device == code)])
         found[picked.devices[code]] = {
-            name: _pair(now[here & (part == index)], after[here & (part == index)])
-            for index, name in enumerate(PARTS)
+            "days": int(days.size),
+            "next_excluded": int(np.count_nonzero(picked.device[next_excluded] == code)),
+            "parts": {
+                name: _pair(now[here & (part == index)], after[here & (part == index)])
+                for index, name in enumerate(PARTS)
+            },
         }
     return found
 
 
-def _percent_rank(device: np.ndarray, day: np.ndarray, value: np.ndarray) -> np.ndarray:
-    """The SQL ``percent_rank`` of each value within its device and day: (rank - 1) / (n - 1),
-    where tied values share the lowest rank, and 0 for a group of one."""
+def _percent_rank(
+    device: np.ndarray, day: np.ndarray, value: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:
+    """The percent rank of each value within its device and day, (rank - 1) / (n - 1), and the
+    size n of its group. Tied values share their mean rank. A group of one gives 0."""
     order = np.lexsort((value, day, device))
     group_device, group_day, ordered = device[order], day[order], value[order]
     size = ordered.size
     new_group = np.ones(size, dtype=bool)
     new_group[1:] = (group_device[1:] != group_device[:-1]) | (group_day[1:] != group_day[:-1])
-    tie = np.zeros(size, dtype=bool)
-    tie[1:] = ~new_group[1:] & (ordered[1:] == ordered[:-1])
-    index = np.arange(size)
-    group_start = np.maximum.accumulate(np.where(new_group, index, 0))
-    rank_start = np.maximum.accumulate(np.where(tie, 0, index))
-    starts = np.flatnonzero(new_group)
-    counts = np.diff(np.append(starts, size))
-    group_size = np.repeat(counts, counts)
-    rank = np.zeros(size)
-    many = group_size > 1
-    rank[many] = (rank_start - group_start)[many] / (group_size[many] - 1)
-    found = np.empty(size)
-    found[order] = rank
-    return found
+    new_value = new_group.copy()
+    new_value[1:] |= ordered[1:] != ordered[:-1]
+    group_starts = np.flatnonzero(new_group)
+    group = np.cumsum(new_group) - 1
+    group_size = np.diff(np.append(group_starts, size))[group]
+    value_starts = np.flatnonzero(new_value)
+    value_ends = np.append(value_starts[1:], size) - 1
+    mean_position = (value_starts + value_ends)[np.cumsum(new_value) - 1] / 2
+    position = mean_position - group_starts[group]
+    rank = np.where(group_size > 1, position / np.maximum(group_size - 1, 1), 0.0)
+    found_rank = np.empty(size)
+    found_size = np.empty(size, dtype=np.int64)
+    found_rank[order] = rank
+    found_size[order] = group_size
+    return found_rank, found_size
 
 
 def _pair(now: np.ndarray, after: np.ndarray) -> dict[str, Any]:
@@ -560,13 +576,24 @@ def markdown(data: Mapping[str, Any]) -> str:
         "",
         "## Regression to the mean: changes by rank in their device and day, and the next change",
         "",
+        f"Only a device-day with {MIN_DAY_CHANGES} or more changes gives ranks. Tied values share"
+        " their mean rank.",
+        "",
+        "| Property | Device | Device-days | Next change excluded |",
+        "|---|---|---:|---:|",
+        *(
+            f"| {prop} | {device} | {found['days']} | {found['next_excluded']} |"
+            for prop in RANKED
+            for device, found in sorted(data["regression"][prop].items())
+        ),
+        "",
         "| Property | Device | Part | Changes | Mean now | Median now | Mean next | Median next |",
         "|---|---|---|---:|---:|---:|---:|---:|",
     ]
     for prop in RANKED:
-        for device, parts in sorted(data["regression"][prop].items()):
+        for device, found in sorted(data["regression"][prop].items()):
             for part in PARTS:
-                row = parts[part]
+                row = found["parts"][part]
                 lines.append(
                     f"| {prop} | {device} | {part} | {row['count']} | {_f(row['mean_now'], 5)}"
                     f" | {_f(row['median_now'], 5)} | {_f(row['mean_next'], 5)}"
