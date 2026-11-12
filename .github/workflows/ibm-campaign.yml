@@ -18,12 +18,12 @@ on:
         required: false
         default: ""
       circuits:
-        description: "The circuit set: deep (noisevault.suite) or compare (the nv compare circuits)"
+        description: "The circuit set: deep (noisevault.suite), compare (the nv compare circuits) or trial (deep, one more time in this week)"
         type: choice
-        options: [deep, compare]
+        options: [deep, compare, trial]
         default: deep
       shots:
-        description: "Shots per circuit (default: 2000 for deep, 4000 for compare)"
+        description: "Shots per circuit (default: 1500 for deep and trial, 4000 for compare)"
         required: false
         default: ""
 
@@ -122,8 +122,12 @@ jobs:
           log="campaign/logs/$(date -u +%Y-%m-%dT%H%MZ).log"
           echo "The full output goes to $log in the encrypted archive."
           status=0
+          # 1500 shots for each of the 37 circuits of a deep job use about 16 s of QPU time. Five
+          # weekly runs of three devices then fit in the 600 s of one 28-day period.
           if [ "$CIRCUITS" = deep ]; then
-            options="--suite --shots ${SHOTS:-2000}"
+            options="--suite --shots ${SHOTS:-1500}"
+          elif [ "$CIRCUITS" = trial ]; then
+            options="--trial --shots ${SHOTS:-1500}"
           else
             options="--shots ${SHOTS:-4000}"
           fi
