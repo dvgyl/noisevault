@@ -73,12 +73,40 @@ def test_the_model_of_the_truth_scores_above_the_calibration_on_each_score(
 
 
 def test_two_equal_models_give_no_verdict(line_24: Profile, counts) -> None:
-    result = wide.paired(line_24, line_24, counts, samples=20_000)
+    circuit = counts.circuits[0]
+    same = wide.forecast(line_24, circuit, samples=20_000, seed=1)
+
+    result = wide.compare([circuit], [same], [same])
+    independent = wide.paired(line_24, line_24, counts, samples=20_000)
 
     for test in (result.success_log, result.wrong_quadratic, result.qubit_log):
         assert test.outcome == "identical"
         assert test.better == "neither"
     assert result.a == result.b
+    assert independent.qubit_log.better == independent.wrong_log.better == "neither"
+
+
+def test_each_model_and_each_circuit_has_its_own_seed(
+    line_24: Profile, counts, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seeds: list[tuple[str, int]] = []
+    real = wide.forecast
+
+    def spy(profile: Profile, circuit, **options):
+        seeds.append((circuit.name, options["seed"]))
+        return real(profile, circuit, **options)
+
+    monkeypatch.setattr(wide, "forecast", spy)
+    copy = counts.circuits[0].model_copy(update={"name": "clifford_n20_d999"})
+    two = counts.model_copy(update={"circuits": (*counts.circuits, copy)})
+
+    wide.paired(line_24, line_24, two, samples=2000, seed=7)
+
+    names = [c.name for c in two.circuits]
+    assert [name for name, _ in seeds] == names * 2
+    assert len({seed for _, seed in seeds}) == 4
+    assert seeds[0][1] == wide.seed_of("7", "a", names[0])
+    assert seeds[3][1] == wide.seed_of("7", "b", names[1])
 
 
 def test_a_forecast_without_noise_gives_the_ideal_result_with_add_half_smoothing() -> None:

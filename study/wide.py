@@ -212,12 +212,20 @@ def paired(
     - Each circuit has enough shots that the mean of d is near normal. Each smoothed
       probability is above 0, so d is bounded and has a finite variance.
 
+    Each forecast takes its own seed from ``seed``, the model (a or b) and the name of the
+    circuit, so that the sampling errors of two forecasts are independent.
+
     Raises CountsError for a name that ``counts`` does not hold or for no circuit.
     """
     chosen = _chosen(counts, circuits)
-    a_forecasts = [forecast(a, c, samples=samples, seed=seed) for c in chosen]
-    b_forecasts = [forecast(b, c, samples=samples, seed=seed) for c in chosen]
-    return compare(chosen, a_forecasts, b_forecasts)
+    found = {
+        label: [
+            forecast(model, c, samples=samples, seed=seed_of(str(seed), label, c.name))
+            for c in chosen
+        ]
+        for label, model in (("a", a), ("b", b))
+    }
+    return compare(chosen, found["a"], found["b"])
 
 
 def compare(
@@ -391,9 +399,10 @@ def measured(circuit: MeasuredCircuit, ideal: str) -> tuple[float, float]:
     return right / circuit.shots, float(times @ wrong_bits.mean(axis=1)) / circuit.shots
 
 
-def seed_of(digest: str, model: str) -> int:
-    """A seed from the SHA-256 of a counts file and a model name, so that a result repeats."""
-    return int(hashlib.sha256(f"{digest}\n{model}".encode()).hexdigest()[:16], 16)
+def seed_of(digest: str, model: str, circuit: str) -> int:
+    """A seed from the SHA-256 of a counts file, a model name and a circuit name, so that a
+    result repeats and each model and circuit has its own sampling error."""
+    return int(hashlib.sha256(f"{digest}\n{model}\n{circuit}".encode()).hexdigest()[:16], 16)
 
 
 def _cells(

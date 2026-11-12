@@ -1100,10 +1100,17 @@ def _clifford(counts: MeasuredCounts, built: dict[str, Profile], samples: int) -
     for name in CLIFFORD_MODELS:
         if name not in built:
             continue
-        seed = wide.seed_of(counts.sha256, name)
         try:
+            # Each model and each circuit has its own seed, so that the sampling errors of two
+            # circuits are independent, as the sum of their variances assumes.
             found[name] = [
-                wide.forecast(built[name], c, samples=samples, seed=seed) for c in circuits
+                wide.forecast(
+                    built[name],
+                    c,
+                    samples=samples,
+                    seed=wide.seed_of(counts.sha256, name, c.name),
+                )
+                for c in circuits
             ]
         except Exception as exc:
             # A model that cannot simulate a circuit has no score, as the plan states.
@@ -1202,7 +1209,7 @@ def _twirl_rows(
                 profile,
                 c,
                 TWIRL_SAMPLES,
-                seed=wide.seed_of(counts.sha256, f"{model} twirl"),
+                seed=wide.seed_of(counts.sha256, f"{model} twirl", c.name),
             )
         except Exception as exc:
             # A circuit with a gate outside the Clifford table has no stabilizer forecast.

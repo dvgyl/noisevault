@@ -879,6 +879,37 @@ def test_the_check_of_independent_shots_skips_a_clifford_circuit_without_stim(
     assert found["skipped"] == {c.name: "ImportError" for c in circuits}
 
 
+def test_each_clifford_forecast_has_a_seed_from_its_model_and_its_circuit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    require("stim")
+    from noisevault.suite import _clifford_circuits
+
+    calibration = _line_24()
+    (circuit,) = _clifford_circuits(calibration, calibration, 0)
+    circuits = [circuit, circuit.model_copy(update={"name": "clifford_n20_d999"})]
+    counts = wide.simulate(calibration, circuits, shots=200, seed=1, run_at=RUN_AT)
+    seeds: list[tuple[str, int]] = []
+    real = wide.forecast
+
+    def spy(profile: Profile, c: Any, **options: Any) -> Any:
+        seeds.append((c.name, options["seed"]))
+        return real(profile, c, **options)
+
+    monkeypatch.setattr(wide, "forecast", spy)
+    built = {"calibration": calibration, "medians": models.medians(calibration)}
+
+    analyze._clifford(counts, built, 2000)
+
+    expected = [
+        (c.name, wide.seed_of(counts.sha256, name, c.name))
+        for name in ("medians", "calibration")
+        for c in circuits
+    ]
+    assert seeds == expected
+    assert len({seed for _, seed in seeds}) == 4
+
+
 def test_a_trial_run_is_named_by_its_file_and_is_never_the_earlier_run() -> None:
     assert analyze.is_trial(Path("best-trial.counts.json"))
     assert analyze.is_trial(Path("median-trial.counts.json.gz"))
