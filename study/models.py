@@ -261,9 +261,11 @@ def pulled(
         assert cache is not None
         return Profile.load(cache / name)
     if pull is None:
-        from noisevault.sources.ibm_public import pull as public
+        from noisevault.sources import ibm_public
 
-        pull = public
+        def pull(name: str, when: datetime) -> Profile:
+            return ibm_public.pull(name, at=when)
+
     try:
         found = pull(device, at)
     except SourceUnavailable as exc:

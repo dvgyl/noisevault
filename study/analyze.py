@@ -127,7 +127,9 @@ def build(
     def attempt(name: str, make: Callable[[], Profile | None], absent: str = "") -> None:
         try:
             found = make()
-        except (NoiseVaultError, ValueError) as exc:
+        except Exception as exc:
+            # One model that fails must not stop the other models of the run. The failure is in
+            # the output, with its reason.
             missing[name] = _reason(exc)
             return
         if found is None:

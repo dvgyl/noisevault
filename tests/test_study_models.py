@@ -369,3 +369,17 @@ def test_averaged_takes_the_median_of_each_value_over_the_calibrations() -> None
     assert models.averaged(newest, []).fingerprint == newest.fingerprint
     twice = models.averaged(newest, [others[0], others[0]])
     assert twice.table.gate("cz", (0, 1)).avg_infidelity == pytest.approx(0.010)
+
+
+def test_pulled_calls_the_public_source_with_the_time_as_a_keyword(monkeypatch, tmp_path) -> None:
+    asked = []
+
+    def public(device: str, *, at: datetime | None = None) -> Profile:
+        asked.append((device, at))
+        raise SourceUnavailable("IBM's public endpoint has no ibm_x calibration older than this")
+
+    monkeypatch.setattr("noisevault.sources.ibm_public.pull", public)
+    when = datetime(2026, 4, 16, tzinfo=UTC)
+
+    assert models.pulled("ibm_x", when, tmp_path / "cache") is None
+    assert asked == [("ibm_x", when)]
