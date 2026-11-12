@@ -144,7 +144,7 @@ class Forecast:
             f"{ref} {profile.short_fingerprint}, calibration age {age_text(self)}",
             f"counts sha256:{counts.sha256.removeprefix('sha256:')[:12]}, {counts.source},"
             f" run {counts.run_at:%Y-%m-%d %H:%MZ} on {counts.backend}"
-            f" {qubit_loci(counts.qubits)}",
+            f" {qubit_loci(_measured(self))}",
         ]
         lines = [part for text in head for part in _wrap(text, min(width, _WIDTH), "  ")]
         rows = [
@@ -413,7 +413,8 @@ class Ranking:
             f"{counts.source} counts sha256:{digest}"
             if counts_file is None
             else f"counts {counts_file}, {counts.source}, sha256:{digest}",
-            f"run {counts.run_at:%Y-%m-%d %H:%MZ} on {counts.backend}, {qubit_loci(counts.qubits)}",
+            f"run {counts.run_at:%Y-%m-%d %H:%MZ} on {counts.backend},"
+            f" {qubit_loci(_measured(self.models[0][1]))}",
         )
         lines = [part for text in head for part in _wrap(text, prose, "  ")]
         lines += ["", *self._table(width)]
@@ -1009,6 +1010,12 @@ def _names(a: Profile, b: Profile) -> tuple[str, str]:
     if first == second:
         return f"{first} {a.short_fingerprint}", f"{second} {b.short_fingerprint}"
     return first, second
+
+
+def _measured(forecast: Forecast) -> tuple[int, ...]:
+    """The qubits of the scored circuits, in first-seen order. A circuit that the score leaves
+    out can measure many more qubits, and they would make the line very long."""
+    return tuple(dict.fromkeys(q for c in forecast.circuits for q in c.qubits))
 
 
 def _digest(forecast: Forecast) -> str:

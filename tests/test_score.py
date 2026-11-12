@@ -826,6 +826,7 @@ def test_nv_score_with_a_wide_circuit_scores_the_others(tmp_path: Path) -> None:
     result = runner.invoke(app, ["score", str(saved), str(path)], env={"COLUMNS": "80"})
 
     assert result.exit_code == 0, result.output
+    assert "run 2026-04-16 09:30Z on toy, qubits 0-1" in result.stdout.splitlines()
     assert "1 circuit on more than 10 qubits left out: clifford_n12_d1" in result.stdout
     assert "growth" in result.stdout
 
