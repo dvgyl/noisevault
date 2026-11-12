@@ -113,6 +113,42 @@ def test_a_run_of_the_deep_circuit_set_is_fitted_on_its_train_circuits_only() ->
     assert derive.fit_counts(counts.select(["readout", "ghz_chain"]))[1] == "all"
 
 
+def test_a_run_of_version_1_of_the_deep_set_is_not_in_the_realism_table(tmp_path: Path) -> None:
+    profile = nv.Profile.uniform(
+        "line",
+        technology="superconducting",
+        num_qubits=2,
+        one_qubit_error=1e-3,
+        two_qubit_error=1e-2,
+        readout_error=2e-2,
+    )
+    circuits = suite(profile)
+    no_probe = [c for c in circuits if role(c.name) != "probe"]
+    pilot = datetime(2026, 11, 12, 4, 0, tzinfo=UTC)
+    later = datetime(2026, 11, 16, 8, 0, tzinfo=UTC)
+    runs = {
+        "old": simulate(profile, no_probe, shots=300, seed=1, run_at=pilot),
+        "new": simulate(profile, circuits, shots=300, seed=2, run_at=pilot),
+        "budget": simulate(profile, no_probe, shots=300, seed=3, run_at=later),
+        "short": simulate(profile, plan(profile), shots=300, seed=4, run_at=pilot),
+    }
+    for name, counts in runs.items():
+        counts.save(tmp_path / f"{name}.counts.json")
+        profile.save(tmp_path / f"{name}.profile.json")
+
+    assert {n: derive.circuit_set(c) for n, c in runs.items()} == {
+        "old": 1,
+        "new": 2,
+        "budget": 2,
+        "short": None,
+    }
+    fits, table = derive.derive(tmp_path)
+
+    assert sorted(row["circuit_set"] or 0 for row in fits["rows"]) == [0, 1, 2, 2]
+    assert len(table["rows"]) == 3
+    assert runs["old"].sha256 not in {row["run_counts"] for row in table["rows"]}
+
+
 def test_a_kept_fit_is_used_again_for_the_same_files_and_the_same_code(
     tmp_path: Path, monkeypatch
 ) -> None:
