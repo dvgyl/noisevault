@@ -48,6 +48,7 @@ the counts bind to.
 | `bundled` | The bundled profile of the device |
 | `symmetric` | C with the two readout errors of each qubit replaced by their mean |
 | `calibration` | C as stated |
+| `averaged(7)` | Each value of C replaced by the median of that value over the 7 calibrations in effect at the run time and 1 to 6 days before |
 | `two_factor` | C with one gate factor and one readout factor from `nv compare` on the `train` circuits |
 | `readout_measured` | C with the readout errors of each qubit measured on `readout` and `readout_1`, and one gate factor fitted on the other `train` circuits |
 | `locus` | `readout_measured` with one factor for each qubit fitted on its `qubit*` circuit, and one factor for each pair fitted on its `pair*` circuits, in place of the one gate factor |
@@ -102,6 +103,8 @@ The secondary comparisons are not in the family, and their results are descripti
 - `calibration` against `stale(d)` for each other d, and against `bundled`. The difference in log
   score as a function of the age of the values is the staleness curve.
 - `readout_measured` against `two_factor`, and `locus` against `readout_measured`.
+- `averaged(7)` against `calibration`, on every circuit of the run: does the median of a week of
+  values forecast better than the newest value?
 - Each primary comparison on `test_near` and on `test_far` separately, and with the quadratic
   score.
 
@@ -136,6 +139,12 @@ The adequacy of the best model is its excess on `test_far`, with the p-value of 
   its Holm correction counted. The plan now names five primary comparisons, one sign test for
   each, and the secondary comparisons that are descriptive. This entry was written before a test
   circuit of the deep circuit set was scored.
+- 2026-11-12: the model `averaged(7)` and its secondary comparison. A public archive of IBM
+  calibrations from February to November 2026 shows that a value changes about one time each
+  day, and that the change does not grow much with the time between two measurements. It also
+  shows that the lowest readout errors of a calibration are biased low: the next measured value
+  of the same qubit is 2 to 3 times higher. A median over a week removes a part of this noise.
+  This entry was written before a score of a deep run was read.
 - 2026-11-12: one more secondary comparison, the age of a value against its fitted factor. This
   entry was written before a fitted factor of a qubit or a pair was read.
 - 2026-11-12: the `generic` model. Its depolarizing error is the depolarizing parameter: 0.001
