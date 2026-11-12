@@ -432,9 +432,15 @@ def _ages(
     cache: Path | None,
     properties: ages.Properties | None,
 ) -> dict[str, Any]:
-    """For the calibration of the run and for each stale calibration, the age of the
-    calibration time and of the values of the chain at the run time, in hours. IBM dates each
-    value, so only an IBM device has ages."""
+    """For the calibration C and for each stale calibration, the age of the calibration time and
+    of the values of the chain at the run time, in hours. IBM dates each value, so only an IBM
+    device has ages.
+
+    The entry ``"calibration"`` comes from the reply of C itself: the newest reply at or before
+    the time of C. Its ``last_update_date`` must be the time of C. When it is not, or when the
+    source gives no reply, the result has no entry ``"calibration"``, and ``"missing"`` gives
+    the reason: ``undated``, ``no_reply``, ``source_failed`` or ``other_calibration``.
+    """
     if calibration.device.vendor != "ibm":
         return {}
     device = calibration.device.name
@@ -443,18 +449,41 @@ def _ages(
         return ages.public_properties(name, at, cache)
 
     fetch = properties or public
+
+    def entry(reply: Mapping[str, Any]) -> dict[str, Any]:
+        return {
+            "calibration_h": ages.calibration_age(reply, counts.run_at),
+            "values": ages.value_ages(reply, counts.run_at, counts.qubits),
+            "loci": ages.locus_ages(reply, counts.run_at, counts.qubits),
+        }
+
     found: dict[str, Any] = {}
-    for name, days in (("calibration", 0), *zip(STALE, STALE_DAYS, strict=True)):
+    missing: dict[str, str] = {}
+    when = calibration.device.calibrated_at
+    if when is None:
+        missing["calibration"] = "undated"
+    else:
+        try:
+            # The source gives the newest reply before the requested time.
+            reply = fetch(device, when + timedelta(seconds=1))
+        except NoiseVaultError:
+            missing["calibration"] = "source_failed"
+        else:
+            if reply is None:
+                missing["calibration"] = "no_reply"
+            elif ages.calibration_time(reply) != when:
+                missing["calibration"] = "other_calibration"
+            else:
+                found["calibration"] = entry(reply)
+    for name, days in zip(STALE, STALE_DAYS, strict=True):
         try:
             reply = fetch(device, counts.run_at - timedelta(days=days))
         except NoiseVaultError:
             continue
         if reply is not None:
-            found[name] = {
-                "calibration_h": ages.calibration_age(reply, counts.run_at),
-                "values": ages.value_ages(reply, counts.run_at, counts.qubits),
-                "loci": ages.locus_ages(reply, counts.run_at, counts.qubits),
-            }
+            found[name] = entry(reply)
+    if missing:
+        found["missing"] = missing
     return found
 
 

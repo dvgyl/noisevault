@@ -256,27 +256,54 @@ def test_the_primary_comparisons_are_the_five_of_the_plan(result: dict[str, Any]
     assert row["circuits"]["test"] == row["circuits"]["test_near"] + row["circuits"]["test_far"]
 
 
-def test_the_ages_of_a_run_come_from_the_reply_in_effect_at_each_time() -> None:
+class FakeProperties:
+    """IBM's properties endpoint. The device was calibrated 30 h before the run (C), 2 h before
+    the run, and 1 h before each stale time. Each value is 5 h older than its calibration."""
+
+    def __init__(self, *, without: datetime | None = None) -> None:
+        self.times = [RUN_AT - timedelta(hours=2), RUN_AT - timedelta(hours=30)]
+        self.times += [RUN_AT - timedelta(days=d, hours=1) for d in analyze.STALE_DAYS if d < 100]
+        self.times = [t for t in self.times if t != without]
+        self.asked: list[datetime] = []
+
+    def __call__(self, device: str, at: datetime) -> dict[str, Any] | None:
+        self.asked.append(at)
+        older = [t for t in self.times if t < at]
+        if not older:
+            return None
+        newest = max(older)
+        stamp = (newest - timedelta(hours=5)).isoformat()
+        value = {"name": "prob_meas1_prep0", "value": 0.01, "date": stamp}
+        return {"last_update_date": newest.isoformat(), "qubits": [[value], [value]], "gates": []}
+
+
+def test_the_ages_of_a_run_come_from_the_reply_of_each_calibration() -> None:
     calibration = _device()
     counts = simulate(calibration, plan(calibration), shots=10, seed=1, run_at=RUN_AT)
-    asked: list[datetime] = []
-
-    def properties(device: str, at: datetime) -> dict[str, Any] | None:
-        asked.append(at)
-        if at < RUN_AT - timedelta(days=100):
-            return None
-        stamp = (at - timedelta(hours=5)).isoformat()
-        value = {"name": "prob_meas1_prep0", "value": 0.01, "date": stamp}
-        return {"last_update_date": at.isoformat(), "qubits": [[value], [value]], "gates": []}
+    properties = FakeProperties()
 
     found = analyze._ages(calibration, counts, None, properties)
 
-    assert asked[0] == RUN_AT and len(asked) == 1 + len(analyze.STALE_DAYS)
+    c = calibration.device.calibrated_at
+    assert properties.asked[0] == c + timedelta(seconds=1)
+    assert len(properties.asked) == 1 + len(analyze.STALE_DAYS)
     assert set(found) == {"calibration", "stale(1)", "stale(7)", "stale(30)", "stale(90)"}
-    assert found["calibration"]["calibration_h"] == 0
-    assert found["calibration"]["values"]["readout"]["median_h"] == 5
-    assert found["stale(7)"]["values"]["readout"]["median_h"] == 7 * 24 + 5
+    assert found["calibration"]["calibration_h"] == pytest.approx(30)
+    assert found["calibration"]["values"]["readout"]["median_h"] == pytest.approx(35)
+    assert found["stale(7)"]["values"]["readout"]["median_h"] == pytest.approx(7 * 24 + 6)
     assert found["stale(7)"]["values"]["t1"] is None
+
+
+def test_the_calibration_has_no_ages_when_the_source_has_no_reply_of_c() -> None:
+    calibration = _device()
+    counts = simulate(calibration, plan(calibration), shots=10, seed=1, run_at=RUN_AT)
+    c = calibration.device.calibrated_at
+
+    found = analyze._ages(calibration, counts, None, FakeProperties(without=c))
+
+    assert "calibration" not in found
+    assert found["missing"] == {"calibration": "other_calibration"}
+    assert "stale(7)" in found
 
 
 def test_a_device_of_another_vendor_has_no_ages() -> None:
