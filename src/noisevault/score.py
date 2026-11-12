@@ -33,7 +33,7 @@ _DROPPABLE = ("fingerprint", "noise 95%", "age")
 
 Rule = Literal["log", "quadratic"]
 Choice = Literal["a", "b", "neither"]
-Outcome = Literal["tested", "identical", "constant", "ruled_out", "both_ruled_out"]
+Outcome = Literal["tested", "identical", "ruled_out", "both_ruled_out", "unbounded"]
 
 
 @dataclass(frozen=True)
@@ -169,9 +169,10 @@ class RuleTest:
 
     ``difference`` is the mean score of model a minus the mean score of model b, per shot, and
     ``standard_error`` is its standard error. ``outcome`` says why a value is None:
-    "identical" (the models give the same scores), "constant" (the difference is the same on
-    every measured outcome, so the shots give no variance), "ruled_out" (one model gives a
-    measured shot probability 0) or "both_ruled_out" (the log rule only).
+    "identical" (the models give the same scores), "ruled_out" (one model gives a measured
+    shot probability 0), "both_ruled_out" or "unbounded" (the log rule only: one model gives
+    probability 0 to an outcome that the other model expects, so one more shot can change the
+    difference without limit).
     """
 
     rule: Rule
@@ -197,10 +198,11 @@ class RuleTest:
 class PairedTest:
     """Which of two forecasts of the same counts scores better, at the 5% level.
 
-    The log rule decides. When both models rule out shots, the quadratic rule decides. The
-    test is valid when both models were fixed before the counts were seen, or when their
-    parameters were fitted on other shots or other circuits. A model fitted on the same counts
-    has an advantage that the test does not correct.
+    The log rule decides. When both models rule out shots, or when the log rule is unbounded,
+    the quadratic rule decides. The test needs independent shots and enough shots for a normal
+    approximation. It is valid when both models were fixed before the counts were seen, or when
+    their parameters were fitted on other shots or other circuits. A model fitted on the same
+    counts has an advantage that the test does not correct.
     """
 
     a: Forecast = field(repr=False)
@@ -210,7 +212,9 @@ class PairedTest:
 
     @property
     def better(self) -> Choice:
-        return self.quadratic.better if self.log.outcome == "both_ruled_out" else self.log.better
+        if self.log.outcome in ("both_ruled_out", "unbounded"):
+            return self.quadratic.better
+        return self.log.better
 
     def summary(self, names: tuple[str, str] | None = None, *, width: int = _WIDTH) -> str:
         """The test as text. ``names`` names model a and model b."""
@@ -279,10 +283,16 @@ def paired(a: Forecast, b: Forecast) -> PairedTest:
     """Test whether forecast ``a`` or forecast ``b`` scores better on their counts.
 
     For each rule, the test sums the per-shot score differences over all shots and divides the
-    sum by its standard error from the measured frequencies. The two-sided p-value comes from
-    the standard normal distribution. The test is valid when both models were fixed before the
-    counts were seen, or when their parameters were fitted on other shots or other circuits. A
-    model fitted on the same counts has an advantage that the test does not correct.
+    sum by its standard error. The two-sided p-value comes from the standard normal
+    distribution. The variance of the difference in each circuit is the largest of three
+    estimates: from the measured frequencies, from the probabilities of model a and from the
+    probabilities of model b. The measured frequencies alone give no variance to an outcome
+    that no shot showed. A rare outcome with a large score difference then makes the test
+    reject too often.
+
+    The test needs independent shots. It is valid when both models were fixed before the counts
+    were seen, or when their parameters were fitted on other shots or other circuits. A model
+    fitted on the same counts has an advantage that the test does not correct.
 
     Raises CountsError when the forecasts score different counts or different circuits.
     """
@@ -307,8 +317,8 @@ def paired(a: Forecast, b: Forecast) -> PairedTest:
     elif a.ruled_out or b.ruled_out:
         log = RuleTest("log", "ruled_out", None, None, None, None, "b" if a.ruled_out else "a")
     else:
-        log = _test("log", [(n, _log(p), _log(q)) for n, p, q in pairs])
-    quadratic = _test("quadratic", [(n, _quadratic(p), _quadratic(q)) for n, p, q in pairs])
+        log = _test("log", pairs, _log)
+    quadratic = _test("quadratic", pairs, _quadratic)
     return PairedTest(a=a, b=b, log=log, quadratic=quadratic)
 
 
@@ -419,10 +429,13 @@ def rule_phrase(test: RuleTest, pair: PairedTest, a: str, b: str) -> str:
         return f"{out} is ruled out by {plural(shots, 'shot')}, so {kept} is better"
     if test.outcome == "both_ruled_out":
         return "both models are ruled out, so the quadratic rule decides"
+    if test.outcome == "unbounded":
+        return (
+            "no test (one model gives probability 0 to an outcome that the other model"
+            " expects), so the quadratic rule decides"
+        )
     if test.outcome == "identical":
         return "no difference (the models give the same scores)"
-    if test.outcome == "constant":
-        return "no test (the difference is the same on every measured outcome)"
     assert test.difference is not None and test.z is not None and test.p_value is not None
     stats = (
         f"z = {test.z:.2f}, p = {test.p_value:.2g},"
@@ -473,7 +486,8 @@ def _circuit(c: MeasuredCircuit, probs: np.ndarray, measured: np.ndarray) -> Cir
         log_score, excess = -math.inf, math.inf
     else:
         log_score = float(n @ np.log(p)) / c.shots
-        excess = float(n @ np.log(n / (c.shots * p))) / c.shots
+        # A ratio n / (shots * p) overflows for a very small p. The logs do not.
+        excess = float(n @ (np.log(n) - math.log(c.shots) - np.log(p))) / c.shots
     quadratic = float(2 * (measured @ probs) / c.shots - probs @ probs)
     return CircuitForecast(
         name=c.name,
@@ -490,7 +504,8 @@ def _circuit(c: MeasuredCircuit, probs: np.ndarray, measured: np.ndarray) -> Cir
 def _excess(drawn: np.ndarray, probs: np.ndarray) -> np.ndarray:
     shots = drawn.sum(axis=1, keepdims=True)
     with np.errstate(divide="ignore", invalid="ignore"):
-        terms = np.where(drawn > 0, drawn * np.log(drawn / (shots * probs)), 0.0)
+        logs = np.log(drawn) - np.log(shots) - np.log(probs)
+        terms = np.where(drawn > 0, drawn * logs, 0.0)
     return terms.sum(axis=1) / shots[:, 0]
 
 
@@ -513,23 +528,34 @@ def _quadratic(probs: np.ndarray) -> np.ndarray:
     return 2 * probs - probs @ probs
 
 
-def _test(rule: Rule, circuits: Sequence[tuple[np.ndarray, np.ndarray, np.ndarray]]) -> RuleTest:
+def _test(
+    rule: Rule,
+    circuits: Sequence[tuple[np.ndarray, np.ndarray, np.ndarray]],
+    rule_score: Callable[[np.ndarray], np.ndarray],
+) -> RuleTest:
+    """The paired test of one rule. Each circuit gives its counts and the outcome
+    probabilities of model a and of model b. No measured outcome has probability 0."""
     total, variance, scale, shots = 0.0, 0.0, 0.0, 0
-    for measured, score_a, score_b in circuits:
+    for measured, probs_a, probs_b in circuits:
+        with np.errstate(invalid="ignore"):
+            difference = rule_score(probs_a) - rule_score(probs_b)
+        n = int(measured.sum())
+        spreads = []
+        for weights in (measured / n, probs_a, probs_b):
+            expected = weights > 0
+            d = difference[expected]
+            if not np.all(np.isfinite(d)):
+                return RuleTest(rule, "unbounded", None, None, None, None, "neither")
+            mean = float(weights[expected] @ d)
+            spreads.append(float(weights[expected] @ (d - mean) ** 2))
+            scale += n * float(np.abs(d).max())
         seen = measured > 0
-        n = measured[seen].sum()
-        f = measured[seen] / n
-        d = score_a[seen] - score_b[seen]
-        mean = float(f @ d)
-        total += n * mean
-        variance += n * float(f @ (d - mean) ** 2)
-        scale += n * float(np.abs(d).max())
-        shots += int(n)
-    if scale == 0:
-        return RuleTest(rule, "identical", 0.0, 0.0, None, None, "neither")
+        total += float(measured[seen] @ difference[seen])
+        variance += n * max(spreads)
+        shots += n
     error = math.sqrt(variance)
     if error <= 1e-12 * scale:
-        return RuleTest(rule, "constant", total / shots, 0.0, None, None, "neither")
+        return RuleTest(rule, "identical", 0.0, 0.0, None, None, "neither")
     z = total / error
     p_value = math.erfc(abs(z) / math.sqrt(2))
     better: Choice = "neither" if p_value >= LEVEL else "a" if z > 0 else "b"

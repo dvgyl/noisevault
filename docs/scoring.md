@@ -33,8 +33,9 @@ measured frequency of outcome x in a circuit. A higher score is better for both 
   `sum_x f(x) ln p(x)`. For three or more outcomes, the log score is the only proper rule, up to
   scale, that depends only on the probability of the outcome that occurred.
 - **Quadratic score.** The score of a shot with outcome x is `2 p(x) - sum_y p(y)^2`. The circuit
-  score is `2 sum_x f(x) p(x) - sum_y p(y)^2`. This rule is the Brier score for a discrete outcome,
-  with the sign changed. The quadratic score is always finite.
+  score is `2 sum_x f(x) p(x) - sum_y p(y)^2`. This score is 1 minus the Brier score for a
+  discrete outcome, so a forecast that gives the measured outcome probability 1 scores 1. The
+  quadratic score is always finite.
 
 ## Ruled out
 
@@ -87,6 +88,11 @@ Var(D) = sum_c N_c var_c
 z      = D / sqrt(Var(D))
 ```
 
+`var_c` above uses the measured frequencies. An outcome that no shot showed then adds no
+variance. If such an outcome has a large score difference, the test rejects too often. The test
+therefore computes `var_c` three times: with the measured frequencies, with the probabilities of
+profile a and with the probabilities of profile b. It uses the largest of the three values.
+
 The two-sided p-value comes from the standard normal distribution. The result gives the mean
 difference per shot, D / N, with its standard error, z and p for each rule. `better` is `"a"` or
 `"b"` when p is below 0.05, and `"neither"` when it is not.
@@ -95,18 +101,25 @@ The log rule decides. These cases have no z:
 
 - One profile is ruled out and the other is not. The profile that is not ruled out is better.
 - Both profiles are ruled out. The log rule gives no verdict, and the quadratic rule decides.
-- The two profiles give the same score to every measured outcome. The verdict is "no
-  difference".
-- The difference is the same on every measured outcome, for example when every shot of each
-  circuit has the same outcome. The shots then give no estimate of the variance, and the verdict
-  is "neither".
+- One profile gives probability 0 to an outcome that the other profile expects, and no shot
+  showed that outcome. One more shot can then change the difference without limit, so the log
+  rule gives no test, and the quadratic rule decides.
+- The two profiles give the same score to every outcome. The verdict is "no difference".
 
 ### When the test is valid
 
-The paired test is valid when both profiles were fixed before you saw the counts. A profile is
-also fixed when its factors were fitted on other shots or on other circuits. A profile whose
-factors `nv compare` fitted on the same counts has an advantage that the test does not correct.
-Such a profile scores better than its true quality, so do not test it on the counts of its fit.
+The paired test needs three conditions:
+
+- The shots are independent. A device that drifts during a job gives shots that are not.
+- The number of shots is large enough for the normal approximation. The largest of three
+  variances makes the test more careful with rare outcomes, but it gives no exact guarantee.
+- Both profiles were fixed before you saw the counts. A profile is also fixed when its factors
+  were fitted on other shots or on other circuits. A profile whose factors `nv compare` fitted on
+  the same counts has an advantage that the test does not correct. Such a profile scores better
+  than its true quality, so do not test it on the counts of its fit.
+
+`nv score` tests the best profile against each other profile and makes no correction for the
+number of tests. For a planned comparison of two profiles, give only those two.
 
 ## Held-out data
 
@@ -160,7 +173,7 @@ ibm_fez against ibm_kingston@2026-04-15:
   log score: ibm_fez is ruled out by 52 shots, so ibm_kingston@2026-04-15 is
     better
   quadratic score: ibm_kingston@2026-04-15 is better by 0.00217 per shot than
-    ibm_fez (z = 9.00, p = 2.2e-19, standard error 0.00024)
+    ibm_fez (z = 5.99, p = 2.2e-09, standard error 0.00036)
 ```
 
 The rows put the best profile first. Profiles that are ruled out come last, in the order of

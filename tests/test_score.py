@@ -126,10 +126,9 @@ def test_paired_equals_the_formulas_on_one_qubit() -> None:
         d = s(pa) - s(pb)
         total = variance = 0.0
         for n in (np.array([70, 30]), np.array([9, 1])):
-            f = n / n.sum()
-            mean = f @ d
-            total += n.sum() * mean
-            variance += n.sum() * (f @ d**2 - mean**2)
+            total += n @ d
+            # The largest variance: from the frequencies and from each model's probabilities.
+            variance += n.sum() * max(w @ d**2 - (w @ d) ** 2 for w in (n / n.sum(), pa, pb))
         z = total / math.sqrt(variance)
         assert rule.outcome == "tested"
         assert rule.difference == pytest.approx(total / 110, abs=1e-12)
@@ -205,10 +204,74 @@ def test_identical_models_give_no_difference() -> None:
     assert test.log.z is None and test.better == "neither"
 
 
-def test_a_difference_that_does_not_vary_gives_no_test() -> None:
+def test_shots_with_one_outcome_still_test_models_that_expect_another_outcome() -> None:
+    # 100 of 100 shots read 0. That is more likely with a readout error of 0.1 than of 0.2.
     counts = written(one_qubit(0.1), [("readout", {"0": 100})])
     test = paired(score(one_qubit(0.1), counts), score(one_qubit(0.2), counts))
-    assert test.log.outcome == "constant" and test.log.z is None and test.better == "neither"
+    assert test.log.outcome == "tested"
+    assert test.log.z is not None and test.log.z > 3
+    assert test.better == "a"
+
+
+def test_the_log_rule_gives_no_test_when_one_model_excludes_an_outcome_the_other_expects() -> None:
+    counts = written(one_qubit(0.1), [("readout", {"0": 100})])
+    test = paired(score(one_qubit(0.1), counts), score(one_qubit(0.0), counts))
+    assert test.log.outcome == "unbounded" and test.log.z is None
+    assert test.quadratic.outcome == "tested"
+    assert test.better == test.quadratic.better
+
+
+def two_qubits(error_0: float, error_1: float) -> Profile:
+    """Two qubits with a symmetric readout error each."""
+    data = Profile.uniform(
+        "toy",
+        technology="superconducting",
+        num_qubits=2,
+        one_qubit_error=0.01,
+        two_qubit_error=0.02,
+        readout_error=0.1,
+    ).to_dict()
+    data["qubits"] = [
+        {"index": q, "readout": {"p1_given_0": e, "p0_given_1": e}}
+        for q, e in enumerate((error_0, error_1))
+    ]
+    return Profile.model_validate(data)
+
+
+def test_a_rare_outcome_that_few_runs_show_does_not_make_the_test_reject_too_often() -> None:
+    # Both models have the same expected log score under these true probabilities. Model b
+    # gives the rare outcome of qubit 0 almost no probability, and most runs do not show it.
+    a, b = two_qubits(0.001, 0.1), two_qubits(1e-12, 0.10001)
+    truth = (4.8276755196e-5, 0.100004999926)
+    rng = np.random.default_rng(42)
+    runs, rejected = 300, 0
+    for _ in range(runs):
+        ones = [int(rng.binomial(2000, p)) for p in truth]
+        counts = written(a, [("q0", {"0": 2000 - ones[0], "1": ones[0]})]).model_copy(
+            update={
+                "circuits": [
+                    {"name": f"q{q}", "qubits": [q], "ops": [], "shots": 2000, "counts": found}
+                    for q, found in enumerate({"0": 2000 - k, "1": k} for k in ones)
+                ]
+            }
+        )
+        rejected += paired(score(a, counts), score(b, counts)).log.better != "neither"
+    assert rejected <= 0.05 * runs
+
+
+def test_a_very_small_probability_gives_a_finite_excess() -> None:
+    profile = two_qubits(1e-320, 0.1)
+    counts = written(profile, [("readout", {"0": 99, "1": 1})])
+    forecast = score(profile, counts)
+    assert forecast.ruled_out == 0
+    assert forecast.excess == pytest.approx(7.3122708746, rel=1e-9)
+    assert math.isfinite(forecast.excess_noise_95)
+
+
+def test_split_refuses_a_circuit_with_more_shots_than_the_sampler_divides() -> None:
+    counts = written(one_qubit(0.1), [("readout", {"0": 900_000_000, "1": 100_000_000})])
+    with pytest.raises(CountsError, match="split divides at most 999999999 shots"):
+        counts.split(0.5, seed=0)
 
 
 def test_paired_refuses_forecasts_of_different_counts_or_circuits() -> None:

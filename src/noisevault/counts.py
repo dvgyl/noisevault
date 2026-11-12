@@ -67,6 +67,8 @@ from .table import GateNoise
 COUNTS_FORMAT = "1.0"
 _MAX_OUTCOMES = 4096
 _MAX_SHOTS = 10_000_000_000
+# numpy's multivariate hypergeometric sampler takes fewer than 10**9 items.
+_MAX_SPLIT_SHOTS = 10**9 - 1
 BitOrder = Literal["clbit0_left", "qiskit"]
 
 
@@ -481,10 +483,18 @@ class MeasuredCounts(_Model):
 
         The first part gets ``round(fraction * shots)`` shots of each circuit, and the second
         part gets the other shots. The same ``seed`` gives the same parts. Each part is a new
-        counts file with its own ``sha256``, bound to the same calibration.
+        counts file with its own ``sha256``, bound to the same calibration. Each circuit must
+        have fewer than 10^9 shots, the most that the sampler divides.
         """
         if not 0 < fraction < 1:
             raise CountsError(f"fraction {fraction!r} is not between 0 and 1")
+        large = next((c for c in self.circuits if c.shots > _MAX_SPLIT_SHOTS), None)
+        if large is not None:
+            raise CountsError(
+                f"circuit {_shown(large.name)} has {large.shots} shots, and split divides at"
+                f" most {_MAX_SPLIT_SHOTS} shots of one circuit",
+                hint="divide the shots over several circuits with the same qubits and ops",
+            )
         rng = np.random.default_rng(seed)
         first, second = [], []
         for c in self.circuits:
