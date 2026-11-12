@@ -108,6 +108,20 @@ def test_a_factor_with_zero_information_leaves_the_other_factor_identified():
     assert gate == pytest.approx(1e-9 / (2e-9 - 1e-10))
 
 
+def test_a_profile_with_no_readout_error_gives_the_readout_axis_zero_information():
+    profile = Profile.uniform(
+        "one", technology="superconducting", num_qubits=1, one_qubit_error=0.01
+    )
+    circuit = PlannedCircuit(name="xs", qubits=(0,), ops=(Op("x", (0,)), Op("x", (0,))))
+
+    info = information(profile, circuit)
+
+    assert info[0, 0] > 0
+    assert info[0, 1] == info[1, 0] == info[1, 1] == 0
+    gate, readout = _variances(info)
+    assert gate == pytest.approx(1 / info[0, 0]) and readout is None
+
+
 def test_max_shots_limits_the_shots_of_each_circuit(device, circuits):
     found = design(
         device, circuits, budget=1000.0, price=Price(task=0.0, shot=0.001), max_shots=500

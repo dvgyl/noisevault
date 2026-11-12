@@ -20,6 +20,7 @@ import numpy as np
 
 from .counts import PlannedCircuit
 from .errors import NoiseVaultError
+from .metrics import METRIC_KEYS
 from .reference import probabilities
 from .suite import ASSUMED_GATE_FACTOR, role
 
@@ -81,27 +82,31 @@ def information(
     readout_factor: float = 1.0,
 ) -> np.ndarray:
     """The Fisher information of one shot of ``circuit`` on the log gate factor and the log
-    readout factor, as a 2 by 2 matrix, when the device is ``profile`` with the two factors."""
+    readout factor, as a 2 by 2 matrix, when the device is ``profile`` with the two factors.
+
+    A profile that states no error of a kind has no factor for that kind, and that axis gets
+    zero information.
+    """
     base = profile.uncorrected()
+    has_gates = _states_gate_error(base)
+    has_readout = base.readout is not None or any(q.readout is not None for q in base.qubits)
 
     def probs(log_gate: float, log_readout: float) -> np.ndarray:
-        scaled = base.model_copy(
-            update={
-                "unmodeled_error": {
-                    "gates": {"factor": gate_factor * math.exp(log_gate)},
-                    "readout": {"factor": readout_factor * math.exp(log_readout)},
-                }
-            }
-        )
+        block: dict[str, dict[str, float]] = {}
+        if has_gates:
+            block["gates"] = {"factor": gate_factor * math.exp(log_gate)}
+        if has_readout:
+            block["readout"] = {"factor": readout_factor * math.exp(log_readout)}
+        scaled = base.model_copy(update={"unmodeled_error": block or None})
         return probabilities(scaled, circuit.ops, len(circuit.qubits), layout=circuit.qubits)
 
+    def slope(present: bool, step: tuple[float, float]) -> np.ndarray:
+        if not present:
+            return np.zeros_like(center)
+        return (probs(*step) - probs(-step[0], -step[1])) / (2 * _STEP)
+
     center = probs(0.0, 0.0)
-    slopes = np.stack(
-        [
-            (probs(_STEP, 0.0) - probs(-_STEP, 0.0)) / (2 * _STEP),
-            (probs(0.0, _STEP) - probs(0.0, -_STEP)) / (2 * _STEP),
-        ]
-    )
+    slopes = np.stack([slope(has_gates, (_STEP, 0.0)), slope(has_readout, (0.0, _STEP))])
     seen = center > 1e-15
     return (slopes[:, seen] / center[seen]) @ slopes[:, seen].T
 
@@ -165,6 +170,11 @@ def design(
             hint="give a larger budget, or fewer shots with min_shots",
         )
     return best
+
+
+def _states_gate_error(profile: Profile) -> bool:
+    specs = [*profile.gates.values(), *profile.calibrations]
+    return any(getattr(spec, key, None) is not None for spec in specs for key in METRIC_KEYS)
 
 
 def _tests(circuits: Sequence[PlannedCircuit], count: int) -> list[PlannedCircuit]:
