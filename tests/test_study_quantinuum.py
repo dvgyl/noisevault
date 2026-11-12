@@ -548,3 +548,28 @@ def test_a_pauli_vector_keeps_its_shape_in_the_net_error() -> None:
 def test_the_net_error_needs_one_error_for_each_gate_on_the_whole_device() -> None:
     with pytest.raises(ValueError, match="calibration record"):
         qt.net_of_one_qubit_dressing(tiny_profile(), 1.25)
+
+
+def test_without_leakage_takes_the_leakage_out_of_each_gate_error_that_holds_it() -> None:
+    data = qt.without_leakage(uniform_profile()).to_dict()
+    assert data["gates"]["r"] == {"avg_infidelity": pytest.approx(3e-5 - 5e-6)}
+    assert data["gates"]["zz"] == {
+        "avg_infidelity": pytest.approx(1e-3 - 2e-4),
+        "includes": ["1q_dressing"],
+    }
+    assert data["gates"]["plain"] == {"qubits": 2, "avg_infidelity": 2e-3}
+    assert "effects" not in data
+    assert data["readout"] == uniform_profile().to_dict()["readout"]
+
+
+def test_without_leakage_keeps_a_gate_error_that_does_not_hold_the_leakage() -> None:
+    stated = uniform_profile().to_dict()
+    stated["gates"]["r"] = {"avg_infidelity": 3e-5}
+    stated["effects"].append({"type": "leakage", "gate": "zz", "prob": 9e-3})
+    data = qt.without_leakage(Profile.from_dict(stated)).to_dict()
+    assert data["gates"]["r"] == {"avg_infidelity": 3e-5}
+    assert data["effects"] == [{"type": "leakage", "gate": "r", "prob": 5e-6, "allow": "omit"}]
+    # The two leakage effects of zz hold more than its error, so the error is 0.
+    assert data["gates"]["zz"] == {"avg_infidelity": 0.0, "includes": ["1q_dressing"]}
+    with pytest.raises(ValueError, match="calibration record"):
+        qt.without_leakage(tiny_profile())

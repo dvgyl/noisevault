@@ -695,6 +695,54 @@ def net_of_one_qubit_dressing(profile: Profile, gates_per_qubit: float) -> Profi
     )
 
 
+def without_leakage(profile: Profile) -> Profile:
+    """``profile`` with the leakage taken out of each gate error that holds it.
+
+    The counts of ``--leakage postselect`` hold no shot with a leakage flag. Thus their gates
+    show the error without the leakage. A gate error with ``leakage`` in ``includes`` holds the
+    leakage. Quantinuum states r = r_all + L / d, where r_all comes from the decay of all shots
+    and L is the leakage of one gate, the probability of its ``leakage`` effect. If a leaked
+    shot gives a random result, r_all holds L (d - 1) / d. Thus the average infidelity without
+    the leakage is r - L, and 0 when L is more than r. In the datasets of the five bundled
+    profiles, the decay of the kept shots gives r minus 0.9 L to 1.1 L. The ``leakage`` effect
+    of the gate goes out of the profile. A gate with a ``pauli`` vector does not change.
+
+    The profile must give each gate one error for the whole device. A calibration record with
+    an error raises ValueError.
+    """
+    data = _uniform(profile, "without_leakage")
+    specs = data["gates"]
+    net: dict[str, float] = {}
+    kept = []
+    for effect in data.get("effects", ()):
+        name = effect.get("gate")
+        whole = effect["type"] == "leakage" and "prob" in effect and "qubits" not in effect
+        stated = _default_error(profile, name) if whole and name in specs else None
+        if stated is not None and "leakage" in specs[name].get("includes", ()):
+            net[name] = net.get(name, stated) - effect["prob"]
+        else:
+            kept.append(effect)
+    for name, error in net.items():
+        specs[name] = _changed(specs[name], "leakage", avg_infidelity=max(error, 0.0))
+    data.pop("effects", None)
+    if kept:
+        data["effects"] = kept
+    return _noted(
+        data,
+        "each gate error with leakage is net of the leakage of its effect"
+        " (study.quantinuum.without_leakage)",
+    )
+
+
+def _default_error(profile: Profile, name: str) -> float | None:
+    """The average infidelity of the device-wide error of gate ``name``. None for a gate with
+    no error or with a ``pauli`` vector."""
+    metric, arity = profile.gates[name].metric, profile.table.arity(name)
+    if metric is None or arity is None or metric[0] == "pauli":
+        return None
+    return metrics.to_avg_infidelity(*metric, arity)
+
+
 def _uniform(profile: Profile, caller: str) -> dict[str, Any]:
     """The dict of ``profile``, which must have no calibration record with an error."""
     data = profile.to_dict()
