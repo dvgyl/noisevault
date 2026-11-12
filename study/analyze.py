@@ -33,6 +33,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+from pydantic import ValidationError
 
 import noisevault as nv
 from noisevault.counts import MeasuredCounts, load_counts
@@ -522,8 +523,19 @@ def _order(name: str) -> int:
 
 
 def _reason(exc: Exception) -> str:
-    message = exc.message if isinstance(exc, NoiseVaultError) else str(exc)
-    return f"{type(exc).__name__}: {message}"
+    """The type of ``exc`` and, for a validation error, the paths of the fields that failed.
+
+    The reason holds no message text and no input value, because a message can hold a file
+    name, a job id or a calibration value.
+    """
+    name = type(exc).__name__
+    if not isinstance(exc, ValidationError):
+        return name
+    paths = [
+        ".".join(str(part) for part in error["loc"]) or "(top level)"
+        for error in exc.errors(include_url=False, include_context=False, include_input=False)
+    ]
+    return f"{name} at {', '.join(dict.fromkeys(paths))}"
 
 
 def _finite(value: float) -> float | None:

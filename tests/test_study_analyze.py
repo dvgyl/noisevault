@@ -174,7 +174,7 @@ def test_each_model_has_a_score_or_a_reason(result: dict[str, Any]) -> None:
     assert set(row["scores"]) >= {"ideal", "generic", "medians", "stale(7)", "locus"}
     assert row["failures"]["stale(1)"].startswith("the source has no other calibration")
     assert row["failures"]["stale(180)"].startswith("the source has no other calibration")
-    assert "cz" in row["failures"]["stale(30)"]
+    assert row["failures"]["stale(30)"] == "CountsError"
     assert row["scores"]["ideal"]["all"]["ruled_out"] > 0
 
 
@@ -306,3 +306,38 @@ def test_each_model_starts_from_the_stated_calibration_and_is_floored_after(
     assert built["medians"].table.qubit(0).readout == pytest.approx((0.02, 0.04))
     for name in ("medians", "symmetric", "calibration", "two_factor", "readout_measured", "locus"):
         assert models.zero_readouts(built[name]) == 0
+
+
+def test_a_failure_reason_holds_no_message_and_no_input_value(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    secret = "job-d4c0ffee-secret"
+    data = _device().to_dict()
+    data["provenance"]["extra"] = {"job_id": secret}
+    calibration = Profile.model_validate(data)
+    counts = simulate(calibration, suite(calibration), shots=20, seed=1, run_at=RUN_AT)
+    path = tmp_path / f"best-{secret}.counts.json"
+
+    def invalid(profile: Profile) -> Profile:
+        broken = profile.to_dict()
+        broken["qubits"] = [{"index": 99, "readout": {"error": 0.0123}}]
+        return Profile.model_validate(broken)
+
+    def unreadable(profile: Profile) -> Profile:
+        raise SourceUnavailable(f"cannot read {path}: value 0.0123")
+
+    def fails(profile: Profile, counts: MeasuredCounts) -> Any:
+        raise ValueError(f"{secret} 0.0123")
+
+    monkeypatch.setattr(models, "generic", invalid)
+    monkeypatch.setattr(models, "bundled", unreadable)
+    monkeypatch.setattr(models, "two_factor", fails)
+    monkeypatch.setattr(models, "fit_factor", lambda build, counts, circuits: 1.0)
+
+    _, missing, _ = analyze.build(calibration, counts, cache=None, offline=True)
+
+    assert missing["generic"] == "ValidationError at (top level)"
+    assert missing["bundled"] == "SourceUnavailable"
+    assert missing["two_factor"] == "ValueError"
+    text = json.dumps(missing)
+    assert secret not in text and "0.0123" not in text and str(tmp_path) not in text
