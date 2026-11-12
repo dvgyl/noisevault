@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1027 634" width="1027" height="634" role="img" aria-label="Output of nv show ibm_fez">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1027 731" width="1027" height="731" role="img" aria-label="Output of nv show ibm_fez">
 <title>Output of nv show ibm_fez</title>
 <desc>$ nv show ibm_fez
 ibm_fez@2025-02-26T20:16:25Z  nv:06404cefa54f
@@ -14,6 +14,10 @@ natives                   median avg    median
               reset (1q)           -   1.58 us               156
 coherence     median T1 144.9 us, median T2 88.0 us
 readout       median error 7.57e-03 (P(1|0) 3.91e-03, P(0|1) 1.15e-02)
+              an error of exactly 0 is stated on 11 qubits: 4, 16, 82, 110, 126,
+              128, 130, 136, ...
+              a device gives results that such a profile calls impossible
+              Profile.floored() and nv score --floor replace these values
 value ages    readout 55 h, T1 8.3 h, T2 8.3 h, 1q gates 59 h, 2q gates 57 h
               older than the calibration time (median)
 provenance    measured, SDK snapshot, qiskit-ibm-runtime 0.49.0 FakeFez
@@ -101,8 +105,20 @@ notes         Some values are older than the calibration time by more than 24 h
 <clipPath id="nv-line-22">
     <rect x="0" y="538.3" width="976" height="24.65"/>
             </clipPath>
+<clipPath id="nv-line-23">
+    <rect x="0" y="562.7" width="976" height="24.65"/>
+            </clipPath>
+<clipPath id="nv-line-24">
+    <rect x="0" y="587.1" width="976" height="24.65"/>
+            </clipPath>
+<clipPath id="nv-line-25">
+    <rect x="0" y="611.5" width="976" height="24.65"/>
+            </clipPath>
+<clipPath id="nv-line-26">
+    <rect x="0" y="635.9" width="976" height="24.65"/>
+            </clipPath>
 </defs>
-<rect x="0.5" y="0.5" width="1026" height="633" rx="10" fill="#151b23" stroke="#3d444d"/>
+<rect x="0.5" y="0.5" width="1026" height="730" rx="10" fill="#151b23" stroke="#3d444d"/>
 <g transform="translate(26 22)">
 
 <g class="nv-matrix">
@@ -120,16 +136,20 @@ notes         Some values are older than the calibration time by more than 24 h
 </text><text class="nv-r2" x="170.8" y="288.4" textLength="610" clip-path="url(#nv-line-11)">reset&#160;(1q)&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;-&#160;&#160;&#160;1.58&#160;us&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;156</text><text class="nv-r2" x="976" y="288.4" textLength="12.2" clip-path="url(#nv-line-11)">
 </text><text class="nv-r3" x="0" y="312.8" textLength="146.4" clip-path="url(#nv-line-12)">coherence&#160;&#160;&#160;</text><text class="nv-r2" x="170.8" y="312.8" textLength="451.4" clip-path="url(#nv-line-12)">median&#160;T1&#160;144.9&#160;us,&#160;median&#160;T2&#160;88.0&#160;us</text><text class="nv-r2" x="976" y="312.8" textLength="12.2" clip-path="url(#nv-line-12)">
 </text><text class="nv-r3" x="0" y="337.2" textLength="146.4" clip-path="url(#nv-line-13)">readout&#160;&#160;&#160;&#160;&#160;</text><text class="nv-r2" x="170.8" y="337.2" textLength="683.2" clip-path="url(#nv-line-13)">median&#160;error&#160;7.57e-03&#160;(P(1|0)&#160;3.91e-03,&#160;P(0|1)&#160;1.15e-02)</text><text class="nv-r2" x="976" y="337.2" textLength="12.2" clip-path="url(#nv-line-13)">
-</text><text class="nv-r3" x="0" y="361.6" textLength="146.4" clip-path="url(#nv-line-14)">value&#160;ages&#160;&#160;</text><text class="nv-r2" x="170.8" y="361.6" textLength="756.4" clip-path="url(#nv-line-14)">readout&#160;55&#160;h,&#160;T1&#160;8.3&#160;h,&#160;T2&#160;8.3&#160;h,&#160;1q&#160;gates&#160;59&#160;h,&#160;2q&#160;gates&#160;57&#160;h</text><text class="nv-r2" x="976" y="361.6" textLength="12.2" clip-path="url(#nv-line-14)">
-</text><text class="nv-r2" x="170.8" y="386" textLength="488" clip-path="url(#nv-line-15)">older&#160;than&#160;the&#160;calibration&#160;time&#160;(median)</text><text class="nv-r2" x="976" y="386" textLength="12.2" clip-path="url(#nv-line-15)">
-</text><text class="nv-r3" x="0" y="410.4" textLength="146.4" clip-path="url(#nv-line-16)">provenance&#160;&#160;</text><text class="nv-r2" x="170.8" y="410.4" textLength="695.4" clip-path="url(#nv-line-16)">measured,&#160;SDK&#160;snapshot,&#160;qiskit-ibm-runtime&#160;0.49.0&#160;FakeFez</text><text class="nv-r2" x="976" y="410.4" textLength="12.2" clip-path="url(#nv-line-16)">
-</text><text class="nv-r3" x="0" y="434.8" textLength="146.4" clip-path="url(#nv-line-17)">license&#160;&#160;&#160;&#160;&#160;</text><text class="nv-r2" x="170.8" y="434.8" textLength="414.8" clip-path="url(#nv-line-17)">Apache-2.0,&#160;redistribution&#160;allowed</text><text class="nv-r2" x="976" y="434.8" textLength="12.2" clip-path="url(#nv-line-17)">
-</text><text class="nv-r3" x="0" y="459.2" textLength="146.4" clip-path="url(#nv-line-18)">attribution&#160;</text><text class="nv-r2" x="170.8" y="459.2" textLength="427" clip-path="url(#nv-line-18)">IBM&#160;Quantum,&#160;via&#160;qiskit-ibm-runtime</text><text class="nv-r2" x="976" y="459.2" textLength="12.2" clip-path="url(#nv-line-18)">
-</text><text class="nv-r3" x="0" y="483.6" textLength="146.4" clip-path="url(#nv-line-19)">fingerprint&#160;</text><text class="nv-r2" x="170.8" y="483.6" textLength="780.8" clip-path="url(#nv-line-19)">06404cefa54f939f8a9da03a4ea9014486ce11015d56184d93913acd7ce3f3ce</text><text class="nv-r2" x="976" y="483.6" textLength="12.2" clip-path="url(#nv-line-19)">
-</text><text class="nv-r3" x="0" y="508" textLength="146.4" clip-path="url(#nv-line-20)">notes&#160;&#160;&#160;&#160;&#160;&#160;&#160;</text><text class="nv-r2" x="170.8" y="508" textLength="793" clip-path="url(#nv-line-20)">Some&#160;values&#160;are&#160;older&#160;than&#160;the&#160;calibration&#160;time&#160;by&#160;more&#160;than&#160;24&#160;h</text><text class="nv-r2" x="976" y="508" textLength="12.2" clip-path="url(#nv-line-20)">
-</text><text class="nv-r2" x="170.8" y="532.4" textLength="695.4" clip-path="url(#nv-line-21)">(median):&#160;readout&#160;55&#160;h,&#160;1q&#160;gates&#160;59&#160;h,&#160;2q&#160;gates&#160;57&#160;h.&#160;The</text><text class="nv-r2" x="976" y="532.4" textLength="12.2" clip-path="url(#nv-line-21)">
-</text><text class="nv-r2" x="170.8" y="556.8" textLength="768.6" clip-path="url(#nv-line-22)">calibration&#160;time&#160;is&#160;the&#160;last&#160;update&#160;of&#160;the&#160;calibration,&#160;not&#160;the</text><text class="nv-r2" x="976" y="556.8" textLength="12.2" clip-path="url(#nv-line-22)">
-</text><text class="nv-r2" x="170.8" y="581.2" textLength="378.2" clip-path="url(#nv-line-23)">measurement&#160;time&#160;of&#160;each&#160;value.</text><text class="nv-r2" x="976" y="581.2" textLength="12.2" clip-path="url(#nv-line-23)">
+</text><text class="nv-r2" x="170.8" y="361.6" textLength="805.2" clip-path="url(#nv-line-14)">an&#160;error&#160;of&#160;exactly&#160;0&#160;is&#160;stated&#160;on&#160;11&#160;qubits:&#160;4,&#160;16,&#160;82,&#160;110,&#160;126,</text><text class="nv-r2" x="976" y="361.6" textLength="12.2" clip-path="url(#nv-line-14)">
+</text><text class="nv-r2" x="170.8" y="386" textLength="219.6" clip-path="url(#nv-line-15)">128,&#160;130,&#160;136,&#160;...</text><text class="nv-r2" x="976" y="386" textLength="12.2" clip-path="url(#nv-line-15)">
+</text><text class="nv-r2" x="170.8" y="410.4" textLength="719.8" clip-path="url(#nv-line-16)">a&#160;device&#160;gives&#160;results&#160;that&#160;such&#160;a&#160;profile&#160;calls&#160;impossible</text><text class="nv-r2" x="976" y="410.4" textLength="12.2" clip-path="url(#nv-line-16)">
+</text><text class="nv-r2" x="170.8" y="434.8" textLength="719.8" clip-path="url(#nv-line-17)">Profile.floored()&#160;and&#160;nv&#160;score&#160;--floor&#160;replace&#160;these&#160;values</text><text class="nv-r2" x="976" y="434.8" textLength="12.2" clip-path="url(#nv-line-17)">
+</text><text class="nv-r3" x="0" y="459.2" textLength="146.4" clip-path="url(#nv-line-18)">value&#160;ages&#160;&#160;</text><text class="nv-r2" x="170.8" y="459.2" textLength="756.4" clip-path="url(#nv-line-18)">readout&#160;55&#160;h,&#160;T1&#160;8.3&#160;h,&#160;T2&#160;8.3&#160;h,&#160;1q&#160;gates&#160;59&#160;h,&#160;2q&#160;gates&#160;57&#160;h</text><text class="nv-r2" x="976" y="459.2" textLength="12.2" clip-path="url(#nv-line-18)">
+</text><text class="nv-r2" x="170.8" y="483.6" textLength="488" clip-path="url(#nv-line-19)">older&#160;than&#160;the&#160;calibration&#160;time&#160;(median)</text><text class="nv-r2" x="976" y="483.6" textLength="12.2" clip-path="url(#nv-line-19)">
+</text><text class="nv-r3" x="0" y="508" textLength="146.4" clip-path="url(#nv-line-20)">provenance&#160;&#160;</text><text class="nv-r2" x="170.8" y="508" textLength="695.4" clip-path="url(#nv-line-20)">measured,&#160;SDK&#160;snapshot,&#160;qiskit-ibm-runtime&#160;0.49.0&#160;FakeFez</text><text class="nv-r2" x="976" y="508" textLength="12.2" clip-path="url(#nv-line-20)">
+</text><text class="nv-r3" x="0" y="532.4" textLength="146.4" clip-path="url(#nv-line-21)">license&#160;&#160;&#160;&#160;&#160;</text><text class="nv-r2" x="170.8" y="532.4" textLength="414.8" clip-path="url(#nv-line-21)">Apache-2.0,&#160;redistribution&#160;allowed</text><text class="nv-r2" x="976" y="532.4" textLength="12.2" clip-path="url(#nv-line-21)">
+</text><text class="nv-r3" x="0" y="556.8" textLength="146.4" clip-path="url(#nv-line-22)">attribution&#160;</text><text class="nv-r2" x="170.8" y="556.8" textLength="427" clip-path="url(#nv-line-22)">IBM&#160;Quantum,&#160;via&#160;qiskit-ibm-runtime</text><text class="nv-r2" x="976" y="556.8" textLength="12.2" clip-path="url(#nv-line-22)">
+</text><text class="nv-r3" x="0" y="581.2" textLength="146.4" clip-path="url(#nv-line-23)">fingerprint&#160;</text><text class="nv-r2" x="170.8" y="581.2" textLength="780.8" clip-path="url(#nv-line-23)">06404cefa54f939f8a9da03a4ea9014486ce11015d56184d93913acd7ce3f3ce</text><text class="nv-r2" x="976" y="581.2" textLength="12.2" clip-path="url(#nv-line-23)">
+</text><text class="nv-r3" x="0" y="605.6" textLength="146.4" clip-path="url(#nv-line-24)">notes&#160;&#160;&#160;&#160;&#160;&#160;&#160;</text><text class="nv-r2" x="170.8" y="605.6" textLength="793" clip-path="url(#nv-line-24)">Some&#160;values&#160;are&#160;older&#160;than&#160;the&#160;calibration&#160;time&#160;by&#160;more&#160;than&#160;24&#160;h</text><text class="nv-r2" x="976" y="605.6" textLength="12.2" clip-path="url(#nv-line-24)">
+</text><text class="nv-r2" x="170.8" y="630" textLength="695.4" clip-path="url(#nv-line-25)">(median):&#160;readout&#160;55&#160;h,&#160;1q&#160;gates&#160;59&#160;h,&#160;2q&#160;gates&#160;57&#160;h.&#160;The</text><text class="nv-r2" x="976" y="630" textLength="12.2" clip-path="url(#nv-line-25)">
+</text><text class="nv-r2" x="170.8" y="654.4" textLength="768.6" clip-path="url(#nv-line-26)">calibration&#160;time&#160;is&#160;the&#160;last&#160;update&#160;of&#160;the&#160;calibration,&#160;not&#160;the</text><text class="nv-r2" x="976" y="654.4" textLength="12.2" clip-path="url(#nv-line-26)">
+</text><text class="nv-r2" x="170.8" y="678.8" textLength="378.2" clip-path="url(#nv-line-27)">measurement&#160;time&#160;of&#160;each&#160;value.</text><text class="nv-r2" x="976" y="678.8" textLength="12.2" clip-path="url(#nv-line-27)">
 </text>
 </g>
 </g>

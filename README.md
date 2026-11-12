@@ -193,8 +193,8 @@ ibm_fez@2025-02-26T20:16:25Z nv:06404cefa54f on qubits 136-143-142-141
 5 circuits: ghz_chain, chain_mirror, mirror, single_qubit, readout
 framework  result  deviation  tolerance  circuits  method
 qiskit     pass      3.6e-03    8.8e-03  5 of 5    exact + 20000 shots
-cirq       pass      8.6e-16    1.0e-09  5 of 5    exact
-pennylane  pass      5.9e-16    1.0e-09  5 of 5    exact
+cirq       pass      1.6e-15    1.0e-09  5 of 5    exact
+pennylane  pass      1.6e-15    1.0e-09  5 of 5    exact
 stim       pass      5.8e-04    1.3e-03  5 of 5    20000 shots, 5 sigma
 ```
 

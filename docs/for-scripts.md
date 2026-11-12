@@ -41,7 +41,7 @@ $ echo $?
 | `nv diff A B --json` | Compares two profiles | `before`, `after`, `before_fingerprint`, `after_fingerprint`, `identical`, `time_delta_seconds`, `medians`, `qubits`, `pairs`, `newly_disabled`, `reenabled`, `pairs_added`, `pairs_removed`, `qubits_added`, `qubits_removed`, `warnings` |
 | `nv check REF --json` | Checks each framework export against the reference | `profile_id`, `fingerprint`, `passed`, `layout`, `shots`, `seed`, `circuits`, `frameworks`, `skipped`, `failed`, `note` |
 | `nv compare REF COUNTS --json` | Fits a gate factor and a readout factor to counts | `profile_id`, `fingerprint`, `calibration`, `counts`, `source`, `backend`, `run_at`, `calibration_age_hours`, `qubits`, `circuits`, `gates`, `readout`, `deviance`, `dof`, `dispersion`, `p_value`, `resamples`, `impossible_shots`, `ruled_out`, `notes`, `note` |
-| `nv score REF... COUNTS --json` | Scores profiles as forecasts of counts, with no fit | `counts`, `source`, `backend`, `run_at`, `qubits`, `models`, `paired`, `floor`, `zero_readout_qubits` |
+| `nv score REF... COUNTS --json` | Scores profiles as forecasts of counts, with no fit | `counts`, `source`, `backend`, `run_at`, `qubits`, `models`, `paired`, `floor`, `zero_readout_qubits`, `probes` |
 | `nv schema` | Prints the JSON Schema of the profile format | The schema itself |
 
 `nv pull`, `nv cite`, `nv validate` and `nv doctor` print text. [Profile format](profile-format.md)
@@ -50,6 +50,11 @@ defines each number of `nv score`.
 
 A value that does not exist is `null`. A number that is not finite is also `null`: the log score
 of a profile that is ruled out is `null`, and its `ruled_out` is above 0.
+
+`nv score` does not score each circuit of a counts file. Each entry of `models` has `left_out`,
+a list of the circuits that the score did not use, each with `name` and `reason`. `probes` holds
+the [probe report](scoring.md#probe-circuits-and-what-a-score-leaves-out) with the forecast of
+the best profile. It is `null` when the counts hold no probe circuit.
 
 ## A check in a script
 
