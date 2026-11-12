@@ -100,6 +100,18 @@ This file lists all notable changes to NoiseVault. Versions follow
 - A vault on an exFAT drive on macOS keeps no hidden `.tmp` copy after `nv pull`. Before, each
   new file in the vault left one hidden copy of the profile beside it.
 
+### Changed
+
+- **The reference simulator is much faster.** It builds one superoperator for each gate on
+  each locus from the unitary and the noise channels, and contracts the density matrix with it
+  one time. A 1-qubit superoperator joins the next superoperator on its qubit. With a report,
+  each locus is resolved one time, and the report still gets the same events for each op. On
+  the deep circuit set of `ibm_kingston` (circuits of 10 qubits or fewer, one thread), the
+  8-qubit circuit `wide_d48_s0` takes 0.09 s, not 8.2 s; `Profile.score` takes 0.37 s, not
+  17.0 s; and `Profile.compare` on the `train` circuits takes 39 s, not 223 s. The simulator is
+  then 5 s of that comparison. The probabilities are equal to those of the earlier simulator
+  to 1e-12, and a test keeps this true.
+
 ## 0.4.0 (2026-11-10)
 
 ### Added
