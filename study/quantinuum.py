@@ -264,20 +264,27 @@ class _Parser:
     def _measure(self, text: str) -> None:
         match = re.match(r"^measure (.+?) -> (.+)$", text)
         if match is None:
-            raise QasmError(f"{text!r} is not a measurement of one qubit into one bit")
-        (qubit,) = self._qubits(match.group(1), text, whole=False)
+            raise QasmError(f"{text!r} is not a measurement")
+        qubits = self._qubits(match.group(1), text, whole=True)
         creg = _ARGUMENT.match(match.group(2).strip())
-        if creg is None or creg.group(2) is None or creg.group(1) not in self.cregs:
+        if creg is None or creg.group(1) not in self.cregs:
             raise QasmError(f"{text!r}: {match.group(2)} is not a classical bit")
-        bit = (creg.group(1), int(creg.group(2)))
-        if bit[1] >= self.cregs[bit[0]]:
-            raise QasmError(f"{text!r}: {bit[0]} has no bit {bit[1]}")
-        if qubit in self.measured:
-            raise QasmError(f"{text!r}: qubit {qubit} is measured two times")
-        if bit in self.measured.values():
-            raise QasmError(f"{text!r}: the bit {bit[0]}[{bit[1]}] is written two times")
-        self.measured[qubit] = bit
-        self.written.add(bit[0])
+        name, size = creg.group(1), self.cregs[creg.group(1)]
+        whole = creg.group(2) is None
+        if whole != ("[" not in match.group(1)):
+            raise QasmError(f"{text!r}: measure a qubit into a bit or a register into a register")
+        if whole and len(qubits) != size:
+            raise QasmError(f"{text!r}: the registers have different sizes")
+        bits = [(name, k) for k in range(size)] if whole else [(name, int(creg.group(2)))]
+        for qubit, bit in zip(qubits, bits, strict=True):
+            if bit[1] >= size:
+                raise QasmError(f"{text!r}: {name} has no bit {bit[1]}")
+            if qubit in self.measured:
+                raise QasmError(f"{text!r}: qubit {qubit} is measured two times")
+            if bit in self.measured.values():
+                raise QasmError(f"{text!r}: the bit {name}[{bit[1]}] is written two times")
+            self.measured[qubit] = bit
+        self.written.add(name)
 
     def _qubits(self, arguments: str, text: str, *, whole: bool) -> tuple[int, ...]:
         found: list[int] = []

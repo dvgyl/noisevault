@@ -201,6 +201,8 @@ def test_an_if_on_zero_runs_its_gate() -> None:
         ("qreg q[1];\ncreg c[1];\nmeasure q[0] -> c[0];\nif (c==1) x q[0];", "cannot know"),
         ("qreg q[1];\ncreg c[1];\nif (c==1) cx q[0], q[0];", "does not know the statement cx"),
         ("qreg q[2];\nZZ q[0], q[0];", "must be distinct"),
+        ("qreg q[2];\ncreg c[2];\nmeasure q -> c[0];", "a register into a register"),
+        ("qreg q[2];\ncreg c[3];\nmeasure q -> c;", "different sizes"),
         ("qreg q[2];\norder3 q[0], q[1];", "order3 takes 3 qubits"),
         ('include "other.inc";', "does not know other.inc"),
         ("qreg q[1];\ngate g a { x a; }", "does not know the statement gate"),
@@ -273,12 +275,14 @@ def test_a_pair_keeps_the_order_of_its_classical_bits() -> None:
 
 def test_the_2022_form_with_one_list_of_shots_is_read() -> None:
     doc = {
-        "qasm": {"128, 2": HEADER + "qreg q[1];\ncreg cr[1];\nx q[0];\nmeasure q[0] -> cr[0];\n"},
-        "raw data": {"128, 2": ["1", "1", "0"]},
+        "qasm": {"128, 2": HEADER + "qreg q[2];\ncreg cr[2];\nx q[0];\nmeasure q -> cr;\n"},
+        "raw data": {"128, 2": ["01", "01", "10"]},
     }
-    (circuit,) = qt.circuits(doc, "SQ_RB")
-    assert circuit["name"] == "SQ_RB_q0_m128_s2"
-    assert circuit["counts"] == {"1": 2, "0": 1}
+    zero, one = qt.circuits(doc, "SQ_RB")
+    assert zero["name"] == "SQ_RB_q0_m128_s2"
+    assert zero["counts"] == {"1": 2, "0": 1}
+    assert one["name"] == "SQ_RB_q1_m128_s2"
+    assert one["counts"] == {"0": 2, "1": 1}
 
 
 def test_shots_must_name_the_same_circuits_as_the_programs() -> None:
