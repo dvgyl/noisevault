@@ -1230,13 +1230,19 @@ def score(
     as_json: Annotated[bool, typer.Option("--json", help="Print JSON.")] = False,
 ) -> None:
     """Score profiles as forecasts of counts from a device, with no fit."""
+    from .reference import MAX_QUBITS
     from .score import rank
 
     with _friendly():
         profiles = [_load(ref, counts_hint=_SCORE_ORDER) for ref in refs]
         measured = _read_counts(Path(counts))
-        # Only a zero on a qubit that the counts measure can rule a profile out.
-        read = {q for circuit in measured.circuits for q in circuit.qubits}
+        # Only a zero on a qubit that a simulated circuit measures can rule a profile out.
+        read = {
+            q
+            for circuit in measured.circuits
+            if len(circuit.qubits) <= MAX_QUBITS
+            for q in circuit.qubits
+        }
         zeros = {
             ref: sorted(read.intersection(profile.zero_readouts()))
             for ref, profile in zip(refs, profiles, strict=True)
@@ -1250,14 +1256,24 @@ def score(
                     for ref, profile in zip(refs, profiles, strict=True)
                 ]
             )
+            best, forecast = ranking.models[0]
+            probes = forecast.profile.probe_report(measured)
         if as_json:
             _echo_json(
                 ranking.to_dict()
-                | {"floor": floor, "zero_readout_qubits": {ref: zeros[ref] for ref in refs}}
+                | {
+                    "floor": floor,
+                    "zero_readout_qubits": {ref: zeros[ref] for ref in refs},
+                    "probes": None if probes is None else {"ref": best, **probes.to_dict()},
+                }
             )
         else:
             for line in ranking.summary(counts_file=counts, width=out.width).splitlines():
                 out.print(Text(line), soft_wrap=True)
+            if probes is not None:
+                out.print()
+                for line in probes.summary(best, width=out.width).splitlines():
+                    out.print(Text(line), soft_wrap=True)
             stated = [ref for ref in refs if zeros[ref]]
             if stated and not floor:
                 where = "; ".join(
