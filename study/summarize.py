@@ -60,6 +60,8 @@ AFTER_LAST_WEEK = datetime(2027, 1, 11, tzinfo=UTC)
 PERIODS = ("pilot", "counted", "late", "secondary", "trial")
 # A fitted factor is at a limit of the search when ln f is this near to the ln of a limit.
 LIMIT_TOLERANCE = 0.01
+# The probe circuits of the growth ratio.
+AXIS_PREFIX = "axis_"
 # The forms of a device-week value: the mean of the two runs, the run of one chain kind, the
 # run on the best chain minus the run on the median chain, or the mean of the runs given.
 Mode = str
@@ -351,10 +353,12 @@ def misfit(rows: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
 def probes(rows: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
     """The probe table of each run that has one, and for each chain qubit the growth ratio.
 
-    The growth ratio is (wrong fraction minus baseline) of the probe with the largest m, divided
-    by the same value of the probe with the smallest m. m is the number after ``_d`` in the name.
-    The baseline is the wrong fraction of the qubit in the ``readout`` circuit. The ratio is None
-    when the divisor is not above 0.
+    The growth ratio uses only the ``axis_*`` circuits. It is (wrong fraction minus baseline) of
+    the axis circuit with the largest m, divided by the same value of the axis circuit with the
+    smallest m. m is the number after ``_d`` in the name. The baseline is the wrong fraction of
+    the qubit in the ``readout`` circuit. The ratio is None when the divisor is not above 0.
+    Another probe, such as the periodic circuit, has no growth ratio. The table gives its
+    measured and forecast probability of the ideal result.
     """
     result = []
     for row in rows:
@@ -363,10 +367,11 @@ def probes(rows: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
         if not circuits:
             continue
         baseline = {b["qubit"]: b["measured"] for b in table.get("baseline", ())}
-        ordered = sorted(circuits, key=lambda c: _depth(c["name"]))
-        smallest, largest = ordered[0], ordered[-1]
+        axis = [c for c in circuits if c["name"].startswith(AXIS_PREFIX)]
+        ordered = sorted(axis, key=lambda c: _depth(c["name"]))
         growth = []
-        if _depth(largest["name"]) > _depth(smallest["name"]):
+        if len(ordered) > 1 and _depth(ordered[-1]["name"]) > _depth(ordered[0]["name"]):
+            smallest, largest = ordered[0], ordered[-1]
             small = {q["qubit"]: q["measured"] for q in smallest["qubits"]}
             for q in largest["qubits"]:
                 base = baseline.get(q["qubit"])

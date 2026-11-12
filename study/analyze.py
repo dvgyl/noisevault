@@ -190,6 +190,33 @@ def scored_names(named: Mapping[str, Sequence[str]]) -> list[str]:
     return list(dict.fromkeys(n for names in named.values() for n in names))
 
 
+def score_groups(
+    profile: Profile, counts: MeasuredCounts, named: Mapping[str, Sequence[str]]
+) -> tuple[dict[str, Forecast], dict[str, str]]:
+    """The forecast of ``profile`` for each group of ``named`` that it can simulate, and the
+    reason for each other group.
+
+    The first try simulates each circuit of all groups one time, and each group selects from
+    the result. When the profile cannot simulate a circuit, each group is scored on its own, so
+    a circuit outside a group does not remove the score of that group.
+    """
+    every = scored_names(named)
+    try:
+        found = score(profile, counts, circuits=every)
+    except NoiseVaultError:
+        pass
+    else:
+        return {g: found.select(names) for g, names in named.items()}, {}
+    forecasts: dict[str, Forecast] = {}
+    failed: dict[str, str] = {}
+    for group, names in named.items():
+        try:
+            forecasts[group] = score(profile, counts, circuits=names)
+        except NoiseVaultError as exc:
+            failed[group] = _reason(exc)
+    return forecasts, failed
+
+
 def chain_kind(path: Path) -> str | None:
     """ "best" or "median" from the stem of the counts file, such as ``best-deep``."""
     stem = path.name.split(".")[0]
@@ -329,30 +356,30 @@ def analyze_run(
     named = groups(counts)
     every = scored_names(named)
     forecasts: dict[str, dict[str, Forecast]] = {}
-    full: dict[str, Forecast] = {}
-    done: dict[str, Forecast] = {}
+    done: dict[str, tuple[dict[str, Forecast], dict[str, str]]] = {}
 
-    def scored(profile: Profile, group: str | None) -> Forecast:
-        """Each circuit is simulated one time for a profile, and each group selects from it."""
+    def scored(name: str, profile: Profile) -> dict[str, Forecast]:
+        """The forecast of each group that ``profile`` can simulate. A model that cannot simulate
+        any group has its reason under its name. A model that can simulate a part of the groups
+        has the reason of each other group under "name (group)"."""
         if profile.fingerprint not in done:
-            done[profile.fingerprint] = score(profile, counts, circuits=every)
-        found = done[profile.fingerprint]
-        return found if group is None else found.select(named[group])
+            done[profile.fingerprint] = score_groups(profile, counts, named)
+        found, failed = done[profile.fingerprint]
+        if not found and failed:
+            missing[name] = next(iter(failed.values()))
+        else:
+            for group, reason in failed.items():
+                missing[f"{name} ({group})"] = reason
+        return found
 
     for name in MODELS:
         if name not in built or not every:
             continue
-        try:
-            full[name] = scored(built[name], None)
-            forecasts[name] = {g: scored(built[name], g) for g in named}
-        except NoiseVaultError as exc:
-            missing[name] = _reason(exc)
+        found = scored(name, built[name])
+        if found:
+            forecasts[name] = found
 
-    try:
-        stated_forecasts = {g: scored(calibration.uncorrected(), g) for g in named}
-    except NoiseVaultError as exc:
-        missing["calibration (stated)"] = _reason(exc)
-        stated_forecasts = {}
+    stated_forecasts = scored("calibration (stated)", calibration.uncorrected()) if every else {}
     narrow = tuple(
         dict.fromkeys(q for c in counts.circuits if len(c.qubits) <= MAX_QUBITS for q in c.qubits)
     )
@@ -389,7 +416,7 @@ def analyze_run(
         },
         "paired": _comparisons(forecasts),
         "misfit": _misfit(forecasts),
-        "deep": _deep(counts, full),
+        "deep": _deep(counts, forecasts),
         "probes": _probes(counts, built, chain, missing),
         "clifford": _clifford(counts, built, samples),
         "twirl_check": _twirl_check(counts, built, forecasts),
@@ -956,7 +983,7 @@ def _comparisons(
     chosen = [(True, PRIMARY), (False, SECONDARY)] if secondary is None else [(False, secondary)]
     for primary, comparisons in chosen:
         for a, b, group in comparisons:
-            if a not in forecasts or b not in forecasts or group not in forecasts[a]:
+            if group not in forecasts.get(a, {}) or group not in forecasts.get(b, {}):
                 continue
             test = paired(forecasts[a][group], forecasts[b][group])
             data = test.to_dict()
@@ -977,13 +1004,17 @@ def _comparisons(
     return tests
 
 
-def _deep(counts: MeasuredCounts, forecasts: Mapping[str, Forecast]) -> list[dict[str, Any]]:
+def _deep(
+    counts: MeasuredCounts, forecasts: Mapping[str, Mapping[str, Forecast]]
+) -> list[dict[str, Any]]:
     """For each deep circuit, the ideal result, its measured frequency and its probability in
-    each model. The ideal result is the most probable result under the ``ideal`` model."""
+    each model that has a score for a group of the circuit. The ideal result is the most
+    probable result under the ``ideal`` model."""
     if "ideal" not in forecasts:
         return []
     by_model = {
-        name: {c.name: c.probabilities for c in found.circuits} for name, found in forecasts.items()
+        name: {c.name: c.probabilities for found in by_group.values() for c in found.circuits}
+        for name, by_group in forecasts.items()
     }
     rows = []
     for c in counts.circuits:
@@ -997,7 +1028,11 @@ def _deep(counts: MeasuredCounts, forecasts: Mapping[str, Forecast]) -> list[dic
                 "role": role(c.name),
                 "ideal": bits,
                 "measured": c.counts.get(bits, 0) / c.shots,
-                "models": {name: float(probs[c.name][index]) for name, probs in by_model.items()},
+                "models": {
+                    name: float(probs[c.name][index])
+                    for name, probs in by_model.items()
+                    if c.name in probs
+                },
             }
         )
     return rows
@@ -1150,7 +1185,10 @@ def _rule(test: RuleTest) -> dict[str, Any]:
 
 
 def _order(name: str) -> int:
-    return MODELS.index(name) if name in MODELS else len(MODELS)
+    """The place of a failure in the order of ``MODELS``. A failure of one group, such as
+    "stale(30) (wide)", takes the place of its model."""
+    model = name.split(" (")[0]
+    return MODELS.index(model) if model in MODELS else len(MODELS)
 
 
 def _reason(exc: Exception) -> str:

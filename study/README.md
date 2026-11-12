@@ -44,11 +44,11 @@ error and of its first cause, such as `CountsError from MissingCalibrationError`
 | Field | Content |
 | --- | --- |
 | `chain`, `trial` | The chain kind (`best` or `median`), and True for a trial run. |
-| `circuits` | The number of circuits in each group. `all4` holds each circuit whose qubits are all qubits of the `readout` circuit (the chain), and `test4` the test circuits among them. `test_near` and `test_far` hold circuits of the chain only. `wide` holds the 8-qubit `wide_*` circuits. No group holds a `probe` circuit. |
+| `circuits` | The number of circuits in each group. `all4` holds each circuit whose qubits are all qubits of the `readout` circuit (the chain), and `test4` the test circuits among them. `test_near` and `test_far` hold circuits of the chain only. `wide` holds the 8-qubit `wide_*` circuits. No group holds a `probe` circuit: the `axis_*` circuits and the periodic circuit `periodic_d*`. |
 | `stated` | The readout probabilities of 0 in the calibration as stated, `zero_on_chain` (a 0 on a qubit of the chain), and the ruled-out shots and log score of the calibration as stated. |
-| `scores`, `paired` | The scores of each model on each group, and the paired tests of the plan. `winner` is the verdict of the log score. A fitted model has no p-value of its excess. |
+| `scores`, `paired` | The scores of each model on each group, and the paired tests of the plan. `winner` is the verdict of the log score. A fitted model has no p-value of its excess. A model that cannot simulate a circuit of a group has no score for that group, and `failures` gives the reason under "model (group)". A comparison whose group is missing for one of its models has no test. |
 | `misfit` | For `locus`, `two_factor` and `calibration` on `test_far`: the excess minus the mean excess of counts drawn from the model, per shot, and the part of the excess from outcomes with fewer than 1 expected shot. |
-| `probes` | The measured fraction of wrong bits of each chain qubit in `readout` (the baseline), and for each probe circuit of the suite (`axis_d64`, `axis_d256`) the ideal bit string, its measured and forecast probability, and the measured and forecast fraction of wrong bits of each qubit. |
+| `probes` | The measured fraction of wrong bits of each chain qubit in `readout` (the baseline), and for each probe circuit (`axis_d64`, `axis_d256` and the periodic circuit) the ideal bit string, its measured and forecast probability, and the measured and forecast fraction of wrong bits of each qubit. A wrong bit of a qubit is a bit that differs from the ideal bit of that qubit, so the rule holds also for the periodic circuit, whose ideal result is not all 0. |
 | `wide_chain_overlap` | The number of qubits of the 8-qubit chain that are in the chain of the run. |
 | `clifford` | The scores and tests on the Clifford circuits. The tests of the qubit score and of the wrong-bit score hold the sampling variance of both forecasts, and `sampling_ratio` gives its size. For the qubit score, this variance uses the covariance of the wrong bits of the qubits over the samples, because the marginals of one forecast come from one set of samples. |
 | `twirl_check` | For each model of the Clifford comparisons and each 8-qubit circuit: the log score from the exact simulator and from the stabilizer forecast. |
@@ -67,8 +67,10 @@ comparison, `summary.md` gives the estimate over device-weeks, its standard erro
 the Holm correction, as `study/estimate.py` computes them. A device needs 4 complete
 device-weeks to be in an estimate, so the first weeks of the study give no test. The summary
 also gives the descriptions and strata of the plan, the secondary comparisons with the same
-estimate, the staleness curve, the misfit, the probe table with the growth ratio of each qubit,
-the Clifford values of each device-week, the twirl check and the check of independent shots.
+estimate, the staleness curve, the misfit, the probe table, the Clifford values of each
+device-week, the twirl check and the check of independent shots. The growth ratio of each qubit
+uses only the `axis_*` circuits. The periodic circuit has no growth ratio: its line gives the
+measured and the forecast probability of the ideal result.
 A trial run is in no estimate, and it does not change whether a device-week is complete. The
 verdict counts of the pilot runs, of the late runs and of the trial runs are exploratory.
 
