@@ -259,7 +259,20 @@ circuits, where both forecasts exist, for each model that these comparisons use.
 
 ## Freeze
 
-To be written before the first run that counts.
+The Git tag `realism-study-v1` marks the frozen versions of this plan, of the circuit set
+(`noisevault.suite`), of the campaign script and of the analysis code. The workflows
+`ibm-campaign.yml` and `study.yml` check out this tag and install the library versions of
+`.github/study-constraints.txt`. Work on other parts of the repository thus does not change a
+run or a result of the study. A change of the frozen code gets a new tag and an entry in
+[Changes](#changes).
+
+The workflow `study.yml` computes the scores after each weekly campaign and saves them as the
+artifact `study-results`. Each signed-in GitHub user can read this artifact, so the scores of a
+run are open from the day of the run. For this reason, each change after the first run that
+counts is a change after test scores were read.
+
+Known at the freeze: the fits and the test scores of the pilot runs, and the results of one
+trial run of circuit set version 2 on `ibm_fez` on 2026-11-12. No run that counts existed.
 
 ## Changes
 
@@ -497,3 +510,10 @@ To be written before the first run that counts.
   code used the order of the circuits in the counts file, which is random from this week on.
   (6) A row of the analysis that used an outside source that failed is computed again in the
   next run. No run that counts existed when this entry was written.
+- 2026-11-12: the sections above this list were written again, so that they state the plan in
+  force. The rewriting changes no rule. Each rule comes from an entry of this list.
+- 2026-11-12: freeze. The tag `realism-study-v1` marks the frozen versions (see
+  [Freeze](#freeze)). Before the freeze, one trial run of circuit set version 2 on `ibm_fez`
+  (two jobs, 1250 shots for each circuit) was analyzed, and its results were read. The fitted
+  gate factors were x0.94 and x1.04. From 64 to 256 gates, the wrong bits of the `axis` probes
+  above the baseline grew 11 to 20 times on 7 of 8 qubits. These results are exploratory.

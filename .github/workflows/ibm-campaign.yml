@@ -83,7 +83,10 @@ jobs:
       SHOTS: ${{ inputs.shots }}
       DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
     steps:
+      # The study runs the frozen code of this tag (see the section Freeze of study/PLAN.md).
       - uses: actions/checkout@v4
+        with:
+          ref: realism-study-v1
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
