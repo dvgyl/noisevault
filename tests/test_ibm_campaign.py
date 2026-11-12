@@ -454,4 +454,9 @@ def test_a_suite_run_saves_the_deep_circuits_beside_the_compare_circuits(tmp_pat
             assert len(circuit.qubits) == int(size.removeprefix("clifford_n"))
             assert role(circuit.name) == "test_far"
             assert sum(circuit.counts.values()) == 200
-            assert wide.ideal_bits(circuit) in circuit.counts
+            ideal = wide.ideal_bits(circuit)
+            wrong = sum(
+                k * sum(a != b for a, b in zip(key, ideal, strict=True))
+                for key, k in circuit.counts.items()
+            )
+            assert wrong / (200 * len(ideal)) < 0.3
