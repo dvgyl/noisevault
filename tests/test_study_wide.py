@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -58,27 +59,66 @@ def test_the_model_of_the_truth_scores_above_the_calibration_on_each_score(
 ) -> None:
     result = wide.paired(_factor(line_24, TRUE_FACTOR), line_24, counts)
 
-    tests = [
-        result.success_log,
-        result.success_quadratic,
-        result.wrong_log,
-        result.wrong_quadratic,
-        result.qubit_log,
-    ]
-    assert [t.better for t in tests] == ["a"] * 5
+    tests = [result.wrong_log, result.qubit_log]
+    assert [t.better for t in tests] == ["a"] * 2
     assert all(t.outcome == "tested" and t.p_value < 0.05 for t in tests)
     assert result.a.success_log > result.b.success_log
     assert result.a.wrong_log > result.b.wrong_log
     assert result.a.qubit_log > result.b.qubit_log
 
 
-def test_two_equal_models_give_no_verdict(line_24: Profile, counts) -> None:
-    result = wide.paired(line_24, line_24, counts, samples=20_000)
+def test_only_the_scores_with_the_sampling_variance_give_a_verdict(
+    line_24: Profile, counts
+) -> None:
+    result = wide.paired(_factor(line_24, TRUE_FACTOR), line_24, counts, samples=200_000)
 
-    for test in (result.success_log, result.wrong_quadratic, result.qubit_log):
+    # The score of the ideal bit string and the quadratic wrong-bit score are values only.
+    assert {f.name for f in dataclasses.fields(result)} == {
+        "a",
+        "b",
+        "wrong_log",
+        "qubit_log",
+        "qubit_sampling",
+        "wrong_sampling",
+    }
+    assert result.a.success_quadratic != result.b.success_quadratic
+
+
+def test_two_equal_models_give_no_verdict(line_24: Profile, counts) -> None:
+    circuit = counts.circuits[0]
+    same = wide.forecast(line_24, circuit, samples=20_000, seed=1)
+
+    result = wide.compare([circuit], [same], [same])
+    independent = wide.paired(line_24, line_24, counts, samples=20_000)
+
+    for test in (result.wrong_log, result.qubit_log):
         assert test.outcome == "identical"
         assert test.better == "neither"
     assert result.a == result.b
+    assert independent.qubit_log.better == independent.wrong_log.better == "neither"
+
+
+def test_each_model_and_each_circuit_has_its_own_seed(
+    line_24: Profile, counts, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seeds: list[tuple[str, int]] = []
+    real = wide.forecast
+
+    def spy(profile: Profile, circuit, **options):
+        seeds.append((circuit.name, options["seed"]))
+        return real(profile, circuit, **options)
+
+    monkeypatch.setattr(wide, "forecast", spy)
+    copy = counts.circuits[0].model_copy(update={"name": "clifford_n20_d999"})
+    two = counts.model_copy(update={"circuits": (*counts.circuits, copy)})
+
+    wide.paired(line_24, line_24, two, samples=2000, seed=7)
+
+    names = [c.name for c in two.circuits]
+    assert [name for name, _ in seeds] == names * 2
+    assert len({seed for _, seed in seeds}) == 4
+    assert seeds[0][1] == wide.seed_of("7", "a", names[0])
+    assert seeds[3][1] == wide.seed_of("7", "b", names[1])
 
 
 def test_a_forecast_without_noise_gives_the_ideal_result_with_add_half_smoothing() -> None:
@@ -247,6 +287,47 @@ def test_the_forecast_gives_the_covariance_of_correlated_wrong_bits(line_24: Pro
     assert np.diag(found.covariance) == pytest.approx(p * (1 - p))
 
 
+def test_a_marginal_or_a_cell_with_few_samples_gives_no_verdict(line_24: Profile, counts) -> None:
+    circuit = counts.circuits[0]
+    truth, low = _factor(line_24, ASSUMED_GATE_FACTOR), _factor(line_24, 0.2)
+    many = [wide.forecast(m, circuit, samples=200_000, seed=s) for m, s in ((truth, 1), (low, 2))]
+    few = [wide.forecast(m, circuit, samples=400, seed=s) for m, s in ((truth, 1), (low, 2))]
+
+    clear = wide.compare([circuit], many[:1], many[1:])
+    lost = wide.compare([circuit], few[:1], few[1:])
+
+    assert clear.qubit_log.better == "a" and clear.qubit_sampling.reason is None
+    assert int(np.minimum(few[1].qubit_samples, 400 - few[1].qubit_samples).min()) < 100
+    assert lost.qubit_log.better == "neither"
+    assert lost.qubit_sampling.reason == "few_samples"
+    assert lost.qubit_log.z is not None
+    # The few samples of the low model leave cells with measured shots and fewer than 100 samples.
+    assert wide.few_cell_samples(few[1], circuit, few[0], few[1])
+    assert lost.wrong_log.better == "neither"
+    assert lost.wrong_sampling.reason == "few_samples"
+    assert not wide.few_cell_samples(many[0], circuit, many[0], many[1])
+
+
+def test_a_constant_difference_keeps_its_value_and_the_sampling_variance_decides() -> None:
+    times = np.array([3.0, 1.0])
+    a, b = np.array([-1.0, -2.0]), np.array([-1.2, -2.2])
+
+    found = wide._shot_test([(times, a, b)])
+
+    assert found.outcome == "tested"
+    assert found.difference == pytest.approx(0.2) and found.standard_error == 0.0
+    assert found.z is None
+    with_samples, sampling = wide.with_sampling(found, 0.01, 4)
+    assert with_samples.difference == pytest.approx(0.2)
+    assert with_samples.z == pytest.approx(0.8 / 0.1)
+    assert with_samples.better == "neither" and sampling.reason == "sampling_variance"
+    alone, none = wide.with_sampling(found, 0.0, 4)
+    assert alone.difference == pytest.approx(0.2) and alone.z is None
+    assert alone.better == "neither" and none.reason == "no_variance"
+    same = wide._shot_test([(times, a, a)])
+    assert same.outcome == "identical" and same.difference == 0.0
+
+
 def test_a_test_with_more_sampling_variance_than_shot_variance_gives_no_verdict() -> None:
     from noisevault.score import RuleTest
 
@@ -259,37 +340,6 @@ def test_a_test_with_more_sampling_variance_than_shot_variance_gives_no_verdict(
     assert kept.z == pytest.approx(10 / np.sqrt(1.5))
     assert large.ratio == pytest.approx(1.5) and lost.better == "neither"
     assert lost.z == pytest.approx(10 / np.sqrt(2.5)) and lost.p_value < 0.05
-
-
-def test_the_ideal_bit_string_gives_no_verdict_on_40_qubits() -> None:
-    data = Profile.uniform(
-        "line",
-        technology="superconducting",
-        num_qubits=44,
-        connectivity=[(q, q + 1) for q in range(43)],
-        one_qubit_error=1e-3,
-        two_qubit_error=1e-2,
-        readout_error=2e-2,
-        t1_us=200.0,
-        t2_us=150.0,
-        one_qubit_ns=32.0,
-        two_qubit_ns=68.0,
-    ).to_dict()
-    data["gates"] = {k: v for k, v in data["gates"].items() if k in ("rz", "sx", "x", "cz")}
-    line = Profile.model_validate(data)
-    truth = _factor(line, ASSUMED_GATE_FACTOR)
-    circuits = _clifford_circuits(line, truth, 0)
-    assert [len(c.qubits) for c in circuits] == [20, 40]
-    found = wide.simulate(truth, circuits, shots=500, seed=4, run_at=RUN_AT)
-
-    both = wide.paired(_factor(line, 3.0), line, found, samples=20_000)
-    small = wide.paired(
-        _factor(line, 3.0), line, found, circuits=[circuits[0].name], samples=20_000
-    )
-
-    assert both.success_verdict is False and both.success_log.better == "neither"
-    assert both.success_quadratic.better == "neither"
-    assert small.success_verdict is True
 
 
 def test_a_run_without_a_clifford_circuit_is_refused(line_24: Profile, counts) -> None:

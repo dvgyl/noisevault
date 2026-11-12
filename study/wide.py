@@ -10,9 +10,10 @@ string. The score compares the measured shots with the forecast in three ways:
 - ``qubit``: the score of a shot is the sum over the qubits of the log probability of its bit
   (right or wrong) under the marginal of the model for that qubit.
 
-``success`` and ``wrong`` use the log rule, the quadratic rule and the paired test of
-``noisevault.score`` on their cells. ``qubit`` uses a paired z-test of the per-shot score
-differences (see :func:`paired`).
+``success`` and ``wrong`` use the log rule and the quadratic rule on their cells. Only the log
+rule of ``wrong`` (the paired test of ``noisevault.score``) and ``qubit`` (a paired z-test of
+the per-shot score differences, see :func:`paired`) give a verdict, because only their tests
+hold the sampling variance. The other scores are values with no verdict, on each size.
 
 Each forecast probability comes from ``samples`` Stim shots with add-half smoothing:
 (k + 1/2) / (samples + 1) for a probability of two outcomes. For the ``wrong`` cells, the
@@ -28,7 +29,6 @@ both forecasts to the shot variance (see :func:`compare`).
 
 from __future__ import annotations
 
-import dataclasses
 import hashlib
 import math
 from collections.abc import Sequence
@@ -48,14 +48,12 @@ from noisevault.counts import (
 )
 from noisevault.errors import CountsError
 from noisevault.profile import Profile
-from noisevault.score import LEVEL, Choice, RuleTest, _log, _quadratic, _test
+from noisevault.score import LEVEL, Choice, RuleTest, _log, _test
 
 SAMPLES = 4_000_000
 CHUNK = 250_000
 MIN_EXPECTED = 5
 PREFIX = "clifford_"
-# The score of the ideal bit string gives no verdict on circuits of this many qubits or more.
-SUCCESS_LIMIT = 40
 
 
 @dataclass(frozen=True)
@@ -66,6 +64,8 @@ class Forecast:
     wrong bits, and ``qubit[q]`` the probability that the bit of circuit qubit q is wrong.
     ``covariance`` is the covariance matrix of the wrong-bit values of the qubits over the
     samples (each value is 0 or 1), without smoothing. None means independent qubits.
+    ``qubit_samples[q]`` is the number of samples with a wrong bit of qubit q, and
+    ``wrong_samples[k]`` the number of samples with k wrong bits. None means not known.
     """
 
     circuit: str
@@ -75,6 +75,13 @@ class Forecast:
     wrong: np.ndarray
     qubit: np.ndarray
     covariance: np.ndarray | None = None
+    qubit_samples: np.ndarray | None = None
+    wrong_samples: np.ndarray | None = None
+
+
+# The fewest samples on each side of a marginal, and in a cell with a measured shot, for which
+# the delta method of the sampling variance is valid.
+MIN_SAMPLES = 100
 
 
 @dataclass(frozen=True)
@@ -91,10 +98,15 @@ class Scores:
 @dataclass(frozen=True)
 class Sampling:
     """The sampling variance of the two forecasts in one test, the shot variance of the test,
-    and their ratio. Both variances are of the sum of the score differences over the shots."""
+    and their ratio. Both variances are of the sum of the score differences over the shots.
+    ``reason`` says why the test gives no verdict for a reason of the samples:
+    ``few_samples`` (a marginal or a cell has fewer than ``MIN_SAMPLES`` samples) or
+    ``sampling_variance`` (the sampling variance is larger than the shot variance) or
+    ``no_variance`` (both variances are 0, so there is no test). It is None otherwise."""
 
     variance: float
     shot_variance: float
+    reason: str | None = None
 
     @property
     def ratio(self) -> float | None:
@@ -103,25 +115,22 @@ class Sampling:
 
 @dataclass(frozen=True)
 class Paired:
-    """The scores of models a and b and the paired test of each score.
+    """The scores of models a and b, and the paired test of each score that gives a verdict.
 
-    ``qubit_log`` and ``wrong_log`` hold the sampling variance of both forecasts in their
-    standard error, and ``qubit_sampling`` and ``wrong_sampling`` give its size. A test whose
-    sampling variance is larger than its shot variance gives no verdict. ``success_verdict`` is
-    False when a circuit has ``SUCCESS_LIMIT`` qubits or more, and the ``success`` tests then
-    give no verdict.
+    Only two scores give a verdict, because only their tests hold the sampling variance of both
+    forecasts: the score of each qubit (``qubit_log``) and the log score of the number of wrong
+    bits (``wrong_log``). ``qubit_sampling`` and ``wrong_sampling`` give the size of the
+    sampling variance. A test whose sampling variance is larger than its shot variance gives no
+    verdict. The score of the ideal bit string and the quadratic score of the number of wrong
+    bits are values only: the scores ``a`` and ``b`` of each model.
     """
 
     a: Scores
     b: Scores
-    success_log: RuleTest
-    success_quadratic: RuleTest
     wrong_log: RuleTest
-    wrong_quadratic: RuleTest
     qubit_log: RuleTest
     qubit_sampling: Sampling
     wrong_sampling: Sampling
-    success_verdict: bool
 
 
 def forecast(
@@ -168,6 +177,8 @@ def forecast(
         wrong=smoothed / smoothed.sum(),
         qubit=(qubit + 0.5) / (samples + 1),
         covariance=both / samples - np.outer(mean, mean),
+        qubit_samples=qubit,
+        wrong_samples=cells,
     )
 
 
@@ -183,7 +194,7 @@ def paired(
     """Score models ``a`` and ``b`` on the named wide Clifford ``circuits`` of ``counts``.
 
     Without ``circuits``, the score takes every circuit whose name starts with ``clifford_``.
-    ``success`` and ``wrong`` use the paired test of ``noisevault.score`` (its ``_test``,
+    The log rule of ``wrong`` uses the paired test of ``noisevault.score`` (its ``_test``,
     without the grouping of rare outcomes, because ``wrong`` merges its rare cells first).
 
     ``qubit`` uses a paired z-test. Each shot gives one difference d = s_a - s_b of the two
@@ -196,12 +207,20 @@ def paired(
     - Each circuit has enough shots that the mean of d is near normal. Each smoothed
       probability is above 0, so d is bounded and has a finite variance.
 
+    Each forecast takes its own seed from ``seed``, the model (a or b) and the name of the
+    circuit, so that the sampling errors of two forecasts are independent.
+
     Raises CountsError for a name that ``counts`` does not hold or for no circuit.
     """
     chosen = _chosen(counts, circuits)
-    a_forecasts = [forecast(a, c, samples=samples, seed=seed) for c in chosen]
-    b_forecasts = [forecast(b, c, samples=samples, seed=seed) for c in chosen]
-    return compare(chosen, a_forecasts, b_forecasts)
+    found = {
+        label: [
+            forecast(model, c, samples=samples, seed=seed_of(str(seed), label, c.name))
+            for c in chosen
+        ]
+        for label, model in (("a", a), ("b", b))
+    }
+    return compare(chosen, found["a"], found["b"])
 
 
 def compare(
@@ -222,7 +241,7 @@ def compare(
       the forecast p of a cell.
 
     A test gives no verdict when the sampling variance is larger than the shot variance. The
-    ``success`` tests give no verdict when a circuit has ``SUCCESS_LIMIT`` qubits or more.
+    ``success`` scores and the quadratic ``wrong`` score are values with no test.
     """
     cells = [_cells(c, fa, fb, merge=True) for c, fa, fb in zip(circuits, a, b, strict=True)]
     success, wrong, qubit = (list(kind) for kind in zip(*cells, strict=True))
@@ -237,27 +256,25 @@ def compare(
         for found, probs in ((fa, pa), (fb, pb)):
             wrong_variance += cell_sampling_variance(c.shots, found.samples, measured, probs)
     shots = float(sum(c.shots for c in circuits))
-    qubit_test, qubit_sampling = with_sampling(_shot_test(qubit), qubit_variance, shots)
-    wrong_test, wrong_sampling = with_sampling(
-        _test("log", wrong, _log, group_rare=False), wrong_variance, shots
+    few_qubits = any(few_qubit_samples(found) for found in (*a, *b))
+    few_cells = any(
+        few_cell_samples(found, c, fa, fb)
+        for c, fa, fb in zip(circuits, a, b, strict=True)
+        for found in (fa, fb)
     )
-    verdict = all(len(c.qubits) < SUCCESS_LIMIT for c in circuits)
-    success_log = _test("log", success, _log, group_rare=False)
-    success_quadratic = _test("quadratic", success, _quadratic, group_rare=False)
-    if not verdict:
-        success_log = dataclasses.replace(success_log, better="neither")
-        success_quadratic = dataclasses.replace(success_quadratic, better="neither")
+    qubit_test, qubit_sampling = with_sampling(
+        _shot_test(qubit), qubit_variance, shots, few=few_qubits
+    )
+    wrong_test, wrong_sampling = with_sampling(
+        _test("log", wrong, _log, group_rare=False), wrong_variance, shots, few=few_cells
+    )
     return Paired(
         a=_scores(success, wrong, qubit, 1),
         b=_scores(success, wrong, qubit, 2),
-        success_log=success_log,
-        success_quadratic=success_quadratic,
         wrong_log=wrong_test,
-        wrong_quadratic=_test("quadratic", wrong, _quadratic, group_rare=False),
         qubit_log=qubit_test,
         qubit_sampling=qubit_sampling,
         wrong_sampling=wrong_sampling,
-        success_verdict=verdict,
     )
 
 
@@ -293,23 +310,60 @@ def cell_sampling_variance(
     return shots**2 / samples * max(0.0, float((f**2 / p).sum()) - 1)
 
 
-def with_sampling(test: RuleTest, variance: float, shots: float) -> tuple[RuleTest, Sampling]:
+def few_qubit_samples(found: Forecast) -> bool:
+    """True when a qubit of the forecast has fewer than ``MIN_SAMPLES`` sampled wrong bits or
+    sampled right bits."""
+    if found.qubit_samples is None:
+        return False
+    wrong = np.asarray(found.qubit_samples)
+    return bool((np.minimum(wrong, found.samples - wrong) < MIN_SAMPLES).any())
+
+
+def few_cell_samples(found: Forecast, circuit: MeasuredCircuit, fa: Forecast, fb: Forecast) -> bool:
+    """True when a cell of the ``wrong`` score of ``circuit`` holds a measured shot and has fewer
+    than ``MIN_SAMPLES`` samples in the forecast ``found``. The cells are the merged cells of
+    the test of ``fa`` and ``fb``."""
+    if found.wrong_samples is None:
+        return False
+    keys, times = _rows(circuit)
+    wrong_bits = keys != np.array([bit == "1" for bit in found.ideal])
+    measured = np.bincount(wrong_bits.sum(axis=1), weights=times, minlength=len(found.ideal) + 1)
+    samples = np.asarray(found.wrong_samples, dtype=float)
+    # The rule of _merged: the cells that each model expects fewer than MIN_EXPECTED times
+    # become one last cell, with the sum of their shots and of their samples.
+    rare = circuit.shots * np.maximum(fa.wrong, fb.wrong) < MIN_EXPECTED
+    if rare.any():
+        measured = np.append(measured[~rare], measured[rare].sum())
+        samples = np.append(samples[~rare], samples[rare].sum())
+    return bool(((measured > 0) & (samples < MIN_SAMPLES)).any())
+
+
+def with_sampling(
+    test: RuleTest, variance: float, shots: float, *, few: bool = False
+) -> tuple[RuleTest, Sampling]:
     """``test`` over ``shots`` shots, with the sampling ``variance`` added to the variance of its
     summed difference.
 
-    The test gives no verdict when ``variance`` is larger than the shot variance. A test with no
-    value stays as it is.
+    The test gives no verdict when ``variance`` is larger than the shot variance, or when
+    ``few`` says that a marginal or a cell has too few samples for the sampling variance. A test
+    with no value stays as it is.
     """
     if test.outcome != "tested" or test.difference is None or test.standard_error is None:
-        return test, Sampling(variance, 0.0)
+        return test, Sampling(variance, 0.0, "few_samples" if few else None)
     total = test.difference * shots
     shot_variance = (test.standard_error * shots) ** 2
-    sampling = Sampling(variance, shot_variance)
     error = math.sqrt(shot_variance + variance)
+    if error == 0:
+        # No shot variance and no sampling variance: no test, but the difference stays.
+        reason = "few_samples" if few else "no_variance"
+        found = RuleTest(test.rule, "tested", test.difference, 0.0, None, None, "neither")
+        return found, Sampling(variance, shot_variance, reason)
     z = total / error
     p_value = math.erfc(abs(z) / math.sqrt(2))
-    too_large = sampling.ratio is not None and sampling.ratio > 1
-    better: Choice = "neither" if p_value >= LEVEL or too_large else "a" if z > 0 else "b"
+    too_large = variance > shot_variance
+    reason = "few_samples" if few else "sampling_variance" if too_large else None
+    sampling = Sampling(variance, shot_variance, reason)
+    better: Choice = "neither" if p_value >= LEVEL or reason else "a" if z > 0 else "b"
     found = RuleTest(test.rule, "tested", test.difference, error / shots, z, p_value, better)
     return found, sampling
 
@@ -330,9 +384,10 @@ def measured(circuit: MeasuredCircuit, ideal: str) -> tuple[float, float]:
     return right / circuit.shots, float(times @ wrong_bits.mean(axis=1)) / circuit.shots
 
 
-def seed_of(digest: str, model: str) -> int:
-    """A seed from the SHA-256 of a counts file and a model name, so that a result repeats."""
-    return int(hashlib.sha256(f"{digest}\n{model}".encode()).hexdigest()[:16], 16)
+def seed_of(digest: str, model: str, circuit: str) -> int:
+    """A seed from the SHA-256 of a counts file, a model name and a circuit name, so that a
+    result repeats and each model and circuit has its own sampling error."""
+    return int(hashlib.sha256(f"{digest}\n{model}\n{circuit}".encode()).hexdigest()[:16], 16)
 
 
 def _cells(
@@ -474,7 +529,12 @@ def _scores(
 
 def _shot_test(circuits: list[tuple[np.ndarray, np.ndarray, np.ndarray]]) -> RuleTest:
     """The paired z-test of the per-shot score differences. Each circuit gives the shots of
-    each measured row and the score of each row under model a and under model b."""
+    each measured row and the score of each row under model a and under model b.
+
+    The outcome is ``identical`` only when each difference is 0. When each shot has the same
+    difference that is not 0, the shot variance is 0 and the result keeps the difference, with
+    the standard error 0 and no z. :func:`with_sampling` then decides on the test, after it adds
+    the sampling variance."""
     total, variance, shots, scale = 0.0, 0.0, 0.0, 0.0
     for times, score_a, score_b in circuits:
         d = score_a - score_b
@@ -486,8 +546,10 @@ def _shot_test(circuits: list[tuple[np.ndarray, np.ndarray, np.ndarray]]) -> Rul
         shots += n
         scale += n * float(np.abs(d).max())
     error = math.sqrt(variance)
-    if error <= 1e-12 * scale:
+    if scale == 0:
         return RuleTest("log", "identical", 0.0, 0.0, None, None, "neither")
+    if error <= 1e-12 * scale:
+        return RuleTest("log", "tested", total / shots, 0.0, None, None, "neither")
     z = total / error
     p_value = math.erfc(abs(z) / math.sqrt(2))
     better: Choice = "neither" if p_value >= LEVEL else "a" if z > 0 else "b"

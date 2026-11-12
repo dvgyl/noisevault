@@ -23,8 +23,10 @@ file gives the chain kind: `best-deep` and `median-deep` are the two runs of a w
 `best-trial` and `median-trial` are trial runs.
 
 `--rows FOLDER` on `study.derive` and `study.analyze` keeps the result of each counts file. A
-later call uses a kept result again when the counts file, the profile file and the source files
-of NoiseVault and the study are the same.
+later call uses a kept result again when the counts file, the profile file, the source files of
+NoiseVault and the study, `.github/study-constraints.txt`, and the chain kind and trial status
+that the file name gives are the same. A row that waits for a source that failed for a reason
+that can pass (see `pending` below) is not kept, so the next call computes it again.
 
 `study.analyze` reads older calibrations of IBM devices from IBM's public endpoint. `--offline`
 leaves out the models that need them. `--samples N` sets the number of stabilizer samples of
@@ -50,15 +52,21 @@ error and of its first cause, such as `CountsError from MissingCalibrationError`
 | `misfit` | For `locus`, `two_factor` and `calibration` on `test_far`: the excess minus the mean excess of counts drawn from the model, per shot, and the part of the excess from outcomes with fewer than 1 expected shot. |
 | `probes` | The measured fraction of wrong bits of each chain qubit in `readout` (the baseline), and for each probe circuit (`axis_d64`, `axis_d256` and the periodic circuit) the ideal bit string, its measured and forecast probability, and the measured and forecast fraction of wrong bits of each qubit. A wrong bit of a qubit is a bit that differs from the ideal bit of that qubit, so the rule holds also for the periodic circuit, whose ideal result is not all 0. |
 | `wide_chain_overlap` | The number of qubits of the 8-qubit chain that are in the chain of the run. |
-| `clifford` | The scores and tests on the Clifford circuits. The tests of the qubit score and of the wrong-bit score hold the sampling variance of both forecasts, and `sampling_ratio` gives its size. For the qubit score, this variance uses the covariance of the wrong bits of the qubits over the samples, because the marginals of one forecast come from one set of samples. |
+| `clifford` | The scores and tests on the Clifford circuits. Only the qubit score and the log score of the number of wrong bits give a verdict, because only their tests hold the sampling variance of both forecasts. `sampling_ratio` gives the size of that variance. For the qubit score, the variance uses the covariance of the wrong bits of the qubits over the samples. `no_verdict` gives the reason when a test gives no verdict: `few_samples` (a marginal or a cell with a measured shot has fewer than 100 samples), `sampling_variance` (the sampling variance is larger than the shot variance) or `no_variance`. The score of the ideal bit string and the quadratic score of the number of wrong bits are values only. Each model and each circuit has its own stabilizer seed. |
 | `twirl_check` | For each model of the Clifford comparisons and each 8-qubit circuit: the log score from the exact simulator and from the stabilizer forecast. |
 | `fits` | The fitted factors and, for `averaged(7)`, the number of different calibrations in the median. |
 | `before` | The run of the same device and chain kind 5 to 9 days before, and its `two_factor` factors. The secondary model `two_factor_before` applies them to C of this run, with the zero floor after. A second pass of `study.analyze` adds its comparisons with `calibration` and `two_factor` on `test4`. |
-| `ages` | The age of the calibration time and of the values of C and of each stale calibration. |
+| `ages` | The age of the calibration time and of the values of C and of each stale calibration. The ages of each qubit and each pair use the chain in the order of the `readout` circuit, so a random order of the circuits gives the same pairs. |
+| `pending` | The parts of the row that depend on a source that failed for a reason that can pass: a model whose pull failed, the ages (`source_failed` or `no_reply`) and the mark. |
+
+When the calibration in effect d days before the run is C, `stale(d)` is C, and its comparison
+with `calibration` has the outcome `identical` and a difference of 0.
 
 `analysis.json` also holds `shot_checks`: for each device-week with one run on each chain kind,
 the Pearson chi-square statistic of each circuit that both runs hold, with its degrees of freedom.
-The check uses the two normal runs and not the trial runs.
+In each table, the cells with fewer than 5 expected shots become one cell. The check uses the two
+normal runs and not the trial runs. Without Stim, `skipped` gives each Clifford circuit with the
+reason `ImportError`.
 
 ### The summary
 

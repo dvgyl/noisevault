@@ -201,8 +201,13 @@ def test_each_model_has_a_score_or_a_reason(result: dict[str, Any]) -> None:
     assert set(row["scores"]) | set(row["failures"]) == set(analyze.MODELS)
     assert not set(row["scores"]) & set(row["failures"])
     assert set(row["scores"]) >= {"ideal", "generic", "medians", "stale(7)", "locus"}
-    assert row["failures"]["stale(1)"].startswith("the source has no other calibration")
-    assert row["failures"]["stale(180)"].startswith("the source has no other calibration")
+    assert row["failures"]["stale(180)"] == "the source has no calibration in effect at that time"
+    # One day before the run, C is in effect: stale(1) is C, with the difference 0.
+    assert "stale(1)" in row["scores"]
+    test = _test(row, "calibration", "stale(1)", "all4")
+    assert test["log"]["outcome"] == "identical" and test["log"]["difference"] == 0.0
+    assert summarize.delta(row, "calibration", "stale(1)", "all4") == 0.0
+    assert summarize.stale_slope(row) is not None
     # The reason gives the class of the error and the class of its first cause.
     assert row["failures"]["stale(30)"] == "CountsError from MissingCalibrationError"
     assert row["scores"]["ideal"]["all4"]["ruled_out"] > 0
@@ -567,7 +572,12 @@ def test_the_clifford_block_ranks_two_factor_above_the_calibration(clifford_resu
     assert together["qubit"]["log"]["better"] == "a"
     assert 0 < together["qubit"]["sampling_ratio"] < 1
     assert together["wrong"]["sampling_ratio"] > 0
-    assert together["success"]["verdict"] is True
+    # The score of the ideal bit string and the quadratic wrong-bit score are values only.
+    assert set(together["success"]) == {"log", "quadratic"}
+    assert all(isinstance(v, float) for v in together["success"].values())
+    assert isinstance(together["wrong"]["quadratic"], float)
+    text = json.dumps(together["success"]) + json.dumps(together["wrong"]["quadratic"])
+    assert "p_value" not in text and "better" not in text
     assert block["samples"] == CLIFFORD_SAMPLES
     assert {(t["a"], t["b"]) for t in block["paired"]} == {
         ("calibration", "medians"),
@@ -849,6 +859,60 @@ def test_the_check_of_independent_shots_uses_only_the_same_circuits(tmp_path: Pa
     # A trial run in the device-week does not change the check of the two normal runs.
     trial = rows[0] | {"trial": True, "counts_sha256": "trial"}
     assert analyze._shot_checks([*rows, trial], paths) == [check]
+
+
+def test_the_check_of_independent_shots_skips_a_clifford_circuit_without_stim(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    require("stim")
+    from noisevault.suite import _clifford_circuits
+
+    calibration = _line_24()
+    circuits = _clifford_circuits(calibration, calibration, 0)
+    first = wide.simulate(calibration, circuits, shots=200, seed=1, run_at=RUN_AT)
+    second = wide.simulate(calibration, circuits, shots=200, seed=2, run_at=RUN_AT)
+
+    def missing(circuit: Any) -> str:
+        raise ImportError("the stabilizer forecast needs stim")
+
+    monkeypatch.setattr(analyze.stabilizer, "has_stim", lambda: False)
+    monkeypatch.setattr(analyze.stabilizer, "ideal_bits", missing)
+
+    found = analyze.shot_check(first, second)
+
+    assert found["circuits"] == []
+    assert found["skipped"] == {c.name: "ImportError" for c in circuits}
+
+
+def test_each_clifford_forecast_has_a_seed_from_its_model_and_its_circuit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    require("stim")
+    from noisevault.suite import _clifford_circuits
+
+    calibration = _line_24()
+    (circuit,) = _clifford_circuits(calibration, calibration, 0)
+    circuits = [circuit, circuit.model_copy(update={"name": "clifford_n20_d999"})]
+    counts = wide.simulate(calibration, circuits, shots=200, seed=1, run_at=RUN_AT)
+    seeds: list[tuple[str, int]] = []
+    real = wide.forecast
+
+    def spy(profile: Profile, c: Any, **options: Any) -> Any:
+        seeds.append((c.name, options["seed"]))
+        return real(profile, c, **options)
+
+    monkeypatch.setattr(wide, "forecast", spy)
+    built = {"calibration": calibration, "medians": models.medians(calibration)}
+
+    analyze._clifford(counts, built, 2000)
+
+    expected = [
+        (c.name, wide.seed_of(counts.sha256, name, c.name))
+        for name in ("medians", "calibration")
+        for c in circuits
+    ]
+    assert seeds == expected
+    assert len({seed for _, seed in seeds}) == 4
 
 
 def test_a_trial_run_is_named_by_its_file_and_is_never_the_earlier_run() -> None:

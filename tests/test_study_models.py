@@ -341,7 +341,8 @@ def test_stale_pulls_the_calibration_of_that_time_and_caches_it(tmp_path: Path) 
     assert first.calibration_fingerprint == week.calibration_fingerprint
     assert again.calibration_fingerprint == week.calibration_fingerprint
     assert source.calls == [RUN_AT - timedelta(days=7)]
-    assert models.stale(now, RUN_AT, 1, tmp_path, source) is None
+    # One day before the run, C is in effect, so stale(1) is C itself.
+    assert models.stale(now, RUN_AT, 1, tmp_path, source) is now
     assert models.stale(now, RUN_AT, 30, tmp_path, source) is None
     assert models.stale(now, RUN_AT, 30, tmp_path, lambda d, a: pytest.fail("no cache")) is None
 
@@ -355,14 +356,14 @@ def test_stale_gives_none_for_another_vendor_and_raises_when_the_source_fails() 
         models.stale(_ibm(device(), RUN_AT), RUN_AT, 7, None, broken)
 
 
-def test_bundled_gives_the_bundled_profile_unless_it_is_c() -> None:
+def test_bundled_gives_the_bundled_profile_and_c_when_it_is_c() -> None:
     kingston = nv.load("ibm_kingston@2026-04-15")
     other = kingston.model_copy(
         update={"device": {**kingston.device.model_dump(mode="json"), "calibrated_at": RUN_AT}}
     )
     other = other.model_copy(update={"readout": {"error": 0.02}})
 
-    assert models.bundled(kingston) is None
+    assert models.bundled(kingston) is kingston
     found = models.bundled(other)
     assert found is not None
     assert found.calibration_fingerprint == kingston.calibration_fingerprint

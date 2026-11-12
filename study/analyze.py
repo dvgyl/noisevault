@@ -321,7 +321,7 @@ def build(
     attempt(
         "bundled",
         lambda: _floored(models.bundled(calibration)),
-        "NoiseVault bundles no other calibration of this device",
+        "NoiseVault bundles no calibration of this device",
     )
     attempt("symmetric", lambda: models.floored(models.symmetric(calibration)))
     if offline:
@@ -380,14 +380,16 @@ def analyze_run(
             forecasts[name] = found
 
     stated_forecasts = scored("calibration (stated)", calibration.uncorrected()) if every else {}
-    narrow = tuple(
-        dict.fromkeys(q for c in counts.circuits if len(c.qubits) <= MAX_QUBITS for q in c.qubits)
-    )
     chain = chain_of(counts)
+    # The circuits of a run come in a random order, so the qubits are the chain in the order of
+    # the readout circuit, then the other qubits in increasing order.
+    others = {q for c in counts.circuits if len(c.qubits) <= MAX_QUBITS for q in c.qubits}
+    narrow = (*(chain or ()), *sorted(others - set(chain or ())))
     when = calibration.device.calibrated_at
     age = None if when is None else (counts.run_at - when).total_seconds() / 3600
     shots = {c.shots for c in counts.circuits}
-    return {
+    marked, marked_failed = _marked(calibration, counts, cache, offline, pull)
+    row = {
         "device": calibration.device.name,
         "vendor": calibration.device.vendor,
         "technology": calibration.device.technology,
@@ -401,8 +403,8 @@ def analyze_run(
         "circuits": {g: len(names) for g, names in named.items()},
         "counts_sha256": counts.sha256,
         "calibration": calibration.calibration_fingerprint,
-        "marked": _marked(calibration, counts, cache, offline, pull),
-        "ages": {} if offline else _ages(calibration, counts, cache, properties, narrow),
+        "marked": marked,
+        "ages": {} if offline else _ages(calibration, counts, cache, properties, narrow, chain),
         "stated": {
             "zero_readouts": models.zero_readouts(calibration),
             "zero_on_chain": None if chain is None else zero_on(calibration, chain),
@@ -423,6 +425,8 @@ def analyze_run(
         "fits": fits,
         "failures": dict(sorted(missing.items(), key=lambda item: _order(item[0]))),
     }
+    row["pending"] = pending(row, marked_failed)
+    return row
 
 
 def zero_on(calibration: Profile, qubits: Sequence[int]) -> bool:
@@ -477,7 +481,16 @@ def analyze(
                 continue
             seen.add(digest)
             beside = profile_beside(path)
-            row = kept(rows_folder, kind, [path, beside] if beside.exists() else [path], run)
+            # The row takes the chain kind and the trial status from the file name, so they are
+            # in the key. A row that waits for a source is computed again in the next run.
+            row = kept(
+                rows_folder,
+                kind,
+                [path, beside] if beside.exists() else [path],
+                run,
+                names=f"chain={chain_kind(path)} trial={is_trial(path)}",
+                keep=lambda found: found is None or not found.get("pending"),
+            )
         except NoiseVaultError as exc:
             # A message can hold the path of the file, and a file name can hold an id of the
             # account. So a failure gives only the error type and the hash of the file.
@@ -605,10 +618,12 @@ def shot_check(first: MeasuredCounts, second: MeasuredCounts) -> dict[str, Any]:
     outcome. The cells with fewer than ``CHECK_MIN_EXPECTED`` expected shots in a run, from the
     pooled counts, become one cell. The result gives the statistic, its degrees of freedom K - 1
     and their ratio for each circuit, and the number of circuits with one name in both runs that
-    are not the same.
+    are not the same. Without Stim, a Clifford circuit has no ideal bit string, so ``skipped``
+    gives it with the reason ``ImportError``.
     """
     others = {c.name: c for c in second.circuits}
     circuits, different = [], 0
+    skipped: dict[str, str] = {}
     for a in first.circuits:
         b = others.get(a.name)
         if b is None:
@@ -617,6 +632,9 @@ def shot_check(first: MeasuredCounts, second: MeasuredCounts) -> dict[str, Any]:
             different += 1
             continue
         if a.name.startswith(CLIFFORD_PREFIX):
+            if not stabilizer.has_stim():
+                skipped[a.name] = "ImportError"
+                continue
             ideal = stabilizer.ideal_bits(a)
             table = np.array([_wrong_cells(c, ideal) for c in (a, b)])
         else:
@@ -631,7 +649,7 @@ def shot_check(first: MeasuredCounts, second: MeasuredCounts) -> dict[str, Any]:
                 "ratio": None if df == 0 else statistic / df,
             }
         )
-    return {"circuits": circuits, "not_the_same": different}
+    return {"circuits": circuits, "not_the_same": different, "skipped": skipped}
 
 
 def chi_square(table: np.ndarray) -> tuple[float, int]:
@@ -750,7 +768,7 @@ def _floored(profile: Profile | None) -> Profile | None:
 def _no_stale(calibration: Profile) -> str:
     if calibration.device.vendor != "ibm":
         return "the device is not an IBM device"
-    return "the source has no other calibration in effect at that time"
+    return "the source has no calibration in effect at that time"
 
 
 def _marked(
@@ -759,16 +777,36 @@ def _marked(
     cache: Path | None,
     offline: bool,
     pull: models.Pull | None,
-) -> bool | None:
+) -> tuple[bool | None, bool]:
     """True when the calibration in effect at the run is not C, so the counts bind to the
-    planned calibration. None when the script cannot tell."""
+    planned calibration. None when the script cannot tell. The second value is True when the
+    source failed, so that a later run can tell."""
     if offline or calibration.device.vendor != "ibm":
-        return None
+        return None, False
     try:
         found = models.pulled(calibration.device.name, counts.run_at, cache, pull)
     except NoiseVaultError:
-        return None
-    return None if found is None else not models.same_calibration(found, calibration)
+        return None, True
+    return (None if found is None else not models.same_calibration(found, calibration)), False
+
+
+# The reasons of the ages that a later run can change: the source failed or had no reply.
+PASSING_AGES = ("source_failed", "no_reply")
+
+
+def pending(row: Mapping[str, Any], marked_failed: bool = False) -> list[str]:
+    """The parts of a row that depend on an outside source that failed for a reason that can
+    pass: a model whose pull failed (``SourceUnavailable``), the ages, and the mark. A row with
+    such a part is computed again in the next run, so it is not kept. A reason that cannot pass,
+    such as a stale calibration that does not define a gate, does not make a part pending."""
+    found = [
+        name for name, reason in row["failures"].items() if "SourceUnavailable" in reason.split(" ")
+    ]
+    if any(r in PASSING_AGES for r in row["ages"].get("missing", {}).values()):
+        found.append("ages")
+    if marked_failed:
+        found.append("marked")
+    return found
 
 
 def _ages(
@@ -777,10 +815,14 @@ def _ages(
     cache: Path | None,
     properties: ages.Properties | None,
     qubits: Sequence[int] | None = None,
+    chain: Sequence[int] | None = None,
 ) -> dict[str, Any]:
     """For the calibration C and for each stale calibration, the age of the calibration time and
     of the values of ``qubits`` at the run time, in hours. IBM dates each value, so only an IBM
     device has ages. Without ``qubits``, the ages are of every qubit that ``counts`` measures.
+    The ages of each qubit and each pair (``loci``) are of ``chain``, in the order of the
+    ``readout`` circuit, so that neighbours in the list are the pairs of the chain. Without
+    ``chain``, they are of the ``readout`` circuit of ``counts``, or of ``qubits``.
 
     The entry ``"calibration"`` comes from the reply of C itself, whose ``last_update_date`` is
     the time of C. IBM publishes a calibration some minutes after that time, so the source is
@@ -793,6 +835,7 @@ def _ages(
         return {}
     device = calibration.device.name
     qubits = counts.qubits if qubits is None else qubits
+    loci = chain or chain_of(counts) or qubits
 
     def public(name: str, at: datetime) -> Mapping[str, Any] | None:
         return ages.public_properties(name, at, cache)
@@ -803,7 +846,7 @@ def _ages(
         return {
             "calibration_h": ages.calibration_age(reply, counts.run_at),
             "values": ages.value_ages(reply, counts.run_at, qubits),
-            "loci": ages.locus_ages(reply, counts.run_at, qubits),
+            "loci": ages.locus_ages(reply, counts.run_at, loci),
         }
 
     found: dict[str, Any] = {}
@@ -835,6 +878,7 @@ def _ages(
         try:
             reply = fetch(device, counts.run_at - timedelta(days=days))
         except NoiseVaultError:
+            missing[name] = "source_failed"
             continue
         if reply is not None:
             found[name] = entry(reply)
@@ -1056,10 +1100,17 @@ def _clifford(counts: MeasuredCounts, built: dict[str, Profile], samples: int) -
     for name in CLIFFORD_MODELS:
         if name not in built:
             continue
-        seed = wide.seed_of(counts.sha256, name)
         try:
+            # Each model and each circuit has its own seed, so that the sampling errors of two
+            # circuits are independent, as the sum of their variances assumes.
             found[name] = [
-                wide.forecast(built[name], c, samples=samples, seed=seed) for c in circuits
+                wide.forecast(
+                    built[name],
+                    c,
+                    samples=samples,
+                    seed=wide.seed_of(counts.sha256, name, c.name),
+                )
+                for c in circuits
             ]
         except Exception as exc:
             # A model that cannot simulate a circuit has no score, as the plan states.
@@ -1101,19 +1152,22 @@ def _clifford(counts: MeasuredCounts, built: dict[str, Profile], samples: int) -
                     "b": b,
                     "circuits": label,
                     "winner": {"a": a, "b": b, "neither": None}[result.qubit_log.better],
+                    # The score of the ideal bit string and the quadratic score of the number of
+                    # wrong bits are values with no verdict: score of a minus score of b.
                     "success": {
-                        "log": _rule(result.success_log),
-                        "quadratic": _rule(result.success_quadratic),
-                        "verdict": result.success_verdict,
+                        "log": result.a.success_log - result.b.success_log,
+                        "quadratic": result.a.success_quadratic - result.b.success_quadratic,
                     },
                     "wrong": {
                         "log": _rule(result.wrong_log),
-                        "quadratic": _rule(result.wrong_quadratic),
+                        "quadratic": result.a.wrong_quadratic - result.b.wrong_quadratic,
                         "sampling_ratio": result.wrong_sampling.ratio,
+                        "no_verdict": result.wrong_sampling.reason,
                     },
                     "qubit": {
                         "log": _rule(result.qubit_log),
                         "sampling_ratio": result.qubit_sampling.ratio,
+                        "no_verdict": result.qubit_sampling.reason,
                     },
                 }
             )
@@ -1156,7 +1210,7 @@ def _twirl_rows(
                 profile,
                 c,
                 TWIRL_SAMPLES,
-                seed=wide.seed_of(counts.sha256, f"{model} twirl"),
+                seed=wide.seed_of(counts.sha256, f"{model} twirl", c.name),
             )
         except Exception as exc:
             # A circuit with a gate outside the Clifford table has no stabilizer forecast.
