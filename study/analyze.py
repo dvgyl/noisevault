@@ -8,6 +8,13 @@ For each run, it builds the models of ``PLAN.md``, scores each model on the ``te
 ``test_far`` and all circuits, and runs the paired test of each primary comparison. It writes
 ``analysis.json`` and ``analysis.md`` to the output folder.
 
+The exact simulator scores only the circuits of 10 qubits or fewer, so each group holds only
+such circuits. The group ``all`` is all circuits of 10 qubits or fewer. The block ``clifford``
+of a row scores the Clifford circuits on 20 to 80 qubits with the stabilizer forecast of
+``study/wide.py``. The block ``twirl_check`` compares the exact forecast and the stabilizer
+forecast of the ``calibration`` model on each 8-qubit ``wide_*`` circuit. The stabilizer
+samples take a seed from the SHA-256 of the counts and the model name, so a row repeats.
+
 A fitted model fits only on the ``train`` circuits. A model from a calibration is scored in the
 floored form of the plan. The row of a run also gives the ruled-out shots of the calibration as
 stated. The stale models pull calibrations from IBM's public endpoint and keep them in the
@@ -36,13 +43,14 @@ import numpy as np
 from pydantic import ValidationError
 
 import noisevault as nv
+from noisevault import wide as stabilizer
 from noisevault.counts import MeasuredCounts, load_counts
 from noisevault.errors import NoiseVaultError
 from noisevault.profile import Profile, iso_z
-from noisevault.reference import outcome_bits
-from noisevault.score import Forecast, paired, score
+from noisevault.reference import MAX_QUBITS, outcome_bits
+from noisevault.score import Forecast, RuleTest, paired, score
 from noisevault.suite import role
-from study import ages, kept, models
+from study import ages, kept, models, wide
 from study.derive import counts_files, profile_beside
 
 FORMAT = "1"
@@ -86,15 +94,40 @@ SECONDARY: tuple[tuple[str, str, str], ...] = (
     *((a, b, group) for a, b, _ in PRIMARY for group in TEST_GROUPS),
 )
 _READOUT = ("readout", "readout_1")
+CLIFFORD_PREFIX = "clifford_"
+CLIFFORD_MODELS = (
+    "generic",
+    "medians",
+    "stale(30)",
+    "averaged(7)",
+    "symmetric",
+    "calibration",
+    "two_factor",
+)
+# The secondary comparisons on the Clifford circuits. The verdict is that of the qubit score.
+CLIFFORD_COMPARISONS = (
+    ("calibration", "medians"),
+    ("two_factor", "calibration"),
+    ("averaged(7)", "calibration"),
+)
+TWIRL_SAMPLES = 1_000_000
 
 
 def is_deep_run(counts: MeasuredCounts) -> bool:
     return any(c.name == "readout_1" or c.name.startswith("deep_") for c in counts.circuits)
 
 
+def exact_names(counts: MeasuredCounts) -> list[str]:
+    """The names of the circuits that the exact simulator holds: 10 qubits or fewer."""
+    return [c.name for c in counts.circuits if len(c.qubits) <= MAX_QUBITS]
+
+
 def groups(counts: MeasuredCounts) -> dict[str, list[str]]:
-    """The circuit names of each group that the plan scores. A group with no circuit is left out."""
-    names = [c.name for c in counts.circuits]
+    """The circuit names of each group that the plan scores. A group with no circuit is left out.
+
+    Each group holds only circuits of 10 qubits or fewer. ``all`` is all such circuits.
+    """
+    names = exact_names(counts)
     found = {g: [n for n in names if role(n) == g] for g in TEST_GROUPS}
     found["test"] = [n for n in names if role(n) in TEST_GROUPS]
     found["wide"] = [n for n in names if n.startswith("wide_")]
@@ -230,7 +263,7 @@ def analyze_run(
     def scored(profile: Profile, group: str) -> Forecast:
         """Each circuit is simulated one time for a profile, and each group selects from it."""
         if profile.fingerprint not in done:
-            done[profile.fingerprint] = score(profile, counts)
+            done[profile.fingerprint] = score(profile, counts, circuits=named["all"])
         return done[profile.fingerprint].select(named[group])
 
     for name in MODELS:
@@ -246,6 +279,9 @@ def analyze_run(
     except NoiseVaultError as exc:
         missing["calibration (stated)"] = _reason(exc)
         stated_forecasts = {}
+    narrow = tuple(
+        dict.fromkeys(q for c in counts.circuits if len(c.qubits) <= MAX_QUBITS for q in c.qubits)
+    )
     when = calibration.device.calibrated_at
     age = None if when is None else (counts.run_at - when).total_seconds() / 3600
     shots = {c.shots for c in counts.circuits}
@@ -256,14 +292,14 @@ def analyze_run(
         "run_at": iso_z(counts.run_at),
         "calibrated_at": None if when is None else iso_z(when),
         "calibration_age_hours": age,
-        "qubits": list(counts.qubits),
+        "qubits": list(narrow),
         "chain": chain_kind(path),
         "shots": shots.pop() if len(shots) == 1 else None,
         "circuits": {g: len(names) for g, names in named.items()},
         "counts_sha256": counts.sha256,
         "calibration": calibration.calibration_fingerprint,
         "marked": _marked(calibration, counts, cache, offline, pull),
-        "ages": {} if offline else _ages(calibration, counts, cache, properties),
+        "ages": {} if offline else _ages(calibration, counts, cache, properties, narrow),
         "stated": {
             "zero_readouts": models.zero_readouts(calibration),
             "ruled_out": {g: f.ruled_out for g, f in stated_forecasts.items()},
@@ -275,6 +311,8 @@ def analyze_run(
         },
         "paired": _comparisons(forecasts),
         "deep": _deep(counts, forecasts),
+        "clifford": _clifford(counts, built),
+        "twirl_check": _twirl_check(counts, built, forecasts),
         "fits": fits,
         "failures": dict(sorted(missing.items(), key=lambda item: _order(item[0]))),
     }
@@ -434,10 +472,11 @@ def _ages(
     counts: MeasuredCounts,
     cache: Path | None,
     properties: ages.Properties | None,
+    qubits: Sequence[int] | None = None,
 ) -> dict[str, Any]:
     """For the calibration C and for each stale calibration, the age of the calibration time and
-    of the values of the chain at the run time, in hours. IBM dates each value, so only an IBM
-    device has ages.
+    of the values of ``qubits`` at the run time, in hours. IBM dates each value, so only an IBM
+    device has ages. Without ``qubits``, the ages are of every qubit that ``counts`` measures.
 
     The entry ``"calibration"`` comes from the reply of C itself: the newest reply at or before
     the time of C. Its ``last_update_date`` must be the time of C. When it is not, or when the
@@ -447,6 +486,7 @@ def _ages(
     if calibration.device.vendor != "ibm":
         return {}
     device = calibration.device.name
+    qubits = counts.qubits if qubits is None else qubits
 
     def public(name: str, at: datetime) -> Mapping[str, Any] | None:
         return ages.public_properties(name, at, cache)
@@ -456,8 +496,8 @@ def _ages(
     def entry(reply: Mapping[str, Any]) -> dict[str, Any]:
         return {
             "calibration_h": ages.calibration_age(reply, counts.run_at),
-            "values": ages.value_ages(reply, counts.run_at, counts.qubits),
-            "loci": ages.locus_ages(reply, counts.run_at, counts.qubits),
+            "values": ages.value_ages(reply, counts.run_at, qubits),
+            "loci": ages.locus_ages(reply, counts.run_at, qubits),
         }
 
     found: dict[str, Any] = {}
@@ -548,6 +588,122 @@ def _deep(
             }
         )
     return rows
+
+
+def _clifford(counts: MeasuredCounts, built: dict[str, Profile]) -> dict[str, Any]:
+    """The stabilizer scores of the models on each Clifford circuit, and the paired tests of
+    ``CLIFFORD_COMPARISONS`` on each circuit and on all of them together."""
+    circuits = [c for c in counts.circuits if c.name.startswith(CLIFFORD_PREFIX)]
+    found: dict[str, list[wide.Forecast]] = {}
+    failures: dict[str, str] = {}
+    if not circuits:
+        return {"circuits": [], "paired": [], "failures": failures}
+    if not stabilizer.has_stim():
+        return {"circuits": [], "paired": [], "failures": {"stabilizer": "ImportError"}}
+    for name in CLIFFORD_MODELS:
+        if name not in built:
+            continue
+        seed = wide.seed_of(counts.sha256, name)
+        try:
+            found[name] = [wide.forecast(built[name], c, seed=seed) for c in circuits]
+        except Exception as exc:
+            # A model that cannot simulate a circuit has no score, as the plan states.
+            failures[name] = _reason(exc)
+    rows = []
+    for i, c in enumerate(circuits):
+        ideal = stabilizer.ideal_bits(c)
+        success, wrong_fraction = wide.measured(c, ideal)
+        rows.append(
+            {
+                "name": c.name,
+                "qubits": len(c.qubits),
+                "depth": int(c.name.rsplit("_d", 1)[1]),
+                "shots": c.shots,
+                "measured": {"success": success, "wrong_fraction": wrong_fraction},
+                "models": {
+                    name: {
+                        "predicted": {
+                            "success": forecasts[i].success,
+                            "wrong_fraction": float(forecasts[i].qubit.mean()),
+                        },
+                        "scores": vars(wide.scores(c, forecasts[i])),
+                    }
+                    for name, forecasts in found.items()
+                },
+            }
+        )
+    tests = []
+    for a, b in CLIFFORD_COMPARISONS:
+        if a not in found or b not in found:
+            continue
+        parts = [([c], [found[a][i]], [found[b][i]], c.name) for i, c in enumerate(circuits)]
+        parts.append((circuits, found[a], found[b], "all"))
+        for chosen, fa, fb, label in parts:
+            result = wide.compare(chosen, fa, fb)
+            tests.append(
+                {
+                    "a": a,
+                    "b": b,
+                    "circuits": label,
+                    "winner": {"a": a, "b": b, "neither": None}[result.qubit_log.better],
+                    "success": {
+                        "log": _rule(result.success_log),
+                        "quadratic": _rule(result.success_quadratic),
+                    },
+                    "wrong": {
+                        "log": _rule(result.wrong_log),
+                        "quadratic": _rule(result.wrong_quadratic),
+                    },
+                    "qubit": {"log": _rule(result.qubit_log)},
+                }
+            )
+    return {"circuits": rows, "paired": tests, "failures": failures}
+
+
+def _twirl_check(
+    counts: MeasuredCounts, built: dict[str, Profile], forecasts: dict[str, dict[str, Forecast]]
+) -> list[dict[str, Any]]:
+    """For each ``wide_*`` circuit, the log score of ``calibration`` from the exact simulator
+    and from ``TWIRL_SAMPLES`` stabilizer samples with add-half smoothing over the outcomes."""
+    exact = forecasts.get("calibration", {}).get("wide")
+    if exact is None:
+        return []
+    by_name = {c.name: c for c in counts.circuits}
+    rows = []
+    for found in exact.circuits:
+        c = by_name[found.name]
+        row: dict[str, Any] = {"name": c.name, "exact_log": _finite(found.log_score)}
+        try:
+            bits = stabilizer.sample(
+                built["calibration"],
+                c,
+                TWIRL_SAMPLES,
+                seed=wide.seed_of(counts.sha256, "calibration twirl"),
+            )
+        except Exception as exc:
+            # A circuit with a gate outside the Clifford table has no stabilizer forecast.
+            rows.append(row | {"stabilizer_log": None, "difference": None, "reason": _reason(exc)})
+            continue
+        width = len(c.qubits)
+        index = bits.astype(np.int64) @ (1 << np.arange(width - 1, -1, -1))
+        cells = np.bincount(index, minlength=2**width) + 0.5
+        probs = cells / cells.sum()
+        measured = c.vector()
+        stabilizer_log = float(measured @ np.log(probs)) / c.shots
+        difference = None if row["exact_log"] is None else stabilizer_log - row["exact_log"]
+        rows.append(row | {"stabilizer_log": stabilizer_log, "difference": difference})
+    return rows
+
+
+def _rule(test: RuleTest) -> dict[str, Any]:
+    return {
+        "outcome": test.outcome,
+        "difference": test.difference,
+        "standard_error": test.standard_error,
+        "z": test.z,
+        "p_value": test.p_value,
+        "better": test.better,
+    }
 
 
 def _order(name: str) -> int:

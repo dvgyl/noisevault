@@ -502,8 +502,10 @@ has such a chain. These circuits use only Clifford gates and angles, such as `sx
 (see `noisevault.wide.CLIFFORD`). The exact reference simulator holds at most 10 qubits, so the
 Stim stabilizer simulator gives the forecast of a model for these circuits. Each forecast applies
 the Pauli twirl of the noise that the reference applies. The depth of a Clifford circuit is the
-first depth at which the profile with the assumed factor predicts the ideal result with a
-probability of 0.3 or less. The names are `clifford_n20_d8` and similar. Without Stim (the
+first whole depth at which the profile with the assumed factor predicts a wrong bit with a
+mean probability of 0.15 or more over the qubits. On 80 qubits, readout error alone makes the
+ideal result rare, so the ideal result does not set the depth. The names are `clifford_n20_d11`
+and similar. Without Stim (the
 `stim` extra), `suite` makes no Clifford circuit. `nv compare` and `nv score` refuse these
 circuits, so select the circuits of 10 qubits or fewer first. `study/wide.py` scores two models
 on the Clifford circuits.

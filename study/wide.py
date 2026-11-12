@@ -22,6 +22,7 @@ models use the same seed, which makes the sampling error of the two forecasts si
 
 from __future__ import annotations
 
+import hashlib
 import math
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -134,25 +135,19 @@ def paired(
     Raises CountsError for a name that ``counts`` does not hold or for no circuit.
     """
     chosen = _chosen(counts, circuits)
-    success, wrong, qubit = [], [], []
-    for measured in chosen:
-        fa = forecast(a, measured, samples=samples, seed=seed)
-        fb = forecast(b, measured, samples=samples, seed=seed)
-        keys, times = _rows(measured)
-        wrong_bits = keys != np.array([bit == "1" for bit in fa.ideal])
-        per_shot = np.bincount(wrong_bits.sum(axis=1), weights=times, minlength=len(fa.ideal) + 1)
-        right = float(per_shot[0])
-        success.append(
-            (
-                np.array([right, measured.shots - right]),
-                np.array([fa.success, 1 - fa.success]),
-                np.array([fb.success, 1 - fb.success]),
-            )
-        )
-        wrong.append(_merged(per_shot, fa.wrong, fb.wrong, measured.shots))
-        qubit.append(
-            (times, _qubit_scores(wrong_bits, fa.qubit), _qubit_scores(wrong_bits, fb.qubit))
-        )
+    a_forecasts = [forecast(a, c, samples=samples, seed=seed) for c in chosen]
+    b_forecasts = [forecast(b, c, samples=samples, seed=seed) for c in chosen]
+    return compare(chosen, a_forecasts, b_forecasts)
+
+
+def compare(
+    circuits: Sequence[MeasuredCircuit], a: Sequence[Forecast], b: Sequence[Forecast]
+) -> Paired:
+    """The scores and the paired tests of :func:`paired` from forecasts made before, one of
+    model a and one of model b for each circuit. Each test sums over the circuits, which are
+    independent."""
+    cells = [_cells(c, fa, fb, merge=True) for c, fa, fb in zip(circuits, a, b, strict=True)]
+    success, wrong, qubit = (list(kind) for kind in zip(*cells, strict=True))
     return Paired(
         a=_scores(success, wrong, qubit, 1),
         b=_scores(success, wrong, qubit, 2),
@@ -162,6 +157,49 @@ def paired(
         wrong_quadratic=_test("quadratic", wrong, _quadratic, group_rare=False),
         qubit_log=_shot_test(qubit),
     )
+
+
+def scores(circuit: MeasuredCircuit, found: Forecast) -> Scores:
+    """The mean scores of one model on one circuit. The ``wrong`` cells are not merged, so the
+    scores of two models on one circuit use the same cells."""
+    success, wrong, qubit = _cells(circuit, found, found, merge=False)
+    return _scores([success], [wrong], [qubit], 1)
+
+
+def measured(circuit: MeasuredCircuit, ideal: str) -> tuple[float, float]:
+    """The measured frequency of the ideal bit string ``ideal`` and the measured mean fraction
+    of wrong bits."""
+    keys, times = _rows(circuit)
+    wrong_bits = keys != np.array([bit == "1" for bit in ideal])
+    right = float(times[~wrong_bits.any(axis=1)].sum())
+    return right / circuit.shots, float(times @ wrong_bits.mean(axis=1)) / circuit.shots
+
+
+def seed_of(digest: str, model: str) -> int:
+    """A seed from the SHA-256 of a counts file and a model name, so that a result repeats."""
+    return int(hashlib.sha256(f"{digest}\n{model}".encode()).hexdigest()[:16], 16)
+
+
+def _cells(
+    circuit: MeasuredCircuit, fa: Forecast, fb: Forecast, *, merge: bool
+) -> tuple[tuple[np.ndarray, np.ndarray, np.ndarray], ...]:
+    """The ``success``, ``wrong`` and ``qubit`` cells of one circuit for models a and b."""
+    keys, times = _rows(circuit)
+    wrong_bits = keys != np.array([bit == "1" for bit in fa.ideal])
+    per_shot = np.bincount(wrong_bits.sum(axis=1), weights=times, minlength=len(fa.ideal) + 1)
+    right = float(per_shot[0])
+    success = (
+        np.array([right, circuit.shots - right]),
+        np.array([fa.success, 1 - fa.success]),
+        np.array([fb.success, 1 - fb.success]),
+    )
+    wrong = (
+        _merged(per_shot, fa.wrong, fb.wrong, circuit.shots)
+        if merge
+        else (per_shot, fa.wrong, fb.wrong)
+    )
+    qubit = (times, _qubit_scores(wrong_bits, fa.qubit), _qubit_scores(wrong_bits, fb.qubit))
+    return success, wrong, qubit
 
 
 def simulate(

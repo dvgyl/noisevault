@@ -39,7 +39,7 @@ jobs:
         with:
           python-version: "3.13"
       - uses: astral-sh/setup-uv@v6
-      - run: uv pip install -e .
+      - run: uv pip install -e '.[stim]'
 
       - name: Restore the campaign folder
         id: restore

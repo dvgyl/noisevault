@@ -7,12 +7,14 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from conftest import require
 
 from noisevault.counts import MeasuredCounts, plan, simulate
 from noisevault.errors import SourceUnavailable
 from noisevault.profile import Profile
+from noisevault.reference import MAX_QUBITS
 from noisevault.suite import role, suite
-from study import analyze, models
+from study import analyze, models, summarize, wide
 
 RUN_AT = datetime(2026, 4, 16, 9, 30, tzinfo=UTC)
 
@@ -399,3 +401,127 @@ def test_a_failure_reason_holds_no_message_and_no_input_value(
     assert missing["two_factor"] == "ValueError"
     text = json.dumps(missing)
     assert secret not in text and "0.0123" not in text and str(tmp_path) not in text
+
+
+def _line_24() -> Profile:
+    """24 IBM qubits in a line, so that the suite holds a Clifford circuit on 20 qubits."""
+    data = Profile.uniform(
+        "ibm_line",
+        technology="superconducting",
+        num_qubits=24,
+        connectivity=[(q, q + 1) for q in range(23)],
+        one_qubit_error=2e-3,
+        two_qubit_error=2e-2,
+        readout_error=2e-2,
+        t1_us=100.0,
+        t2_us=80.0,
+        one_qubit_ns=32.0,
+        two_qubit_ns=68.0,
+    ).to_dict()
+    data["device"] |= {"vendor": "ibm", "calibrated_at": (RUN_AT - timedelta(hours=30)).isoformat()}
+    data["gates"] = {k: v for k, v in data["gates"].items() if k in ("rz", "sx", "x", "cz")}
+    return Profile.model_validate(data)
+
+
+@pytest.fixture(scope="module")
+def clifford_result(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any]:
+    """One run on 24 qubits simulated with gate factor 2: the small circuits from the exact
+    simulator and the Clifford circuit from the stabilizer simulator."""
+    require("stim")
+    root = tmp_path_factory.mktemp("clifford")
+    calibration = _line_24()
+    truth = models.floored(calibration).model_copy(
+        update={"unmodeled_error": {"gates": {"factor": 2.0}}}
+    )
+    circuits = suite(calibration)
+    small = [c for c in circuits if len(c.qubits) <= MAX_QUBITS]
+    large = [c for c in circuits if len(c.qubits) > MAX_QUBITS]
+    exact = simulate(truth, small, shots=1000, seed=4, run_at=RUN_AT).to_dict()
+    stabilized = wide.simulate(truth, large, shots=1000, seed=5, run_at=RUN_AT).to_dict()
+    data = exact | {
+        "profile": {"id": calibration.id, "fingerprint": calibration.calibration_fingerprint},
+        "circuits": [*exact["circuits"], *stabilized["circuits"]],
+    }
+    week = root / "campaign" / "ibm_line" / "2026-04-13"
+    week.mkdir(parents=True)
+    MeasuredCounts.model_validate(data).save(week / "best-deep.counts.json")
+    calibration.save(week / "best-deep.profile.json")
+    analysis = analyze.analyze(root / "campaign", offline=True)
+    return {"data": analysis, "small": [c.name for c in small], "large": [c.name for c in large]}
+
+
+def test_the_clifford_block_ranks_two_factor_above_the_calibration(clifford_result) -> None:
+    (row,) = clifford_result["data"]["rows"]
+    block = row["clifford"]
+
+    assert [c["name"] for c in block["circuits"]] == clifford_result["large"]
+    (circuit,) = block["circuits"]
+    assert circuit["qubits"] == 20 and circuit["shots"] == 1000
+    assert set(circuit["models"]) == {
+        "generic",
+        "medians",
+        "symmetric",
+        "calibration",
+        "two_factor",
+    }
+    calibration = circuit["models"]["calibration"]
+    assert calibration["predicted"]["wrong_fraction"] < circuit["measured"]["wrong_fraction"]
+    assert set(calibration["scores"]) == {
+        "success_log",
+        "success_quadratic",
+        "wrong_log",
+        "wrong_quadratic",
+        "qubit_log",
+    }
+    together = next(
+        t
+        for t in block["paired"]
+        if (t["a"], t["b"], t["circuits"]) == ("two_factor", "calibration", "all")
+    )
+    assert together["winner"] == "two_factor"
+    assert together["qubit"]["log"]["better"] == "a"
+    assert {(t["a"], t["b"]) for t in block["paired"]} == {
+        ("calibration", "medians"),
+        ("two_factor", "calibration"),
+    }
+
+
+def test_the_groups_of_the_exact_simulator_hold_no_circuit_above_10_qubits(
+    clifford_result,
+) -> None:
+    (row,) = clifford_result["data"]["rows"]
+
+    assert row["circuits"]["all"] == len(clifford_result["small"])
+    assert "calibration" not in row["failures"]
+    assert len(row["qubits"]) < 20
+
+
+def test_the_twirl_check_compares_the_two_forecasts_on_each_8_qubit_circuit(
+    clifford_result,
+) -> None:
+    (row,) = clifford_result["data"]["rows"]
+
+    names = [name for name in clifford_result["small"] if name.startswith("wide_")]
+    assert names and [t["name"] for t in row["twirl_check"]] == names
+    for check in row["twirl_check"]:
+        assert check["difference"] == pytest.approx(check["stabilizer_log"] - check["exact_log"])
+        assert abs(check["difference"]) < 0.05
+
+
+def test_the_summary_has_the_clifford_table_and_the_twirl_check(clifford_result) -> None:
+    summary = summarize.summarize(clifford_result["data"])
+
+    text = summarize.markdown(summary)
+    found = {(c["a"], c["b"]): c["total"] for c in summary["clifford"]}
+    assert found[("two_factor", "calibration")] == {"a": 1, "b": 0, "neither": 0}
+    assert found[("averaged(7)", "calibration")] == {"a": 0, "b": 0, "neither": 0}
+    assert "| two_factor | calibration | ibm_line | 1 | 0 | 0 |" in text
+    assert len(summary["twirl_check"]) == len(clifford_result["data"]["rows"][0]["twirl_check"])
+    assert [(c["a"], c["b"]) for c in summary["primary"]] == [(a, b) for a, b, _ in analyze.PRIMARY]
+
+
+def test_a_run_with_no_clifford_circuit_has_an_empty_clifford_block(result: dict[str, Any]) -> None:
+    row = _row(result)
+
+    assert row["clifford"] == {"circuits": [], "paired": [], "failures": {}}
+    assert row["twirl_check"] == []
