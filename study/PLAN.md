@@ -191,3 +191,98 @@ The adequacy test uses the `locus` model, which has the most fitted parameters: 
   fits on C as stated, and the zero floor applies after the fit. Each other model starts from C
   as stated too, and the zero floor applies to the result. A run that is in the data two times
   counts one time. No score of a deep run was read before this entry.
+- 2026-11-12: pilot runs. The runs before the week of 2026-11-16 are pilot runs. They are not in
+  the sign tests of the primary comparisons, and their results are exploratory. The reason is a
+  defect of the `qubit*` circuits, found in the fits on the `train` circuits of the six deep runs
+  of 2026-11-12. A `qubit*` circuit held only `sx`, `x` and `id` gates. Each of these is a
+  rotation about one axis, so a small systematic over-rotation of each gate adds up over the
+  circuit. A simulation with no noise shows the effect: an over-rotation of 0.005 rad for each
+  `sx` gate lowers the probability of the right result of the `qubit*` circuits of `ibm_kingston`
+  from 1 to between 0.35 and 0.66. Such an over-rotation adds about 0.000004 to the error of the
+  gate, so a calibration cannot show it. In the six runs, the total variation distance between
+  the forecast of the calibration and the counts was above 0.5 for 14 of the 24 `qubit*`
+  circuits. A value above 0.5 means that the wrong result was more frequent than the right
+  result. The fits of the pilot runs used these circuits, so their fitted factors do not give
+  the size of the errors in the other circuits. The circuit set changes before the first run
+  that counts, and a later entry gives the change. The five primary comparisons do not change.
+  No score of a test circuit was read before this entry.
+- 2026-11-12: the scores of the pilot runs. The test scores of the six pilot runs of 2026-11-12
+  were read on 2026-11-12, after the entry on pilot runs. In those runs, the `qubit*` circuits
+  and the `qubits_*` circuit decide almost each comparison. Each entry below was written after
+  that reading, and before the first run that counts.
+- 2026-11-12: the runs that count. The primary analysis uses the IBM runs from the week of
+  2026-11-16 to the week of 2027-01-04. These are 8 weeks, and there is no earlier stop. A later
+  run is exploratory. The family of five tests is for the IBM runs. The runs of other vendors
+  are secondary. This entry replaces the rule on the last week.
+- 2026-11-12: the unit of the primary analysis. A device-week is the set of runs of one device in
+  one ISO week. For a primary comparison and a run, delta is the log score of the first model
+  minus the log score of the second model, for each shot, on the circuits of the comparison. It
+  is the difference that `noisevault.score.paired` gives for the log score. Y is the mean of
+  delta over the two runs of a device-week. A device-week is complete when it has both runs and
+  each run has a finite delta. Only complete device-weeks are in the estimate, and the summary
+  gives the number of the others. For a device with n complete device-weeks, n at least 4, m is
+  the mean of Y and s^2 is its sample variance. The estimate is the mean of m over the devices.
+  Its standard error is the square root of the sum over the devices of f s^2 / n, divided by the
+  number of devices. The factor f corrects for weeks that are correlated. rho is the pooled
+  correlation of Y - m between weeks that are 7 days apart, plus (1 + 3 rho) / n with the mean n
+  of the devices, limited to the range from 0 to 0.9. g is the sum for k from 1 to n - 1 of
+  (1 - k / n) rho^k, and f = (1 + 2 g) / (1 - 2 g / (n - 1)). The test is the two-sided t-test
+  with the sum of n - 1 over the devices as degrees of freedom. The five tests form one family
+  with the Holm correction at the 5% level. A confirmed comparison holds for these devices in
+  the weeks of the study. It is not a result for devices in general. The summary also gives the
+  estimate with f = 1, the values m and s of each device, the interval in which Y of a new week
+  of the same device is expected, the median standard error of delta of a run, the sign test of
+  Y over the device-weeks, and the verdict counts of the runs. These are descriptions. This
+  entry replaces the sign test over runs as the test of a primary comparison.
+- 2026-11-12: the circuits of the primary comparisons. A primary comparison uses only the
+  circuits whose qubits are all qubits of the `readout` circuit of the run. A `probe` circuit
+  (see `noisevault.suite.role`) is in no comparison. The comparisons of two models with no
+  fitted parameter use all such circuits (group `all4`). A comparison with a fitted model uses
+  the test circuits among them (group `test4`). The 8-qubit circuits and the Clifford circuits
+  are in secondary comparisons only. Both runs of a device-week hold the same 8-qubit circuits
+  and the same Clifford circuits, so a summary over these circuits uses the mean of the two runs
+  of a device-week as one value.
+- 2026-11-12: the primary form. The primary result of a comparison uses all runs that count and
+  the log score. The results without the marked runs, for each device, for `test_near` and
+  `test_far`, and with the quadratic score are descriptions. A confirmed difference below 0.001
+  nats for each shot is called small.
+- 2026-11-12: strata. Two properties of a run are strata: the chain kind (best or median), and
+  whether the calibration states a readout probability of exactly 0 on a qubit of the chain. The
+  summary gives each primary estimate for each chain kind, and for the runs with and without
+  such a zero. For one chain kind, Y is the delta of the one run. The difference of delta
+  between the best chain and the median chain of a device-week is a secondary estimate with the
+  same rule for the standard error. A confirmed comparison 5 is read with its two parts:
+  `readout_measured` against `two_factor`, and `locus` against `readout_measured`.
+- 2026-11-12: the misfit, in place of the adequacy test. A fitted model has an error from the
+  shots of its fit, and the reference of `nv score` does not hold this error. The plan therefore
+  gives no p-value for the excess of a fitted model. The result is the size of the misfit: the
+  excess minus the mean excess of counts drawn from the model, for each shot, on the `test_far`
+  circuits of the chain, for `locus`, `two_factor` and `calibration`. For a fitted model this
+  value is a little too high. The summary gives its median for each device, and the part of the
+  excess that comes from outcomes with fewer than 1 expected shot.
+- 2026-11-12: the tests on the Clifford circuits. Each marginal of the stabilizer forecast uses
+  4,000,000 samples, or its exact value. The variance of the test of the score of each qubit
+  holds the sampling variance of both forecasts. For one model and one circuit this variance is
+  (N^2 / S) times the sum over the qubits of (f - q)^2 / (q (1 - q)), with N shots, S samples,
+  the measured fraction f and the forecast q of a wrong bit. The score of the number of wrong
+  bits uses (N^2 / S) (sum over the cells of f^2 / p - 1). A test gives no verdict when the
+  sampling variance is larger than the shot variance. The summary uses one value for a
+  device-week. The score of the ideal bit string gives no verdict on 40 and 80 qubits. The
+  score of each qubit judges each qubit alone, so it does not judge the correlations between
+  qubits. The size of the twirl approximation is given for each model that the Clifford
+  comparisons use.
+- 2026-11-12: more descriptions. (1) The staleness curve uses the nominal age d as its x value,
+  and the three median ages of the values are a note. A point of the curve is the estimate of
+  the entry on the unit, for delta of `stale(d)` against `calibration` on `all4`, with its 95%
+  interval and the number of device-weeks. The trend is the least-squares slope of delta against
+  log10(d) of each device-week, with the same estimate. Each result is given for each chain
+  kind. (2) The age of a value against its fitted factor has no p-value. The summary gives the
+  number of factors at a limit of the search, and the correlation also without them. (3) A check
+  of independent shots: for each circuit that both runs of a device-week hold, the two sets of
+  counts are compared. On 8 qubits, the outcomes with fewer than 5 expected shots in the pooled
+  counts become one cell, and the statistic is the Pearson chi-square statistic of the 2 by K
+  table. On a Clifford circuit, the same statistic uses the number of wrong bits. The summary
+  gives the ratio of the statistic to its degrees of freedom for each device-week. (4) For each
+  wide comparison, the summary gives the number of qubits of the 8-qubit chain that are in the
+  chain of the run. (5) The summary gives the number of different calibrations in each median of
+  `averaged(7)`, and the number of runs with a fitted factor that the fit does not identify.

@@ -45,7 +45,7 @@ from .reference import Op, probabilities
 if TYPE_CHECKING:
     from .profile import Profile
 
-Role = Literal["train", "test_near", "test_far"]
+Role = Literal["train", "test_near", "test_far", "probe"]
 Layer = tuple[Op, ...]
 
 MIN_WAIT_NS = 16.0
@@ -75,7 +75,16 @@ TRAIN_SEEDS = (0, 1)
 TEST_SEED = 2
 _CHAIN, _PAIR, _QUBIT, _FLIP, _WIDE, _CLIFFORD = 1, 2, 3, 4, 5, 6
 _TRAIN_PREFIXES = ("readout", "pair", "qubit")
-_ONLY_IN_SUITE = ("readout_1", "deep_", "pair", "qubit", "periodic_", "wide_", "clifford_")
+_ONLY_IN_SUITE = (
+    "readout_1",
+    "deep_",
+    "pair",
+    "qubit",
+    "periodic_",
+    "wide_",
+    "clifford_",
+    "axis_",
+)
 _FLIPPED = 1 - 1e-9
 
 
@@ -154,9 +163,16 @@ def suite(
 
 
 def role(name: str) -> Role:
-    """The role of the suite circuit ``name``. A name that ``suite`` does not make is a test."""
+    """The role of the suite circuit ``name``. A name that ``suite`` does not make is a test.
+
+    A ``probe`` circuit is not in a fit and not in a comparison of models. Its result is given
+    alone.
+    """
+    if name.startswith("axis_"):
+        return "probe"
     if name.startswith("deep_"):
-        return "test_near" if name.endswith(f"_s{TEST_SEED}") else "train"
+        train = name.endswith(tuple(f"_s{s}" for s in TRAIN_SEEDS))
+        return "train" if train else "test_near"
     if name.startswith(("qubits_", "wide_", "clifford_")):
         return "test_far"
     return "train" if name.startswith(_TRAIN_PREFIXES) else "test_far"
