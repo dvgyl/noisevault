@@ -258,3 +258,26 @@ def test_shows_the_median_change_size_of_each_bin_with_100_changes(data: dict[st
     assert "| one_qubit | 12-36 h | 100 | 0.693 |\n" in text
     assert "| t1 | >7 d |" not in text
     assert "| Kind | Gap | Changes | Median |\n" in text
+
+
+def test_gives_the_rank_correlation_of_a_change_and_the_next_change(data: dict[str, Any]) -> None:
+    persistence = data["persistence"]
+    # The 19 readout values of ibm_kingston keep their order on the next day.
+    assert persistence["ibm_kingston"]["readout"] == {"pairs": 19, "spearman": 1.0}
+    # The pair of qubit 19 of ibm_fez has a failure-ceiling value.
+    assert persistence["ibm_fez"]["readout"]["pairs"] == 20
+    # Only qubit 0 gives an sx pair: the pairs of qubit 1 have a gate error of 0.7.
+    assert persistence["ibm_fez"]["one_qubit"] == {"pairs": 1, "spearman": None}
+    # The two T1 changes are 288 hours apart.
+    assert "t1" not in persistence["ibm_fez"]
+
+
+def test_gives_a_negative_rank_correlation_for_reversed_values() -> None:
+    first = np.array([1.0, 2.0, 3.0, 4.0])
+    assert archive._spearman(first, first[::-1].copy()) == pytest.approx(-1.0)
+
+
+def test_gives_no_rank_correlation_when_all_values_tie() -> None:
+    first = np.array([1.0, 2.0, 2.0, 3.0])
+    assert archive._spearman(first, np.ones(4)) is None
+    assert archive._spearman(first, first.copy()) == pytest.approx(1.0)

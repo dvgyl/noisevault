@@ -66,6 +66,7 @@ GRID_STEP = timedelta(hours=6)
 ENDED_AFTER = timedelta(days=30)
 GAP_BINS = ("<12 h", "12-36 h", "36-72 h", "3-7 d", ">7 d")
 GAP_EDGES_H = (12.0, 36.0, 72.0, 168.0)
+PERSISTENCE_GAP_H = (12.0, 36.0)
 GRID_DENOMINATORS = (1000, 1024, 2048, 4096, 8192, 10000)
 GRID_TOLERANCE = 1e-6
 PARTS = ("lowest tenth", "middle", "highest tenth")
@@ -252,6 +253,7 @@ def analyze(
         "excluded": _excluded(changes),
         "change_size": _change_size(changes),
         "change_size_note": CHANGE_SIZE_NOTE,
+        "persistence": _persistence(changes),
         "readout_grid": _readout_grid(rows),
         "regression": {p: _regression(changes, p) for p in RANKED},
     }
@@ -376,6 +378,40 @@ def _change_size(changes: Rows) -> dict[str, dict[str, Any]]:
         kind, gap = KIND_ORDER[key // len(GAP_BINS)], GAP_BINS[key % len(GAP_BINS)]
         found.setdefault(kind, {})[gap] = _quantiles(sizes, (0.5, 0.9))
     return found
+
+
+def _persistence(changes: Rows) -> dict[str, dict[str, Any]]:
+    """The Spearman rank correlation between the value of a change and the value of the next
+    change of the same series, for each device and kind. Only pairs with ``PERSISTENCE_GAP_H``
+    hours between the two changes count, and the pairs exclude the failure-ceiling values."""
+    later = np.flatnonzero(~changes.first)
+    gap_h = (changes.time_us[later] - changes.time_us[later - 1]) / _US_PER_HOUR
+    excluded = changes.excluded
+    low, high = PERSISTENCE_GAP_H
+    kept = (gap_h >= low) & (gap_h < high) & ~excluded[later] & ~excluded[later - 1]
+    later = later[kept]
+    labels, name = _kind_label(changes)
+    found: dict[str, dict[str, Any]] = {}
+    for key, index in sorted(_split(labels[later], later).items()):
+        device, kind = name(key)
+        found.setdefault(device, {})[kind] = {
+            "pairs": int(index.size),
+            "spearman": _spearman(changes.value[index - 1], changes.value[index]),
+        }
+    return found
+
+
+def _spearman(first: np.ndarray, second: np.ndarray) -> float | None:
+    """The Pearson correlation of the ranks of ``first`` and ``second``, or None when the ranks of
+    one array have no spread. Tied values share their mean rank: with ranks in the order of the
+    arrays, the ties of the two arrays would get the same order and push the correlation up."""
+    if first.size < 3:
+        return None
+    zero = np.zeros(first.size, dtype=np.int64)
+    ranks = [_percent_rank(zero, zero, v)[0] for v in (first, second)]
+    if min(np.ptp(r) for r in ranks) == 0:
+        return None
+    return float(np.corrcoef(ranks[0], ranks[1])[0, 1])
 
 
 def _readout_grid(rows: Rows) -> dict[str, dict[str, Any]]:
@@ -576,6 +612,20 @@ def markdown(data: Mapping[str, Any]) -> str:
             row = data["change_size"].get(kind, {}).get(gap)
             if row is not None and row["count"] >= MIN_BIN_CHANGES:
                 lines.append(f"| {kind} | {gap} | {row['count']} | {_f(row['median'], 3)} |")
+    low, high = PERSISTENCE_GAP_H
+    lines += [
+        "",
+        "## Persistence: Spearman correlation of a change and the next change of the same series",
+        "",
+        f"Only pairs with {low:.0f} to {high:.0f} hours between the two changes count. Tied values"
+        " share their mean rank.",
+        "",
+        "| Device | Kind | Pairs | Spearman |",
+        "|---|---|---:|---:|",
+    ]
+    for device, kinds in _by_kind(data["persistence"]):
+        for kind, row in kinds:
+            lines.append(f"| {device} | {kind} | {row['pairs']} | {_f(row['spearman'], 3)} |")
     denominators = [f"1/{n}" for n in GRID_DENOMINATORS]
     lines += [
         "",
