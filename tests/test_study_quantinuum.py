@@ -426,3 +426,45 @@ def test_the_variant_gives_a_one_qubit_circuit_only_readout_error() -> None:
     assert np.allclose(probs, [0.003, 0.997])
     noisy = probabilities(stated, ops, 1, layout=(1,), readout=True, unknown_gates="error")
     assert noisy[0] > 0.003
+
+
+# the 1-qubit gates in the 2-qubit benchmark ---------------------------------------------------
+
+
+def rb_doc() -> dict[str, dict[str, object]]:
+    # Each step has 1 ZZ gate and 3 charged 1-qubit gates: 1.5 for each qubit. The rz gate is
+    # virtual. The first two gates of each circuit do not grow with the length.
+    start = "rx(pi) q[0];\nrx(pi) q[1];\n"
+    step = "rx(pi/2) q[0];\nry(pi/2) q[0];\nrz(pi/2) q[1];\nry(pi/2) q[1];\nZZ q[0], q[1];\n"
+    programs = {
+        f"TQ_RB ({length}, 0)": HEADER
+        + "qreg q[2];\ncreg c[2];\n"
+        + start
+        + step * length
+        + "measure q -> c;\n"
+        for length in (1, 3, 5)
+    }
+    return {"qasm": programs, "raw_data": {key: {"c": ["00", "00"]} for key in programs}}
+
+
+def test_the_gate_count_is_the_growth_of_the_one_qubit_gates_for_each_two_qubit_gate() -> None:
+    assert qt.dressing_gates(rb_doc()) == pytest.approx(1.5)
+
+
+def test_the_gate_count_needs_two_sequence_lengths() -> None:
+    one = {name: {"TQ_RB (1, 0)": part["TQ_RB (1, 0)"]} for name, part in rb_doc().items()}
+    with pytest.raises(qt.QasmError, match="two sequence lengths"):
+        qt.dressing_gates(one)
+
+
+def test_the_gate_count_needs_two_qubit_gates_that_grow_with_the_length() -> None:
+    programs = {
+        f"TQ_RB ({length}, 0)": HEADER
+        + "qreg q[1];\ncreg c[1];\n"
+        + "rx(pi) q[0];\n" * length
+        + "measure q -> c;\n"
+        for length in (1, 3)
+    }
+    doc = {"qasm": programs, "raw_data": {key: {"c": ["0"]} for key in programs}}
+    with pytest.raises(qt.QasmError, match="do not grow"):
+        qt.dressing_gates(doc)

@@ -43,6 +43,7 @@ import hashlib
 import json
 import math
 import re
+import statistics
 import sys
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
@@ -624,6 +625,30 @@ def without_one_qubit_gate_error(profile: Profile) -> Profile:
     note = "every 1-qubit gate error is set to 0 (study.quantinuum.without_one_qubit_gate_error)"
     provenance["notes"] = [*provenance.get("notes", []), note]
     return Profile.from_dict(data)
+
+
+def dressing_gates(doc: Mapping[str, Any], *, where: str = "") -> float:
+    """k of a 2-qubit RB file: the mean number of charged 1-qubit gates on each qubit for each
+    2-qubit gate of the sequences.
+
+    The vendor fits the decay over the sequence length. Thus k is a growth with the length: the
+    slope of the 1-qubit gates on one qubit, divided by the slope of the 2-qubit gates on the
+    pair. The gates that a circuit has at each length do not count. An ``rz`` op does not
+    count, because it is virtual in the bundled profiles.
+    """
+    lengths, ones, twos = [], [], []
+    for circuit in circuits(doc, "TQ_RB", leakage="postselect", where=where):
+        ops = circuit["ops"]
+        lengths.append(float(circuit["name"].rsplit("_m", 1)[1].split("_s")[0]))
+        charged = sum(len(op.qubits) == 1 and op.name != "rz" for op in ops)
+        ones.append(charged / len(circuit["qubits"]))
+        twos.append(float(sum(len(op.qubits) == 2 for op in ops)))
+    if len(set(lengths)) < 2:
+        raise QasmError(f"{where}: the gate count needs two sequence lengths")
+    growth = statistics.linear_regression(lengths, twos).slope
+    if growth <= 0:
+        raise QasmError(f"{where}: the 2-qubit gates do not grow with the sequence length")
+    return statistics.linear_regression(lengths, ones).slope / growth
 
 
 def profile_id(machine: str) -> str:
