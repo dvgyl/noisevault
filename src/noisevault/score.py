@@ -90,6 +90,25 @@ class Forecast:
         when = self.profile.device.calibrated_at
         return None if when is None else self.counts.run_at - when
 
+    def select(self, names: Iterable[str]) -> Forecast:
+        """The forecast of only the named circuits, with no new simulation.
+
+        The result equals ``score(profile, counts, circuits=names)``. Raises CountsError for a
+        name that this forecast does not hold.
+        """
+        wanted = list(dict.fromkeys(names))
+        known = [c.name for c in self.circuits]
+        unknown = next((name for name in wanted if name not in known), None)
+        if unknown is not None:
+            raise CountsError(
+                f"the forecast has no circuit {unknown!r}",
+                hint=f"{did_you_mean(unknown, known)}give circuit names from {joined(known)}",
+            )
+        if not wanted:
+            raise CountsError("select names no circuit", hint="give at least one circuit name")
+        kept = [c for c in self.circuits if c.name in wanted]
+        return _total(self.profile, self.counts, kept)
+
     def summary(self, *, width: int = _WIDTH) -> str:
         """The scores as text, one row for each circuit and one row for the total."""
         profile, counts = self.profile, self.counts
@@ -251,15 +270,21 @@ def score(
     CountsError for an unknown circuit name or for a circuit that the profile cannot simulate.
     """
     chosen = _chosen(counts, circuits)
+    forecasts = [_circuit(c, _probabilities(profile, c), c.vector()) for c in chosen]
+    return _total(profile, counts, forecasts)
+
+
+def _total(
+    profile: Profile, counts: MeasuredCounts, forecasts: Sequence[CircuitForecast]
+) -> Forecast:
+    """The forecast of the circuits in ``forecasts``, with the shot-noise reference of its
+    excess. The draws depend only on the counts and on these circuits."""
     rng = np.random.default_rng(int(counts.sha256[7:23], 16))
-    forecasts, noise = [], np.zeros(DRAWS)
-    for c in chosen:
-        probs = _probabilities(profile, c)
-        measured = c.vector()
-        forecasts.append(_circuit(c, probs, measured))
-        drawn = rng.multinomial(c.shots, _normalized(probs), size=DRAWS)
-        noise += c.shots * _excess(drawn, probs)
-    shots = sum(c.shots for c in chosen)
+    noise = np.zeros(DRAWS)
+    for c in forecasts:
+        drawn = rng.multinomial(c.shots, _normalized(c.probabilities), size=DRAWS)
+        noise += c.shots * _excess(drawn, c.probabilities)
+    shots = sum(c.shots for c in forecasts)
     noise /= shots
     ruled_out = sum(c.ruled_out for c in forecasts)
     excess = _mean([c.excess for c in forecasts], forecasts, shots)

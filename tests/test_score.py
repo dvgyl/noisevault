@@ -479,3 +479,22 @@ def test_the_scoring_page_shows_the_output_of_a_current_run(tmp_path: Path, monk
     result = runner.invoke(app, ["score", *command.split()], env={"COLUMNS": "80"})
     assert result.exit_code == 0, result.output
     assert result.stdout.rstrip("\n") == expected, result.stdout
+
+
+def test_select_gives_the_forecast_of_the_named_circuits_with_no_new_simulation(
+    monkeypatch,
+) -> None:
+    kingston = nv.load(KINGSTON)
+    counts = kingston_counts(shots=500)
+    whole = score(kingston, counts)
+    monkeypatch.setattr("noisevault.score.probabilities", lambda *a, **k: pytest.fail("simulated"))
+
+    part = whole.select(["readout", "mirror"])
+
+    monkeypatch.undo()
+    assert part == score(kingston, counts, circuits=["mirror", "readout"])
+    assert [c.name for c in part.circuits] == ["mirror", "readout"]
+    with pytest.raises(CountsError, match="no circuit 'missing'"):
+        whole.select(["missing"])
+    with pytest.raises(CountsError, match="names no circuit"):
+        whole.select([])

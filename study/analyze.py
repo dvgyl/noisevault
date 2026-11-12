@@ -216,13 +216,13 @@ def analyze_run(
     built, missing, fits = build(calibration, counts, cache=cache, offline=offline, pull=pull)
     named = groups(counts)
     forecasts: dict[str, dict[str, Forecast]] = {}
-    done: dict[tuple[str, str], Forecast] = {}
+    done: dict[str, Forecast] = {}
 
     def scored(profile: Profile, group: str) -> Forecast:
-        key = (profile.fingerprint, group)
-        if key not in done:
-            done[key] = score(profile, counts, circuits=named[group])
-        return done[key]
+        """Each circuit is simulated one time for a profile, and each group selects from it."""
+        if profile.fingerprint not in done:
+            done[profile.fingerprint] = score(profile, counts)
+        return done[profile.fingerprint].select(named[group])
 
     for name in MODELS:
         if name not in built:
