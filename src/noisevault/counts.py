@@ -457,6 +457,56 @@ class MeasuredCounts(_Model):
         write_atomically(path, self.file_bytes(path))
         return path
 
+    def select(self, names: Sequence[str]) -> MeasuredCounts:
+        """The same run with only the named circuits, in the order of the run.
+
+        The result is a new counts file with its own ``sha256``, bound to the same calibration.
+        """
+        names = [names] if isinstance(names, str) else list(names)
+        wanted = set(names)
+        known = [c.name for c in self.circuits]
+        unknown = next((name for name in names if name not in known), None)
+        if unknown is not None:
+            raise CountsError(
+                f"the counts have no circuit {_shown(unknown)}",
+                hint=f"{did_you_mean(unknown, known)}give circuit names from {', '.join(known)}",
+            )
+        if not wanted:
+            raise CountsError("select needs at least one circuit name")
+        kept = [c.model_dump(mode="json") for c in self.circuits if c.name in wanted]
+        return self.model_copy(update={"circuits": kept})
+
+    def split(self, fraction: float, seed: int) -> tuple[MeasuredCounts, MeasuredCounts]:
+        """Each circuit's shots divided at random into two parts, without replacement.
+
+        The first part gets ``round(fraction * shots)`` shots of each circuit, and the second
+        part gets the other shots. The same ``seed`` gives the same parts. Each part is a new
+        counts file with its own ``sha256``, bound to the same calibration.
+        """
+        if not 0 < fraction < 1:
+            raise CountsError(f"fraction {fraction!r} is not between 0 and 1")
+        rng = np.random.default_rng(seed)
+        first, second = [], []
+        for c in self.circuits:
+            taken = round(fraction * c.shots)
+            if not 0 < taken < c.shots:
+                part = "second" if taken else "first"
+                raise CountsError(
+                    f"fraction {fraction:g} gives the {part} part of circuit {_shown(c.name)}"
+                    f" 0 of its {c.shots} shots",
+                    hint="give a fraction that leaves shots of each circuit in both parts",
+                )
+            keys = list(c.counts)
+            colors = np.array([c.counts[k] for k in keys], dtype=np.int64)
+            drawn = rng.multivariate_hypergeometric(colors, taken)
+            base = c.model_dump(mode="json")
+            for part, values in ((first, drawn), (second, colors - drawn)):
+                counts = {k: int(v) for k, v in zip(keys, values, strict=True)}
+                part.append({**base, "shots": int(values.sum()), "counts": counts})
+        return self.model_copy(update={"circuits": first}), self.model_copy(
+            update={"circuits": second}
+        )
+
     def file_bytes(self, path: Path) -> bytes:
         """The bytes that :meth:`save` writes to ``path``."""
         if path.suffix == ".gz":
