@@ -20,7 +20,7 @@ A calibration is a forecast of the results of a circuit. The study measures four
 A run is one job on one chain of 4 qubits of one device. The job holds the circuits of
 `noisevault.suite.suite` (circuit set version 2) for the calibration that the device had when
 the job was planned, with `fresh` set to the ISO year times 100 plus the ISO week. The circuits
-of a job run in a random order that the week and the chain fix. Each circuit has 1500 shots. The
+of a job run in a random order that the week and the chain fix. Each circuit has 1250 shots. The
 counts bind to the calibration in effect when the job ran.
 
 - The devices are `ibm_kingston`, `ibm_fez` and `ibm_marrakesh`. Each device has two runs each
@@ -474,3 +474,7 @@ To be written before the first run that counts.
   versions of the libraries that decide the circuits and the forecasts
   (`.github/study-constraints.txt`), and each campaign run records its versions. The counts file
   of a run holds the circuits that ran, so the analysis never builds a circuit again.
+- 2026-11-12: 1250 shots. A run has 1250 shots for each circuit, not 1500. One week of runs
+  then uses about 85 s of the free 600 s of a period of 28 days. The period that ends on
+  2026-12-07 also holds the pilot runs and a trial run, and 1500 shots would leave almost no
+  free time in that week.

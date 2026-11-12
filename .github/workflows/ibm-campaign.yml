@@ -23,7 +23,7 @@ on:
         options: [deep, compare, trial]
         default: deep
       shots:
-        description: "Shots per circuit (default: 1500 for deep and trial, 4000 for compare)"
+        description: "Shots per circuit (default: 1250 for deep and trial, 4000 for compare)"
         required: false
         default: ""
 
@@ -125,12 +125,12 @@ jobs:
           uv pip freeze > "${log%.log}.packages.txt"
           echo "The full output goes to $log in the encrypted archive."
           status=0
-          # 1500 shots for each of the 37 circuits of a deep job use about 16 s of QPU time. Five
-          # weekly runs of three devices then fit in the 600 s of one 28-day period.
+          # 1250 shots for each of the 37 circuits of a deep job use about 14 s of QPU time. Five
+          # weekly runs of three devices then use about 430 s of the 600 s of one 28-day period.
           if [ "$CIRCUITS" = deep ]; then
-            options="--suite --shots ${SHOTS:-1500}"
+            options="--suite --shots ${SHOTS:-1250}"
           elif [ "$CIRCUITS" = trial ]; then
-            options="--trial --shots ${SHOTS:-1500}"
+            options="--trial --shots ${SHOTS:-1250}"
           else
             options="--shots ${SHOTS:-4000}"
           fi

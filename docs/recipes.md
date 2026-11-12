@@ -538,14 +538,14 @@ on them.
 To run the set, add `--suite` to `scripts/run_on_ibm.py` or to the campaign:
 
 ```bash
-python scripts/ibm_campaign.py ibm_kingston ibm_fez --suite --shots 1500
+python scripts/ibm_campaign.py ibm_kingston ibm_fez --suite --shots 1250
 ```
 
 The campaign then writes `best-deep.*` and `median-deep.*` files beside the files of the
 `nv compare` circuits, for the same two chains. Each week, the campaign adds test circuits from
 a random stream of that week, such as `deep_d32_f202647` for ISO week 47 of 2026, and it runs the
-circuits of a job in a random order. One job holds 37 circuits on an IBM Heron device. With 1500
-shots for each circuit, it uses about 16 s of QPU time. `--trial` runs the set one more time in
+circuits of a job in a random order. One job holds 37 circuits on an IBM Heron device. With 1250
+shots for each circuit, it uses about 14 s of QPU time. `--trial` runs the set one more time in
 a week that has its runs, on the same chains, as `best-trial.*` and `median-trial.*`. Use it to
 test a change of the circuits on a device.
 
@@ -594,7 +594,7 @@ it. To add the secret, do these steps:
    `ibm_kingston ibm_fez`.
 5. Start the first run: on the **Actions** tab, select **IBM campaign**, then **Run workflow**.
 
-The weekly run uses the deep circuit set with 1500 shots for each circuit. The free IBM plan
+The weekly run uses the deep circuit set with 1250 shots for each circuit. The free IBM plan
 gives 600 s of QPU time in each period of 28 days, and such a period can hold five weekly runs.
 **Run workflow** lets you select the `nv compare` circuits or a trial run instead, and another
 number of shots.
