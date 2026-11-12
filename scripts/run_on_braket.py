@@ -47,7 +47,7 @@ import warnings
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from decimal import Decimal, InvalidOperation
+from decimal import ROUND_CEILING, Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any, NoReturn
 
@@ -578,14 +578,14 @@ def run(
             if confirm_cost is None:
                 print(
                     f"nothing submitted. To submit, run the same command with --confirm-cost"
-                    f" {batch.cost:.2f}"
+                    f" {_cents(batch.cost)}"
                 )
                 return None
             if confirm_cost < batch.cost:
                 raise NoiseVaultError(
-                    f"the run costs about ${batch.cost:.2f}, more than --confirm-cost"
+                    f"the run costs about ${_cents(batch.cost)}, more than --confirm-cost"
                     f" {confirm_cost}. The script submitted nothing",
-                    hint=f"give --confirm-cost {batch.cost:.2f} to accept the cost",
+                    hint=f"give --confirm-cost {_cents(batch.cost)} to accept the cost",
                 )
         plan_line = line(
             {
@@ -765,7 +765,7 @@ def summary(batch: Batch, target: Target, output: Path) -> str:
     ]
     n = len(batch.planned)
     tasks = "1 program set task" if batch.program_set else f"{n} tasks, one per circuit"
-    cost = f"about ${batch.cost:.2f} (${batch.price.task} a task, ${batch.price.shot} a shot)"
+    cost = f"about ${_cents(batch.cost)} (${batch.price.task} a task, ${batch.price.shot} a shot)"
     if target.local is not None:
         cost = f"none on the local emulator, {cost} on {target.name}"
     when = profile.device.calibrated_at
@@ -970,6 +970,11 @@ def _clbit0_left(
         reordered = "".join(key[position[q]] for q in circuit.qubits)
         counts[reordered] = counts.get(reordered, 0) + int(n)
     return counts
+
+
+def _cents(amount: Decimal) -> Decimal:
+    """``amount`` rounded up to the cent, so that the amount shown passes --confirm-cost."""
+    return amount.quantize(Decimal("0.01"), rounding=ROUND_CEILING)
 
 
 def _same_up_to_phase(a: np.ndarray, b: np.ndarray) -> bool:
