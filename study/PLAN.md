@@ -156,7 +156,7 @@ The adequacy test uses the `locus` model, which has the most fitted parameters: 
   day, and that the change does not grow much with the time between two measurements. It also
   shows that the lowest readout errors of a calibration are biased low: for the lowest tenth of
   the P(1|0) values of a calibration, the median of the next measured value of the same qubit
-  is 2.2 to 3.7 times higher. A median over a week removes a part of this noise. This entry was
+  is 2.4 to 3.7 times higher. A median over a week removes a part of this noise. This entry was
   written before a score of a deep run was read.
 - 2026-11-12: one more secondary comparison, the age of a value against its fitted factor. This
   entry was written before a fitted factor of a qubit or a pair was read.
