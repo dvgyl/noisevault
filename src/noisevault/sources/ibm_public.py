@@ -30,10 +30,14 @@ _SENDER = "IBM's public endpoint"
 _TRY_LATER = "try again later, or pull through your IBM account with source='ibm-account'"
 
 
+_Time = Annotated[str, AfterValidator(checked_by(as_utc))]
+
+
 class _Parameter(BaseModel):
     name: str
     value: float | None = None
     unit: str | None = None
+    date: _Time | None = None
 
 
 class _Gate(BaseModel):
@@ -45,7 +49,7 @@ class _Gate(BaseModel):
 class _Properties(BaseModel):
     qubits: list[list[_Parameter]] | None = None
     gates: list[_Gate] | None = None
-    last_update_date: Annotated[str, AfterValidator(checked_by(as_utc))] | None = None
+    last_update_date: _Time | None = None
 
 
 class _Device(BaseModel):

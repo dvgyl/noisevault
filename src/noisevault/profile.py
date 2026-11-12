@@ -981,6 +981,21 @@ class Profile(_Model):
 
         return device_medians(self)
 
+    def value_ages(self, at: str | date | datetime | None = None) -> dict[str, ValueAge] | None:
+        """How old each kind of value is at the time ``at``, in hours.
+
+        The kinds are ``readout``, ``t1``, ``t2``, ``error_1q`` and ``error_2q``. Each kind has
+        the age of its oldest, median and newest value and the number of values. ``at`` is a
+        datetime or an ISO 8601 string, and a date or a naive time is UTC. It defaults to the
+        calibration time, so an age is how much older the value is than the calibration. The
+        ages come from ``provenance.extra["value_times"]``, which the IBM importers write. The
+        result is None when the profile has no value times, and leaves out a kind with no times.
+        """
+        from .sources.qiskit_backend import as_utc
+        from .value_times import value_ages
+
+        return value_ages(self, None if at is None else as_utc(at))
+
     def pauli_error(
         self, gate: str, qubits: Sequence[int], *, unknown_gates: str = "typical"
     ) -> dict[str, float]:
@@ -1125,6 +1140,15 @@ class DeviceMedians(TypedDict):
     error_1q: float | None
     error_2q: float | None
     readout_error: float | None
+
+
+class ValueAge(TypedDict):
+    """The ages in hours of one kind of value, from :meth:`Profile.value_ages`."""
+
+    oldest_h: float
+    median_h: float
+    newest_h: float
+    values: int
 
 
 @dataclass(frozen=True)
