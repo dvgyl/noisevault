@@ -555,19 +555,21 @@ def _order(name: str) -> int:
 
 
 def _reason(exc: Exception) -> str:
-    """The type of ``exc`` and, for a validation error, the paths of the fields that failed.
+    """The type of ``exc`` and, for a validation error, the profile fields that failed.
 
     The reason holds no message text and no input value, because a message can hold a file
-    name, a job id or a calibration value.
+    name, a job id or a calibration value. Of the path of a failed field, only the first part
+    is kept, and only when it is a field of the profile format. A later part can be a key that
+    the user wrote, such as a key of ``provenance.extra``.
     """
     name = type(exc).__name__
     if not isinstance(exc, ValidationError):
         return name
-    paths = [
-        ".".join(str(part) for part in error["loc"]) or "(top level)"
-        for error in exc.errors(include_url=False, include_context=False, include_input=False)
-    ]
-    return f"{name} at {', '.join(dict.fromkeys(paths))}"
+    fields = []
+    for error in exc.errors(include_url=False, include_context=False, include_input=False):
+        first = error["loc"][0] if error["loc"] else None
+        fields.append(first if first in Profile.model_fields else "(profile)")
+    return f"{name} at {', '.join(dict.fromkeys(fields))}"
 
 
 def _finite(value: float) -> float | None:

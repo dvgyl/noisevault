@@ -174,3 +174,7 @@ The adequacy test uses the `locus` model, which has the most fitted parameters: 
   The adequacy test uses the `locus` model. The relation of the age of a value to its fitted
   factor is a Spearman rank correlation. The summary gives each result also without the marked
   runs. No score of a deep run was read before this entry.
+- 2026-11-12: more clarifications. The `two_factor` model takes the factors that `nv compare`
+  fits on C as stated, and the zero floor applies after the fit. Each other model starts from C
+  as stated too, and the zero floor applies to the result. A run that is in the data two times
+  counts one time. No score of a deep run was read before this entry.

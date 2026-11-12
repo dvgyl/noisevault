@@ -394,7 +394,7 @@ def test_a_failure_reason_holds_no_message_and_no_input_value(
 
     _, missing, _ = analyze.build(calibration, counts, cache=None, offline=True)
 
-    assert missing["generic"] == "ValidationError at (top level)"
+    assert missing["generic"] == "ValidationError at (profile)"
     assert missing["bundled"] == "SourceUnavailable"
     assert missing["two_factor"] == "ValueError"
     text = json.dumps(missing)
