@@ -497,6 +497,17 @@ with a probability of 0.8, 0.6 and 0.4. The set also has such circuits on each p
 qubit of the chain, a second readout circuit that prepares each qubit in 1, and circuits that no
 fit uses. Two of those circuits run on a chain of 8 qubits, when the device has one.
 
+The set also has one Clifford mirror circuit on a chain of 20, 40 and 80 qubits, when the device
+has such a chain. These circuits use only Clifford gates and angles, such as `sx`, `x` and `cz`
+(see `noisevault.wide.CLIFFORD`). The exact reference simulator holds at most 10 qubits, so the
+Stim stabilizer simulator gives the forecast of a model for these circuits. Each forecast applies
+the Pauli twirl of the noise that the reference applies. The depth of a Clifford circuit is the
+first depth at which the profile with the assumed factor predicts the ideal result with a
+probability of 0.3 or less. The names are `clifford_n20_d8` and similar. Without Stim (the
+`stim` extra), `suite` makes no Clifford circuit. `nv compare` and `nv score` refuse these
+circuits, so select the circuits of 10 qubits or fewer first. `study/wide.py` scores two models
+on the Clifford circuits.
+
 To run the set, add `--suite` to `scripts/run_on_ibm.py` or to the campaign:
 
 ```bash
@@ -505,7 +516,7 @@ python scripts/ibm_campaign.py ibm_kingston ibm_fez --suite --shots 2000
 
 The campaign then writes `best-deep.*` and `median-deep.*` files beside the files of the
 `nv compare` circuits, for the same two chains. One job with 2000 shots for each circuit uses
-about 17 s of QPU time.
+about 18 s of QPU time. The three Clifford circuits use about 1.5 s of it.
 
 On Amazon Braket, add `--suite` to `scripts/run_on_braket.py`. Braket charges for each shot, so
 give `--budget USD` in place of `--shots`. The script then runs the circuits and the shots that
@@ -519,7 +530,7 @@ gives the rules and an example.
 | --- | --- | --- |
 | `train` | `readout`, `readout_1`, `deep_d*_s0`, `deep_d*_s1`, `pair*`, `qubit*` | Fit a model on these circuits |
 | `test_near` | `deep_d*_s2` | Deep circuits from another random seed |
-| `test_far` | the `nv compare` circuits, `periodic_d*`, `qubits_d*`, `wide_d*` | Circuits of another kind |
+| `test_far` | the `nv compare` circuits, `periodic_d*`, `qubits_d*`, `wide_d*`, `clifford_n*` | Circuits of another kind |
 
 Fit on the `train` circuits and score on the test circuits. A model that fits the `train`
 circuits and fails on the test circuits does not describe the device.
