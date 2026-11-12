@@ -247,6 +247,27 @@ def test_the_forecast_gives_the_covariance_of_correlated_wrong_bits(line_24: Pro
     assert np.diag(found.covariance) == pytest.approx(p * (1 - p))
 
 
+def test_a_marginal_or_a_cell_with_few_samples_gives_no_verdict(line_24: Profile, counts) -> None:
+    circuit = counts.circuits[0]
+    truth, low = _factor(line_24, ASSUMED_GATE_FACTOR), _factor(line_24, 0.2)
+    many = [wide.forecast(m, circuit, samples=200_000, seed=s) for m, s in ((truth, 1), (low, 2))]
+    few = [wide.forecast(m, circuit, samples=400, seed=s) for m, s in ((truth, 1), (low, 2))]
+
+    clear = wide.compare([circuit], many[:1], many[1:])
+    lost = wide.compare([circuit], few[:1], few[1:])
+
+    assert clear.qubit_log.better == "a" and clear.qubit_sampling.reason is None
+    assert int(np.minimum(few[1].qubit_samples, 400 - few[1].qubit_samples).min()) < 100
+    assert lost.qubit_log.better == "neither"
+    assert lost.qubit_sampling.reason == "few_samples"
+    assert lost.qubit_log.z is not None
+    # The few samples of the low model leave cells with measured shots and fewer than 100 samples.
+    assert wide.few_cell_samples(few[1], circuit, few[0], few[1])
+    assert lost.wrong_log.better == "neither"
+    assert lost.wrong_sampling.reason == "few_samples"
+    assert not wide.few_cell_samples(many[0], circuit, many[0], many[1])
+
+
 def test_a_test_with_more_sampling_variance_than_shot_variance_gives_no_verdict() -> None:
     from noisevault.score import RuleTest
 

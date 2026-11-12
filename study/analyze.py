@@ -1148,10 +1148,12 @@ def _clifford(counts: MeasuredCounts, built: dict[str, Profile], samples: int) -
                         "log": _rule(result.wrong_log),
                         "quadratic": _rule(result.wrong_quadratic),
                         "sampling_ratio": result.wrong_sampling.ratio,
+                        "no_verdict": result.wrong_sampling.reason,
                     },
                     "qubit": {
                         "log": _rule(result.qubit_log),
                         "sampling_ratio": result.qubit_sampling.ratio,
+                        "no_verdict": result.qubit_sampling.reason,
                     },
                 }
             )

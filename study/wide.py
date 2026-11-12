@@ -66,6 +66,8 @@ class Forecast:
     wrong bits, and ``qubit[q]`` the probability that the bit of circuit qubit q is wrong.
     ``covariance`` is the covariance matrix of the wrong-bit values of the qubits over the
     samples (each value is 0 or 1), without smoothing. None means independent qubits.
+    ``qubit_samples[q]`` is the number of samples with a wrong bit of qubit q, and
+    ``wrong_samples[k]`` the number of samples with k wrong bits. None means not known.
     """
 
     circuit: str
@@ -75,6 +77,13 @@ class Forecast:
     wrong: np.ndarray
     qubit: np.ndarray
     covariance: np.ndarray | None = None
+    qubit_samples: np.ndarray | None = None
+    wrong_samples: np.ndarray | None = None
+
+
+# The fewest samples on each side of a marginal, and in a cell with a measured shot, for which
+# the delta method of the sampling variance is valid.
+MIN_SAMPLES = 100
 
 
 @dataclass(frozen=True)
@@ -91,10 +100,14 @@ class Scores:
 @dataclass(frozen=True)
 class Sampling:
     """The sampling variance of the two forecasts in one test, the shot variance of the test,
-    and their ratio. Both variances are of the sum of the score differences over the shots."""
+    and their ratio. Both variances are of the sum of the score differences over the shots.
+    ``reason`` says why the test gives no verdict for a reason of the samples:
+    ``few_samples`` (a marginal or a cell has fewer than ``MIN_SAMPLES`` samples) or
+    ``sampling_variance`` (the ratio is above 1). It is None otherwise."""
 
     variance: float
     shot_variance: float
+    reason: str | None = None
 
     @property
     def ratio(self) -> float | None:
@@ -168,6 +181,8 @@ def forecast(
         wrong=smoothed / smoothed.sum(),
         qubit=(qubit + 0.5) / (samples + 1),
         covariance=both / samples - np.outer(mean, mean),
+        qubit_samples=qubit,
+        wrong_samples=cells,
     )
 
 
@@ -237,9 +252,17 @@ def compare(
         for found, probs in ((fa, pa), (fb, pb)):
             wrong_variance += cell_sampling_variance(c.shots, found.samples, measured, probs)
     shots = float(sum(c.shots for c in circuits))
-    qubit_test, qubit_sampling = with_sampling(_shot_test(qubit), qubit_variance, shots)
+    few_qubits = any(few_qubit_samples(found) for found in (*a, *b))
+    few_cells = any(
+        few_cell_samples(found, c, fa, fb)
+        for c, fa, fb in zip(circuits, a, b, strict=True)
+        for found in (fa, fb)
+    )
+    qubit_test, qubit_sampling = with_sampling(
+        _shot_test(qubit), qubit_variance, shots, few=few_qubits
+    )
     wrong_test, wrong_sampling = with_sampling(
-        _test("log", wrong, _log, group_rare=False), wrong_variance, shots
+        _test("log", wrong, _log, group_rare=False), wrong_variance, shots, few=few_cells
     )
     verdict = all(len(c.qubits) < SUCCESS_LIMIT for c in circuits)
     success_log = _test("log", success, _log, group_rare=False)
@@ -293,23 +316,55 @@ def cell_sampling_variance(
     return shots**2 / samples * max(0.0, float((f**2 / p).sum()) - 1)
 
 
-def with_sampling(test: RuleTest, variance: float, shots: float) -> tuple[RuleTest, Sampling]:
+def few_qubit_samples(found: Forecast) -> bool:
+    """True when a qubit of the forecast has fewer than ``MIN_SAMPLES`` sampled wrong bits or
+    sampled right bits."""
+    if found.qubit_samples is None:
+        return False
+    wrong = np.asarray(found.qubit_samples)
+    return bool((np.minimum(wrong, found.samples - wrong) < MIN_SAMPLES).any())
+
+
+def few_cell_samples(found: Forecast, circuit: MeasuredCircuit, fa: Forecast, fb: Forecast) -> bool:
+    """True when a cell of the ``wrong`` score of ``circuit`` holds a measured shot and has fewer
+    than ``MIN_SAMPLES`` samples in the forecast ``found``. The cells are the merged cells of
+    the test of ``fa`` and ``fb``."""
+    if found.wrong_samples is None:
+        return False
+    keys, times = _rows(circuit)
+    wrong_bits = keys != np.array([bit == "1" for bit in found.ideal])
+    measured = np.bincount(wrong_bits.sum(axis=1), weights=times, minlength=len(found.ideal) + 1)
+    samples = np.asarray(found.wrong_samples, dtype=float)
+    # The rule of _merged: the cells that each model expects fewer than MIN_EXPECTED times
+    # become one last cell, with the sum of their shots and of their samples.
+    rare = circuit.shots * np.maximum(fa.wrong, fb.wrong) < MIN_EXPECTED
+    if rare.any():
+        measured = np.append(measured[~rare], measured[rare].sum())
+        samples = np.append(samples[~rare], samples[rare].sum())
+    return bool(((measured > 0) & (samples < MIN_SAMPLES)).any())
+
+
+def with_sampling(
+    test: RuleTest, variance: float, shots: float, *, few: bool = False
+) -> tuple[RuleTest, Sampling]:
     """``test`` over ``shots`` shots, with the sampling ``variance`` added to the variance of its
     summed difference.
 
-    The test gives no verdict when ``variance`` is larger than the shot variance. A test with no
-    value stays as it is.
+    The test gives no verdict when ``variance`` is larger than the shot variance, or when
+    ``few`` says that a marginal or a cell has too few samples for the sampling variance. A test
+    with no value stays as it is.
     """
     if test.outcome != "tested" or test.difference is None or test.standard_error is None:
-        return test, Sampling(variance, 0.0)
+        return test, Sampling(variance, 0.0, "few_samples" if few else None)
     total = test.difference * shots
     shot_variance = (test.standard_error * shots) ** 2
-    sampling = Sampling(variance, shot_variance)
     error = math.sqrt(shot_variance + variance)
     z = total / error
     p_value = math.erfc(abs(z) / math.sqrt(2))
-    too_large = sampling.ratio is not None and sampling.ratio > 1
-    better: Choice = "neither" if p_value >= LEVEL or too_large else "a" if z > 0 else "b"
+    too_large = shot_variance > 0 and variance / shot_variance > 1
+    reason = "few_samples" if few else "sampling_variance" if too_large else None
+    sampling = Sampling(variance, shot_variance, reason)
+    better: Choice = "neither" if p_value >= LEVEL or reason else "a" if z > 0 else "b"
     found = RuleTest(test.rule, "tested", test.difference, error / shots, z, p_value, better)
     return found, sampling
 
