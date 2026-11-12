@@ -49,6 +49,7 @@ from typing import Any
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
+import numpy as np  # noqa: E402
 import run_on_ibm as runner  # noqa: E402
 
 import noisevault as nv  # noqa: E402
@@ -208,7 +209,7 @@ class Campaign:
                     approve=functools.partial(self._approve, folder, kind),
                     wait=False,
                     keep_profile=True,
-                    planner=suite if kind.endswith(DEEP) else plan,
+                    planner=week_suite(folder.name) if kind.endswith(DEEP) else plan,
                 )
             except NoiseVaultError as exc:
                 self.statuses.append(Status(device, folder.name, kind, "error", _message(exc)))
@@ -365,6 +366,26 @@ def _stale(path: Path) -> bool:
 
 def _unlock(device_folder: Path) -> None:
     (device_folder / LOCK).unlink(missing_ok=True)
+
+
+def week_suite(week: str) -> runner.Planner:
+    """The deep circuit set of the campaign week that starts on the date ``week``.
+
+    The set has test circuits from a random stream of this week only, so each week tests new
+    random circuits. The circuits run in a random order, which the week and the chain fix. A
+    slow change of the device during a job then has no fixed relation to the kind of a circuit.
+    The counts file lists the circuits in the order of the run.
+    """
+    year, number, _ = date.fromisoformat(week).isocalendar()
+    fresh = 100 * year + number
+
+    def planner(profile: Profile, chain: Sequence[int] | None = None) -> tuple[PlannedCircuit, ...]:
+        circuits = suite(profile, chain, fresh=fresh)
+        qubits = max((c.qubits for c in circuits), key=len) if chain is None else chain
+        order = np.random.default_rng([fresh, *qubits]).permutation(len(circuits))
+        return tuple(circuits[i] for i in order)
+
+    return planner
 
 
 def week_folder(device_folder: Path, today: date) -> Path:

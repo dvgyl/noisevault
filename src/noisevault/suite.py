@@ -1,27 +1,54 @@
 """The deep circuit set for a hardware run.
 
 ``plan`` gives the short ``nv check`` circuits. A short circuit has few errors, so most shots
-carry no information on the error rates. ``suite`` adds deep mirror circuits: layers of random
-native gates, then the same layers undone, so the ideal result is one known bit string. The
-depth of each circuit comes from the profile. The profile with ``ASSUMED_GATE_FACTOR`` on its
-gate errors predicts the probability of the ideal result, and ``suite`` takes the depths where
-that probability reaches fixed targets.
+carry no information on the error rates. ``suite`` adds deep mirror circuits. The depth of each
+circuit comes from the profile: ``suite`` takes the depths at which the predicted probability of
+the ideal result has fallen to fixed parts of the way from 1 to the probability of a random bit
+string (see ``CHAIN_TARGETS``).
 
-The set has three roles, which ``role`` gives for each circuit name:
+A mirror circuit has three parts: layers of random gates, one random Pauli gate on each qubit,
+and the layers undone in the opposite order. Each gate is a Clifford gate, so the ideal result is
+one bit string, and the Pauli gates in the middle make this bit string random.
 
-- ``train``: the readout circuits, deep circuits on the chain, on each pair and on each qubit.
+A noise model from a calibration holds errors that have no direction. A real gate can also have
+a small systematic error, for example a rotation that is a little too large. A circuit design
+decides what such an error does:
+
+- When each gate turns about one axis, the errors of all gates add up. The error probability
+  then grows with the square of the number of gates.
+- When the second half is the exact mirror of the first half and nothing is between them, the
+  error of each gate cancels the error of its partner.
+
+A circuit of the usual kind does neither. Three rules give a mirror circuit this property:
+
+- On a device whose 1-qubit gates all turn about one axis (``sx`` and ``x``, for example), a
+  random virtual Z rotation comes before each gate. The gates then turn about changing axes.
+- The inverse of a gate is the gate itself in another frame where the device permits (``sx`` is
+  undone by ``rz(pi) sx rz(pi)``), and not three more of the same gate.
+- The random Pauli gates in the middle give the errors of the two halves random signs with
+  respect to each other.
+
+This is the design of randomized mirror circuits (Proctor et al., Nature Physics 18, 75, 2022).
+
+The ``axis_*`` circuits are the opposite case on purpose: one gate, many times, on each qubit.
+They show the size of the systematic rotation error of that gate. No model sees them in a fit,
+and no comparison of models uses them.
+
+The set has four roles, which ``role`` gives for each circuit name:
+
+- ``train``: the readout circuits, mirror circuits on the chain, on each pair and on each qubit.
   A fit uses these circuits.
-- ``test_near``: deep circuits on the chain from another random seed.
+- ``test_near``: mirror circuits on the chain from other random seeds.
 - ``test_far``: the ``nv check`` circuits, a periodic circuit, a circuit with 1-qubit gates on
-  all qubits at the same time, deep circuits on a chain of ``WIDE_QUBITS`` qubits, and one
-  Clifford mirror circuit on a chain of each size in ``CLIFFORD_QUBITS``. No fit sees these
-  circuits.
+  all qubits at the same time, mirror circuits on a chain of ``WIDE_QUBITS`` qubits, and one
+  mirror circuit on a chain of each size in ``CLIFFORD_QUBITS``. No fit sees these circuits.
+- ``probe``: the ``axis_*`` circuits.
 
-A Clifford circuit has more qubits than the reference simulator holds, so the stabilizer forecast
-of ``noisevault.wide`` gives its depth. On many qubits, readout error alone makes the ideal
-result rare, so the depth comes from the mean probability of a wrong bit, not from the ideal
-result (see ``CLIFFORD_WRONG``). A Clifford circuit uses only the gates and angles of
-``noisevault.wide.CLIFFORD``. Without Stim, ``suite`` makes no Clifford circuit.
+A circuit on a chain of ``CLIFFORD_QUBITS`` has more qubits than the reference simulator holds,
+so the stabilizer forecast of ``noisevault.wide`` gives its depth. On many qubits, readout error
+alone makes the ideal result rare, so the depth comes from the mean probability of a wrong bit,
+not from the ideal result (see ``CLIFFORD_WRONG``). Such a circuit uses only the gates and angles
+of ``noisevault.wide.CLIFFORD``. Without Stim, ``suite`` makes no such circuit.
 
 Each layer starts at the same time on every qubit of the circuit, and an explicit delay holds
 every wait. A wait is 0 ns or at least ``MIN_WAIT_NS``, because a device refuses a delay that is
@@ -31,49 +58,66 @@ shorter than its time grid allows.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from functools import reduce
+from itertools import product
 from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 
 from . import check, wide
 from .counts import PlannedCircuit, _delay_disabled, _duration, plan
-from .errors import LayoutError
+from .errors import LayoutError, NoiseVaultError
 from .layout import suggest_layout
 from .reference import Op, probabilities
+from .table import GateNoise
 
 if TYPE_CHECKING:
     from .profile import Profile
 
 Role = Literal["train", "test_near", "test_far", "probe"]
 Layer = tuple[Op, ...]
+Key = tuple[int, ...]
 
+# The version of the circuit design. Version 1 undid a gate by more of the same gate and had
+# no virtual rotations and no Pauli gates in the middle.
+SUITE_VERSION = 2
 MIN_WAIT_NS = 16.0
 # Candidate depths in layers. A circuit of depth m holds m layers and then their inverses.
 DEPTHS = (1, 2, 3, 4, 6, 8, 12, 16, 24, 32, 48, 64, 96, 128, 192, 256)
-# The first runs on IBM Heron devices gave gate errors 1.7 to 3.2 times the stated errors. A
-# depth that suits the stated errors is then too deep: a circuit on two qubits gives its ideal
-# result with a probability near 1/4 and tells little. So the depths suit this factor.
-ASSUMED_GATE_FACTOR = 2.0
-# The predicted probability of the ideal result at which each family takes a depth.
+# The depths come from the stated errors. Deep circuits on IBM Heron devices gave their ideal
+# result about as often as the stated errors predict in four of six runs, and about as often as
+# two times the stated errors predict in one run. The targets below suit this range.
+ASSUMED_GATE_FACTOR = 1.0
+# The targets at which each family takes a depth. A target is a value of the polarization: the
+# predicted probability p of the ideal result on n qubits as (p - 1/2^n) / (1 - 1/2^n). The
+# polarization is 1 for a certain result and 0 for random bits, so one target means the same on
+# 1 qubit and on 8 qubits. A circuit tells the most about the size of the gate errors at a
+# polarization from 0.2 to 0.45. The lowest target is 0.4, so that a device with two times the
+# stated errors is still in this range.
 CHAIN_TARGETS = (0.8, 0.6, 0.4)
-PAIR_TARGETS = (0.8, 0.55)
-QUBIT_TARGETS = (0.85,)
+PAIR_TARGETS = (0.75, 0.4)
+QUBIT_TARGETS = (0.7,)
 # The wide circuits test a model on twice the qubits of the chain, most of them other qubits.
 WIDE_QUBITS = 8
 WIDE_TARGETS = (0.6, 0.35)
-# The Clifford circuits test a model on more qubits than the reference simulator holds.
+# These circuits test a model on more qubits than the reference simulator holds.
 CLIFFORD_QUBITS = (20, 40, 80)
-# The depth of a Clifford circuit is the first whole depth at which the profile with
+# The depth of such a circuit is the first whole depth at which the profile with
 # ASSUMED_GATE_FACTOR predicts a wrong bit with this mean probability over the qubits, or more.
-# Each layer adds about 0.015 on IBM Heron devices, so whole depths keep the depth near the target.
 CLIFFORD_WRONG = 0.15
 # The depth search samples the stabilizer forecast. This many samples give the mean probability
 # of a wrong bit to better than 0.003.
 CLIFFORD_SAMPLES = 20_000
 TRAIN_SEEDS = (0, 1)
 TEST_SEED = 2
-_CHAIN, _PAIR, _QUBIT, _FLIP, _WIDE, _CLIFFORD = 1, 2, 3, 4, 5, 6
+# The number of gates on each qubit of each ``axis_*`` circuit. A systematic rotation error
+# gives 16 times more wrong bits at 256 gates than at 64 gates, and an error with no direction
+# gives 4 times more.
+AXIS_REPEATS = (64, 256)
+# The exact ideal result of a circuit comes from a state vector up to this number of qubits.
+_STATE_QUBITS = 10
+_CHAIN, _PAIR, _QUBIT, _MIDDLE, _WIDE, _CLIFFORD, _FRESH = 1, 2, 3, 4, 5, 6, 7
 _TRAIN_PREFIXES = ("readout", "pair", "qubit")
 _ONLY_IN_SUITE = (
     "readout_1",
@@ -85,16 +129,30 @@ _ONLY_IN_SUITE = (
     "clifford_",
     "axis_",
 )
-_FLIPPED = 1 - 1e-9
+_I = np.eye(2, dtype=complex)
+_X = np.array([[0, 1], [1, 0]], dtype=complex)
+_Y = np.array([[0, -1j], [1j, 0]], dtype=complex)
+_Z = np.array([[1, 0], [0, -1]], dtype=complex)
+_TOLERANCE = 1e-9
 
 
 @dataclass(frozen=True)
 class _Natives:
-    """The gates that a deep circuit on one chain can use. Each op in ``ones`` is on qubit 0."""
+    """The gates that a mirror circuit on one chain can use.
 
-    ones: tuple[Op, ...]
+    Each op in ``turns`` and ``frames`` is on qubit 0. A turn is a 1-qubit gate that the device
+    applies with a pulse. A frame is a virtual Z rotation, which takes no time and has no error.
+    ``runs`` gives, for each 1-qubit Clifford gate that the turns and frames can make, the
+    shortest run of them in the order of time.
+    """
+
+    turns: tuple[Op, ...]
+    frames: tuple[Op, ...]
     pairs: tuple[Op | None, ...]
-    flip: tuple[Op, ...] | None
+    runs: Mapping[Key, tuple[Op, ...]]
+
+    def virtual(self, op: Op) -> bool:
+        return any(op.name == frame.name for frame in self.frames)
 
 
 def suite(
@@ -102,11 +160,14 @@ def suite(
     layout: Mapping[Any, int] | Sequence[int] | None = None,
     *,
     seed: int = 0,
+    fresh: int | None = None,
 ) -> tuple[PlannedCircuit, ...]:
     """The circuits of ``plan`` and the deep circuits, on the same chain.
 
-    The same profile, layout and seed give the same circuits. A profile with unmodeled-error
-    factors gives the circuits of its calibration.
+    The same profile, layout, seed and ``fresh`` give the same circuits. A profile with
+    unmodeled-error factors gives the circuits of its calibration. With ``fresh``, the set also
+    has ``test_near`` circuits ``deep_d{m}_f{fresh}`` from a random stream that only this number
+    gives. A campaign that passes a new number for each run tests new random circuits each time.
     """
     base = profile.uncorrected()
     assumed = base.model_copy(
@@ -115,19 +176,23 @@ def suite(
     planned = plan(base, layout)
     chain = max((c.qubits for c in planned), key=len)
     natives = _natives(base, chain)
-    if not natives.ones:
+    if not natives.turns:
         return planned
     circuits = list(planned)
     n = len(chain)
-    if natives.flip is not None:
-        circuits.append(_circuit(base, "readout_1", chain, _flip_layers(natives, [1] * n)))
+    flip = natives.runs.get(_key(_X))
+    if flip is not None:
+        ones = _columns({q: [_on(op, q) for op in flip] for q in range(n)}, natives)
+        circuits.append(_circuit(base, "readout_1", chain, ones))
 
     middle = None
     if n >= 2 and all(natives.pairs):
-        for s in (*TRAIN_SEEDS, TEST_SEED):
-            stream = (seed, _CHAIN, s)
+        streams = {f"s{s}": (seed, _CHAIN, s) for s in (*TRAIN_SEEDS, TEST_SEED)}
+        if fresh is not None:
+            streams[f"f{fresh}"] = (seed, _CHAIN, _FRESH, fresh)
+        for tag, stream in streams.items():
             for depth, built in _family(assumed, chain, natives, CHAIN_TARGETS, stream):
-                circuits.append(built.model_copy(update={"name": f"deep_d{depth}_s{s}"}))
+                circuits.append(built.model_copy(update={"name": f"deep_d{depth}_{tag}"}))
         depths = _depths(assumed, chain, natives, CHAIN_TARGETS, (seed, _CHAIN, TRAIN_SEEDS[0]))
         middle = depths[len(depths) // 2]
         for i in range(n - 1):
@@ -144,17 +209,18 @@ def suite(
             circuits.append(built.model_copy(update={"name": f"qubit{i}_d{depth}"}))
             longest = max(longest, depth)
     if n >= 2 and longest:
-        only_ones = _Natives(natives.ones, (None,) * (n - 1), natives.flip)
+        only_ones = replace(natives, pairs=(None,) * (n - 1))
         layers = _layers(only_ones, n, longest, (seed, _QUBIT, n))
-        circuits.append(_mirror(base, f"qubits_d{longest}", chain, natives, layers, (seed, n)))
+        circuits.append(_mirror(base, f"qubits_d{longest}", chain, only_ones, layers, (seed, n)))
     if middle is not None:
         period = _layers(natives, n, 2, (seed, _CHAIN, TEST_SEED + 1))
         layers = period * (middle // 2 or 1)
         circuits.append(_mirror(base, f"periodic_d{middle}", chain, natives, layers, (seed, 0)))
+    circuits += _axis_circuits(base, chain, natives)
     eight = _wide_chain(base) if middle is not None else None
     if eight is not None:
         found = _natives(base, eight)
-        if found.ones and all(found.pairs):
+        if found.turns and all(found.pairs):
             for depth, built in _family(assumed, eight, found, WIDE_TARGETS, (seed, _WIDE, 0)):
                 circuits.append(built.model_copy(update={"name": f"wide_d{depth}_s0"}))
     if wide.has_stim():
@@ -189,6 +255,38 @@ def train_names(names: Sequence[str]) -> list[str] | None:
     return [name for name in names if role(name) == "train"]
 
 
+def ideal_result(circuit: PlannedCircuit) -> str:
+    """The one result of ``circuit`` without noise, circuit qubit 0 first.
+
+    A circuit on more than 10 qubits needs Stim. Raises NoiseVaultError when the result is not
+    certain.
+    """
+    n = len(circuit.qubits)
+    if n > _STATE_QUBITS:
+        return wide.ideal_bits(circuit)
+    state = np.zeros((2,) * n, dtype=complex)
+    state[(0,) * n] = 1.0
+    tensors: dict[tuple[str, tuple[float, ...]], np.ndarray] = {}
+    for op in circuit.ops:
+        if op.name == "delay":
+            continue
+        k = len(op.qubits)
+        key = (op.name, tuple(op.params))
+        if key not in tensors:
+            tensors[key] = check._unitary(op).reshape((2,) * (2 * k))
+        moved = np.tensordot(tensors[key], state, axes=(list(range(k, 2 * k)), list(op.qubits)))
+        state = np.moveaxis(moved, list(range(k)), list(op.qubits))
+    weights = np.abs(state.reshape(-1)) ** 2
+    index = int(weights.argmax())
+    if weights[index] < 1 - 1e-6:
+        raise NoiseVaultError(
+            f"circuit {circuit.name} has no certain result: its most probable result has the"
+            f" probability {weights[index]:.3g}",
+            hint="give a mirror circuit, whose ideal result is one bit string",
+        )
+    return format(index, f"0{n}b")
+
+
 def _wide_chain(profile: Profile) -> tuple[int, ...] | None:
     """The suggested chain of ``WIDE_QUBITS`` qubits, or None when the device has none."""
     if profile.device.num_qubits < WIDE_QUBITS:
@@ -203,11 +301,11 @@ def _wide_chain(profile: Profile) -> tuple[int, ...] | None:
 
 
 def _clifford_circuits(base: Profile, assumed: Profile, seed: int) -> list[PlannedCircuit]:
-    """One Clifford mirror circuit on a chain of each size in ``CLIFFORD_QUBITS`` that fits.
+    """One mirror circuit on a chain of each size in ``CLIFFORD_QUBITS`` that fits.
 
-    A size is left out when the device has no such chain with a Clifford native on each pair,
-    when a qubit of the chain has no Clifford 1-qubit native, or when a qubit of the chain must
-    wait but disables delay.
+    A size is left out when the device has no such chain with a gate of
+    ``noisevault.wide.CLIFFORD`` on each pair, when a qubit of the chain has no such 1-qubit
+    gate, or when a qubit of the chain must wait but disables delay.
     """
     built: list[PlannedCircuit] = []
     for n in CLIFFORD_QUBITS:
@@ -216,8 +314,8 @@ def _clifford_circuits(base: Profile, assumed: Profile, seed: int) -> list[Plann
         try:
             found = suggest_layout(base, n, usable_pair=lambda a, b: _clifford_pair(base, a, b))
             chain = tuple(found.values())
-            natives = _natives(base, chain, clifford=True)
-            if not natives.ones or not all(natives.pairs):
+            natives = _natives(base, chain, stim_only=True)
+            if not natives.turns or not all(natives.pairs):
                 continue
             stream = (seed, _CLIFFORD, n)
             depth = _clifford_depth(assumed, chain, natives, stream)
@@ -239,11 +337,11 @@ def _clifford_depth(
     prediction first reaches the target. This is the first whole depth when the prediction grows
     with the depth.
     """
-    bits = np.asarray(_ideal_bits(natives, len(qubits), stream), dtype=bool)
 
     def reaches(depth: int) -> bool:
         layers = _layers(natives, len(qubits), depth, stream)
         built = _mirror(profile, "deep", qubits, natives, layers, stream)
+        bits = np.array([bit == "1" for bit in ideal_result(built)])
         sampled = wide.sample(profile, built, CLIFFORD_SAMPLES, seed=0)
         return float(np.mean(sampled != bits)) >= CLIFFORD_WRONG
 
@@ -256,67 +354,199 @@ def _clifford_depth(
 
 
 def _clifford_pair(profile: Profile, a: int, b: int) -> bool:
-    return bool(_clifford_twos(profile, (a, b), 0))
-
-
-def _clifford_twos(profile: Profile, chain: Sequence[int], i: int) -> list[Op]:
-    """The Clifford ops of each calibrated 2-qubit native on circuit pair (i, i+1)."""
-    return [
-        clifford
-        for op in check._two_qubit_ops(profile, chain, i)
-        for clifford in wide.clifford_ops(op.name, op.qubits)
-    ]
-
-
-def _natives(profile: Profile, chain: Sequence[int], *, clifford: bool = False) -> _Natives:
-    """The natives of ``chain``. With ``clifford``, only the ops of ``noisevault.wide.CLIFFORD``."""
-    table = profile.table
-    n = len(chain)
-    ones = tuple(
-        op
-        for name in check._unitary_natives(profile, 1)
-        if all(check._calibrated(table.gate(name, (p,))) for p in chain)
-        for op in (wide.clifford_ops(name, (0,)) if clifford else [check._op(name, (0,))])
-        if check._inverse(op) is not None
+    return any(
+        wide.clifford_ops(op.name, op.qubits) for op in check._two_qubit_ops(profile, (a, b), 0)
     )
-    pairs: list[Op | None] = []
-    for i in range(n - 1):
-        found = (
-            _clifford_twos(profile, chain, i)
-            if clifford
-            else check._two_qubit_ops(profile, chain, i)
+
+
+def _natives(profile: Profile, chain: Sequence[int], *, stim_only: bool = False) -> _Natives:
+    """The gates of the mirror circuits on ``chain``.
+
+    The turns are the calibrated 1-qubit natives with no parameter, without the identity. A
+    device with none of these gives the Clifford angles of its natives with parameters. Frames
+    are in use only when all turns are rotations about one axis. With ``stim_only``, a 2-qubit
+    gate must be in ``noisevault.wide.CLIFFORD``. Without it, each 2-qubit Clifford native is
+    usable.
+    """
+    table = profile.table
+    fixed: list[Op] = []
+    angled: list[Op] = []
+    for name in check._unitary_natives(profile, 1):
+        if not all(check._calibrated(table.gate(name, (p,))) for p in chain):
+            continue
+        for op in wide.clifford_ops(name, (0,)):
+            if _key(check._unitary(op)) != _key(_I):
+                (angled if op.params else fixed).append(op)
+    turns = _distinct(fixed or angled)
+    frames: tuple[Op, ...] = ()
+    if turns and _one_axis(turns) and _virtual_z(profile, chain):
+        frames = tuple(
+            op for op in wide.clifford_ops("rz", (0,)) if _key(check._unitary(op)) != _key(_I)
         )
-        usable = [op for op in found if check._inverse(op) is not None]
-        pairs.append(usable[0] if usable else None)
-    return _Natives(ones, tuple(pairs), _flip(ones))
-
-
-def _flip(ones: Sequence[Op]) -> tuple[Op, ...] | None:
-    """The shortest run of one native gate that takes |0> to |1>, or None."""
-    best: tuple[Op, ...] | None = None
-    for op in ones:
-        unitary = check._unitary(op)
-        power = np.eye(2, dtype=complex)
-        for k in range(1, 5):
-            power = unitary @ power
-            if abs(power[1, 0]) ** 2 > _FLIPPED and (best is None or k < len(best)):
-                best = (op,) * k
+    partial = _Natives(turns, frames, (), _runs(turns, frames))
+    pairs: list[Op | None] = []
+    for i in range(len(chain) - 1):
+        usable = None
+        for op in check._two_qubit_ops(profile, chain, i):
+            options = wide.clifford_ops(op.name, op.qubits)
+            if not options and not stim_only and _is_clifford(check._unitary(op)):
+                options = [op]
+            usable = next((o for o in options if _undo_two(partial, o) is not None), None)
+            if usable is not None:
                 break
-    return best
+        pairs.append(usable)
+    return replace(partial, pairs=tuple(pairs))
+
+
+def _virtual_z(profile: Profile, chain: Sequence[int]) -> bool:
+    """True when ``rz`` is a virtual gate on each qubit of ``chain``."""
+    found = [profile.table.gate("rz", (p,)) for p in chain]
+    return all(isinstance(gate, GateNoise) and gate.state == "ideal" for gate in found)
+
+
+def _distinct(ops: Sequence[Op]) -> tuple[Op, ...]:
+    """``ops`` without an op that does the same as an earlier op."""
+    kept: dict[Key, Op] = {}
+    for op in ops:
+        key = _key(check._unitary(op))
+        if key is not None:
+            kept.setdefault(key, op)
+    return tuple(kept.values())
+
+
+def _one_axis(ops: Sequence[Op]) -> bool:
+    """True when all ``ops`` are rotations about one axis, so that each pair commutes."""
+    unitaries = [check._unitary(op) for op in ops]
+    return all(np.allclose(a @ b, b @ a, atol=_TOLERANCE) for a in unitaries for b in unitaries)
+
+
+def _key(unitary: np.ndarray) -> Key | None:
+    """How a 1-qubit Clifford gate moves X, Y and Z, or None when the gate is not a Clifford.
+
+    Two gates that differ only by a global phase have the same key.
+    """
+    adjoint = unitary.conj().T
+    paulis = (_X, _Y, _Z)
+    moved = np.array(
+        [[0.5 * np.trace(p @ unitary @ q @ adjoint).real for q in paulis] for p in paulis]
+    )
+    whole = np.rint(moved)
+    if not np.allclose(moved, whole, atol=1e-6) or (np.abs(whole).sum(axis=1) != 1).any():
+        return None
+    return tuple(int(value) for value in whole.reshape(-1))
+
+
+def _is_clifford(unitary: np.ndarray) -> bool:
+    """True when the gate moves each Pauli operator to a Pauli operator."""
+    n = len(unitary).bit_length() - 1
+    products = [reduce(np.kron, combo) for combo in product((_I, _X, _Y, _Z), repeat=n)]
+    adjoint = unitary.conj().T
+    for position in range(n):
+        for pauli in (_X, _Z):
+            factors = [pauli if q == position else _I for q in range(n)]
+            image = unitary @ reduce(np.kron, factors) @ adjoint
+            overlaps = [abs(np.trace(p @ image)) / len(unitary) for p in products]
+            if abs(max(overlaps) - 1) > 1e-6:
+                return False
+    return True
+
+
+def _runs(turns: Sequence[Op], frames: Sequence[Op]) -> dict[Key, tuple[Op, ...]]:
+    """For each 1-qubit Clifford gate that products of the ops give: the run with the fewest
+    turns, and then with the fewest ops. The ops of a run are in the order of time."""
+    steps = [(op, check._unitary(op), 1) for op in turns]
+    steps += [(op, check._unitary(op), 0) for op in frames]
+    start = _key(_I)
+    assert start is not None
+    found: dict[Key, tuple[tuple[Op, ...], np.ndarray, tuple[int, int]]] = {start: ((), _I, (0, 0))}
+    changed = True
+    while changed:
+        changed = False
+        for run, unitary, (cost, length) in list(found.values()):
+            for op, step, pulses in steps:
+                after = step @ unitary
+                key = _key(after)
+                rank = (cost + pulses, length + 1)
+                if key is not None and (key not in found or rank < found[key][2]):
+                    found[key] = ((*run, op), after, rank)
+                    changed = True
+    return {key: run for key, (run, _, _) in found.items()}
+
+
+def _same(a: np.ndarray, b: np.ndarray) -> bool:
+    """True when two unitaries differ only by a global phase."""
+    overlap = np.trace(a.conj().T @ b) / len(a)
+    return bool(abs(abs(overlap) - 1) < 1e-6)
+
+
+def _local(unitary: np.ndarray) -> tuple[np.ndarray, np.ndarray] | None:
+    """The two 1-qubit gates of a 2-qubit gate that acts on each qubit alone, or None."""
+    blocks = unitary.reshape(2, 2, 2, 2).transpose(0, 2, 1, 3).reshape(4, 4)
+    left, sizes, right = np.linalg.svd(blocks)
+    if sizes[1] > 1e-6:
+        return None
+    scale = np.sqrt(sizes[0])
+    return (left[:, 0] * scale).reshape(2, 2), (right[0] * scale).reshape(2, 2)
+
+
+def _undo_two(natives: _Natives, op: Op) -> list[Layer] | None:
+    """The layers that undo a 2-qubit gate, or None.
+
+    A gate that is its own inverse is undone by itself. When two of the gate are 1-qubit gates
+    (``iswap`` two times is Z on each qubit), the gate and the inverses of these 1-qubit gates
+    undo it. Each other gate is undone by more of the same gate.
+    """
+    unitary = check._unitary(op)
+    square = unitary @ unitary
+    if _same(square, np.eye(4)):
+        return [(op,)]
+    parts = _local(square)
+    if parts is not None:
+        keys = [_key(part.conj().T) for part in parts]
+        runs = [None if key is None else natives.runs.get(key) for key in keys]
+        if all(run is not None for run in runs):
+            fix = {
+                q: [_on(g, q) for g in run or ()] for q, run in zip(op.qubits, runs, strict=True)
+            }
+            return [(op,), *_columns(fix, natives)]
+    again = check._inverse(op)
+    return None if again is None else [(op,)] * len(again)
+
+
+def _columns(runs: Mapping[int, Sequence[Op]], natives: _Natives) -> list[Layer]:
+    """The layers of one run of ops for each qubit.
+
+    A layer holds only frames or only gates with a pulse, so that the gates with a pulse of all
+    qubits start at the same time.
+    """
+    pending = {q: list(run) for q, run in sorted(runs.items())}
+    layers: list[Layer] = []
+    while any(pending.values()):
+        first = [q for q, run in pending.items() if run and natives.virtual(run[0])]
+        if not first:
+            first = [q for q, run in pending.items() if run]
+        layers.append(tuple(pending[q].pop(0) for q in first))
+    return layers
 
 
 def _layers(natives: _Natives, n: int, depth: int, stream: Sequence[int]) -> list[Layer]:
     """``depth`` layers. A layer is one random 1-qubit gate on each qubit, then 2-qubit gates.
 
-    The 2-qubit gates take the even pairs of the chain in one layer and the odd pairs in the
-    next. A chain of two qubits has its one pair in each layer. The first ``m`` layers of a
-    stream are the same for each ``depth`` of ``m`` or more.
+    With frames, a random frame or no frame comes before the gate of each qubit. The 2-qubit
+    gates take the even pairs of the chain in one layer and the odd pairs in the next. A chain of
+    two qubits has its one pair in each layer. The first ``m`` layers of a stream are the same
+    for each ``depth`` of ``m`` or more.
     """
     rng = np.random.default_rng([*stream])
     layers: list[Layer] = []
     for index in range(depth):
-        picks = rng.integers(len(natives.ones), size=n)
-        layers.append(tuple(_on(natives.ones[k], q) for q, k in enumerate(picks)))
+        if natives.frames:
+            picks = rng.integers(len(natives.frames) + 1, size=n)
+            frame = tuple(_on(natives.frames[k - 1], q) for q, k in enumerate(picks) if k)
+            if frame:
+                layers.append(frame)
+        picks = rng.integers(len(natives.turns), size=n)
+        layers.append(tuple(_on(natives.turns[k], q) for q, k in enumerate(picks)))
         parity = 0 if n == 2 else index % 2
         twos = tuple(op for op in natives.pairs[parity::2] if op is not None)
         if twos:
@@ -328,23 +558,35 @@ def _on(op: Op, qubit: int) -> Op:
     return Op(op.name, (qubit,), op.params)
 
 
-def _undone(layers: Sequence[Layer]) -> list[Layer]:
-    """The layers that undo ``layers``. A gate of order k is undone by k - 1 more of it."""
+def _undone(natives: _Natives, layers: Sequence[Layer]) -> list[Layer]:
+    """The layers that undo ``layers``, last layer first."""
     undo: list[Layer] = []
     for layer in reversed(layers):
-        repeats = [(op, len(check._inverse(op) or ())) for op in layer]
-        for step in range(max((times for _, times in repeats), default=0)):
-            undo.append(tuple(op for op, times in repeats if times > step))
+        if any(len(op.qubits) == 2 for op in layer):
+            parts = [_undo_two(natives, op) or [] for op in layer]
+            for step in range(max(len(part) for part in parts)):
+                undo.append(tuple(op for part in parts if step < len(part) for op in part[step]))
+            continue
+        runs = {}
+        for op in layer:
+            key = _key(check._unitary(op).conj().T)
+            run = None if key is None else natives.runs.get(key)
+            if run is None:
+                raise LayoutError(f"the 1-qubit natives cannot undo {op.name}")
+            runs[op.qubits[0]] = [_on(g, op.qubits[0]) for g in run]
+        undo += _columns(runs, natives)
     return undo
 
 
-def _flip_layers(natives: _Natives, bits: Sequence[int]) -> list[Layer]:
-    if natives.flip is None:
+def _middle(natives: _Natives, n: int, stream: Sequence[int]) -> list[Layer]:
+    """One random Pauli gate, or no gate, on each qubit. Only the Pauli gates that the natives
+    can make are in the choice."""
+    paulis = [run for run in (natives.runs.get(_key(p)) for p in (_X, _Y, _Z)) if run]
+    if not paulis:
         return []
-    return [
-        tuple(Op(op.name, (q,), op.params) for q, bit in enumerate(bits) if bit)
-        for op in natives.flip
-    ]
+    picks = np.random.default_rng([*stream, _MIDDLE]).integers(len(paulis) + 1, size=n)
+    runs = {q: [_on(g, q) for g in paulis[k - 1]] for q, k in enumerate(picks) if k}
+    return _columns(runs, natives)
 
 
 def _mirror(
@@ -355,17 +597,32 @@ def _mirror(
     layers: Sequence[Layer],
     stream: Sequence[int],
 ) -> PlannedCircuit:
-    """``layers``, their inverses, and flips to a random ideal bit string."""
-    bits = _ideal_bits(natives, len(qubits), stream)
-    every = [*layers, *_undone(layers), *_flip_layers(natives, bits)]
+    """``layers``, random Pauli gates, and the inverses of ``layers``."""
+    every = [*layers, *_middle(natives, len(qubits), stream), *_undone(natives, layers)]
     return _circuit(profile, name, qubits, every)
 
 
-def _ideal_bits(natives: _Natives, n: int, stream: Sequence[int]) -> list[int]:
-    """The ideal result of the mirror circuit of ``stream``, circuit qubit 0 first."""
-    if natives.flip is None:
-        return [0] * n
-    return [int(bit) for bit in np.random.default_rng([*stream, _FLIP]).integers(2, size=n)]
+def _axis_circuits(
+    profile: Profile, chain: Sequence[int], natives: _Natives
+) -> list[PlannedCircuit]:
+    """For each number in ``AXIS_REPEATS``: one turn that many times on each qubit at the same
+    time. The turn is the one that needs the most repeats for a full rotation, and a number of
+    repeats that is not a whole number of full rotations is left out. The ideal result is all 0.
+    """
+    orders = {}
+    for op in natives.turns:
+        again = check._inverse(op)
+        if again is not None:
+            orders[op] = len(again) + 1
+    if not orders:
+        return []
+    turn = max(orders, key=lambda op: orders[op])
+    layer = tuple(_on(turn, q) for q in range(len(chain)))
+    return [
+        _circuit(profile, f"axis_d{repeats}", chain, [layer] * repeats)
+        for repeats in AXIS_REPEATS
+        if repeats % orders[turn] == 0
+    ]
 
 
 def _circuit(
@@ -399,11 +656,14 @@ def _synchronous(profile: Profile, qubits: tuple[int, ...], layers: Sequence[Lay
     return ops
 
 
-def _ideal(circuit: PlannedCircuit, profile: Profile, bits: Sequence[int]) -> float:
-    """The probability that ``profile`` gives the ideal result ``bits`` of ``circuit``."""
+def _polarization(circuit: PlannedCircuit, profile: Profile) -> float:
+    """The polarization that ``profile`` predicts for ``circuit``: 1 when the ideal result is
+    certain, and 0 when it is as probable as each other bit string."""
     n = len(circuit.qubits)
-    index = int("".join(str(bit) for bit in bits), 2)
-    return float(probabilities(profile, circuit.ops, n, layout=circuit.qubits)[index])
+    index = int(ideal_result(circuit), 2)
+    found = float(probabilities(profile, circuit.ops, n, layout=circuit.qubits)[index])
+    random = 0.5**n
+    return (found - random) / (1 - random)
 
 
 def _depths(
@@ -413,14 +673,13 @@ def _depths(
     targets: Sequence[float],
     stream: Sequence[int],
 ) -> list[int]:
-    """For each target, the first depth at which the predicted ideal result is that rare."""
+    """For each target, the first depth at which the predicted polarization is that low."""
     found: list[int] = []
     remaining = sorted(targets, reverse=True)
-    bits = _ideal_bits(natives, len(qubits), stream)
     for depth in DEPTHS:
         layers = _layers(natives, len(qubits), depth, stream)
         built = _mirror(profile, "deep", qubits, natives, layers, stream)
-        predicted = _ideal(built, profile, bits)
+        predicted = _polarization(built, profile)
         while remaining and predicted <= remaining[0]:
             remaining.pop(0)
             if depth not in found:
@@ -439,7 +698,7 @@ def _family(
     targets: Sequence[float],
     stream: Sequence[int],
 ) -> list[tuple[int, PlannedCircuit]]:
-    if not natives.ones:
+    if not natives.turns:
         return []
     built = []
     for depth in _depths(profile, qubits, natives, targets, stream):

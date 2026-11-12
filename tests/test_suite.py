@@ -8,12 +8,13 @@ import pytest
 from conftest import require
 
 import noisevault as nv
-from noisevault import wide
+from noisevault import gates, wide
 from noisevault.counts import PlannedCircuit, plan, simulate
 from noisevault.profile import Profile
 from noisevault.reference import Op, probabilities
 from noisevault.suite import (
     ASSUMED_GATE_FACTOR,
+    AXIS_REPEATS,
     CHAIN_TARGETS,
     CLIFFORD_SAMPLES,
     CLIFFORD_WRONG,
@@ -26,6 +27,7 @@ from noisevault.suite import (
     _mirror,
     _natives,
     describe,
+    ideal_result,
     role,
     suite,
     train_names,
@@ -70,7 +72,8 @@ def test_the_suite_holds_the_plan_circuits_and_each_family(device: Profile, circ
     assert len(set(names)) == len(names)
     assert names[: len(plan(device))] == [c.name for c in plan(device)]
     families = Counter(name.split("_")[0].rstrip("0123456789") for name in names)
-    assert families["deep"] == 3 * len({n.split("_")[1] for n in names if n.startswith("deep_")})
+    assert families["deep"] == 3 * len(CHAIN_TARGETS)
+    assert [n for n in names if n.startswith("axis_")] == [f"axis_d{m}" for m in AXIS_REPEATS]
     assert families["pair"] >= 3
     assert families["qubit"] == 4
     assert "readout_1" in names
@@ -85,6 +88,7 @@ def test_each_deep_circuit_gives_one_bit_string_without_noise(device: Profile, c
     for circuit in added:
         probs = probabilities(ideal, circuit.ops, len(circuit.qubits), layout=circuit.qubits)
         assert probs.max() == pytest.approx(1.0, abs=1e-6), circuit.name
+        assert int(ideal_result(circuit), 2) == int(np.argmax(probs)), circuit.name
 
 
 def test_readout_1_prepares_each_qubit_in_1(device: Profile, circuits) -> None:
@@ -117,8 +121,8 @@ def test_each_chain_depth_reaches_its_target_at_the_assumed_gate_factor(device, 
         circuit = deep[f"deep_d{depth}_s0"]
         wanted = int(np.argmax(probabilities(ideal, circuit.ops, 4, layout=circuit.qubits)))
         predicted = probabilities(assumed, circuit.ops, 4, layout=circuit.qubits)[wanted]
-        assert predicted <= target
-        assert probabilities(device, circuit.ops, 4, layout=circuit.qubits)[wanted] > predicted
+        # A target is a polarization: the part of the way from random bits to a certain result.
+        assert (predicted - 1 / 16) / (1 - 1 / 16) <= target
 
 
 def test_the_depth_comes_from_the_ideal_result_and_not_from_the_most_likely_result() -> None:
@@ -194,7 +198,10 @@ def test_the_same_seed_gives_the_same_circuits_and_another_seed_gives_others(dev
 
 def test_the_roles_separate_the_fit_circuits_from_the_test_circuits(circuits) -> None:
     roles = {c.name: role(c.name) for c in circuits}
-    assert set(roles.values()) == {"train", "test_near", "test_far"}
+    assert set(roles.values()) == {"train", "test_near", "test_far", "probe"}
+    assert {name for name, found in roles.items() if found == "probe"} == {
+        f"axis_d{m}" for m in AXIS_REPEATS
+    }
     assert roles["readout"] == roles["readout_1"] == "train"
     assert roles["ghz_chain"] == roles["mirror"] == "test_far"
     for name, found in roles.items():
@@ -299,7 +306,7 @@ def test_a_device_with_a_chain_of_20_gets_one_clifford_circuit_of_20(clifford_su
     (circuit,) = found
     assert len(circuit.qubits) == 20
     assert all(abs(a - b) == 1 for a, b in zip(circuit.qubits, circuit.qubits[1:], strict=False))
-    assert {op.name for op in circuit.ops} <= {"sx", "x", "cz", "delay"}
+    assert {op.name for op in circuit.ops} <= {"rz", "sx", "x", "cz", "delay"}
     assert all(wide.instruction(op) for op in circuit.ops if op.name != "delay")
 
 
@@ -327,8 +334,7 @@ def test_the_clifford_depth_is_the_first_whole_depth_that_reaches_the_target(
     assumed = line_24.model_copy(
         update={"unmodeled_error": {"gates": {"factor": ASSUMED_GATE_FACTOR}}}
     )
-    bits = np.array([b == "1" for b in wide.ideal_bits(circuit)])
-    natives = _natives(line_24, circuit.qubits, clifford=True)
+    natives = _natives(line_24, circuit.qubits, stim_only=True)
     stream = (0, 6, 20)
 
     def built(at: int) -> PlannedCircuit:
@@ -336,6 +342,8 @@ def test_the_clifford_depth_is_the_first_whole_depth_that_reaches_the_target(
         return _mirror(line_24, "deep", circuit.qubits, natives, layers, stream)
 
     def wrong(at: int) -> float:
+        # The Pauli gates in the middle give each depth an ideal result of its own.
+        bits = np.array([b == "1" for b in wide.ideal_bits(built(at))])
         return float(np.mean(wide.sample(assumed, built(at), CLIFFORD_SAMPLES, seed=0) != bits))
 
     assert built(depth).ops == circuit.ops
@@ -375,10 +383,156 @@ def test_the_clifford_natives_take_each_clifford_angle_of_a_gate_with_parameters
     ).to_dict()
     ions["gates"] = {k: v for k, v in ions["gates"].items() if k in ("r", "ms")}
 
-    found = _natives(Profile.model_validate(ions), (0, 1, 2), clifford=True)
+    found = _natives(Profile.model_validate(ions), (0, 1, 2), stim_only=True)
 
-    assert [(op.name, op.params) for op in found.ones] == [
+    assert [(op.name, op.params) for op in found.turns] == [
         ("r", (pi / 2, 0.0)),
         ("r", (pi / 2, pi / 2)),
+        ("r", (pi / 2, pi)),
+        ("r", (pi / 2, 3 * pi / 2)),
+        ("r", (pi, 0.0)),
+        ("r", (pi, pi / 2)),
     ]
+    # These turns are rotations about two axes, so the circuits need no virtual rotation.
+    assert not found.frames
     assert [(op.name, op.params) for op in found.pairs] == [("ms", (0.0, 0.0))] * 2
+
+
+def _over_rotated(circuit: PlannedCircuit, angle: float) -> float:
+    """The probability of the ideal result when each ``sx`` and each ``x`` turns ``angle`` rad
+    too far, and nothing else is wrong."""
+    n = len(circuit.qubits)
+    half = angle / 2
+    extra = np.array([[np.cos(half), -1j * np.sin(half)], [-1j * np.sin(half), np.cos(half)]])
+    state = np.zeros((2,) * n, dtype=complex)
+    state[(0,) * n] = 1.0
+    for op in circuit.ops:
+        if op.name == "delay":
+            continue
+        unitary = gates.unitary(op.name, op.params)
+        if op.name in ("sx", "x"):
+            unitary = extra @ unitary
+        k = len(op.qubits)
+        moved = np.tensordot(
+            unitary.reshape((2,) * (2 * k)), state, axes=(list(range(k, 2 * k)), list(op.qubits))
+        )
+        state = np.moveaxis(moved, list(range(k)), list(op.qubits))
+    return float(abs(state.reshape(-1)[int(ideal_result(circuit), 2)]) ** 2)
+
+
+@pytest.fixture(scope="module")
+def ibm_suite() -> tuple:
+    return suite(_ibm_line(4))
+
+
+def test_a_small_over_rotation_does_not_add_up_in_a_mirror_circuit(ibm_suite) -> None:
+    # 0.01 rad adds 0.00002 to the error of a gate, far below the stated error of 0.001. With
+    # sx and x alone, each gate turns about one axis, and 500 such errors would add up to a
+    # rotation of 5 rad.
+    deep = [c for c in ibm_suite if c.name.startswith(("deep_", "pair", "qubit"))]
+    longest = max(sum(op.name in ("sx", "x") for op in c.ops) / len(c.qubits) for c in deep)
+
+    assert longest >= 100
+    for circuit in deep:
+        assert _over_rotated(circuit, 0.0) == pytest.approx(1.0, abs=1e-9), circuit.name
+        assert _over_rotated(circuit, 0.01) > 0.95, circuit.name
+
+
+def test_the_same_over_rotation_adds_up_in_an_axis_circuit(ibm_suite) -> None:
+    probes = {c.name: c for c in ibm_suite if c.name.startswith("axis_")}
+
+    assert list(probes) == ["axis_d64", "axis_d256"]
+    for name, circuit in probes.items():
+        assert {op.name for op in circuit.ops} == {"sx"}
+        assert Counter(op.qubits for op in circuit.ops) == {(q,): int(name[6:]) for q in range(4)}
+        assert ideal_result(circuit) == "0000"
+    # One qubit after m gates is wrong with the probability sin^2(m * angle / 2).
+    for name, m in (("axis_d64", 64), ("axis_d256", 256)):
+        right = np.cos(m * 0.005 / 2) ** 2
+        assert _over_rotated(probes[name], 0.005) == pytest.approx(right**4, abs=1e-9)
+    assert _over_rotated(probes["axis_d256"], 0.005) < 0.2
+
+
+def test_a_device_whose_gates_turn_about_one_axis_gets_virtual_rotations(ibm_suite) -> None:
+    natives = _natives(_ibm_line(4), (0, 1, 2, 3))
+
+    assert [op.name for op in natives.turns] == ["sx", "x"]
+    assert [(op.name, op.params) for op in natives.frames] == [
+        ("rz", (pi / 2,)),
+        ("rz", (pi,)),
+        ("rz", (3 * pi / 2,)),
+    ]
+    for circuit in ibm_suite:
+        if circuit.name.startswith(("deep_", "pair", "qubit", "periodic_")):
+            assert any(op.name == "rz" for op in circuit.ops), circuit.name
+
+
+def test_a_virtual_rotation_takes_no_time(ibm_suite) -> None:
+    profile = _ibm_line(4)
+    circuit = next(c for c in ibm_suite if c.name.startswith("qubit0_"))
+    pulses = sum(op.name in ("sx", "x") for op in circuit.ops)
+
+    assert not any(op.name == "delay" for op in circuit.ops)
+    assert pulses < sum(op.name == "rz" for op in circuit.ops) + pulses
+    assert probabilities(profile, circuit.ops, 1, layout=circuit.qubits).sum() == pytest.approx(1)
+
+
+def test_a_gate_is_undone_by_one_gate_and_not_by_three_more(ibm_suite) -> None:
+    # sx is undone by rz(pi) sx rz(pi). The two halves then hold the same number of pulses, and
+    # the Pauli gates in the middle add one pulse for each qubit at most.
+    for circuit in ibm_suite:
+        if not circuit.name.startswith("qubit") or circuit.name.startswith("qubits_"):
+            continue
+        depth = int(circuit.name.rsplit("_d", 1)[1])
+        pulses = sum(op.name in ("sx", "x") for op in circuit.ops)
+        assert 2 * depth <= pulses <= 2 * depth + 1, circuit.name
+
+
+def test_the_pauli_gates_in_the_middle_change_the_ideal_result(ibm_suite) -> None:
+    results = {ideal_result(c) for c in ibm_suite if c.name.startswith("deep_")}
+
+    assert len(results) > 1
+
+
+def test_fresh_adds_test_circuits_from_a_stream_of_their_own() -> None:
+    profile = _ibm_line(4)
+    plain = suite(profile)
+    first = suite(profile, fresh=47)
+    other = suite(profile, fresh=48)
+    added = [c for c in first if c not in plain]
+
+    assert [c for c in first if c in plain] == list(plain)
+    assert added and all(c.name.startswith("deep_d") and c.name.endswith("_f47") for c in added)
+    assert all(role(c.name) == "test_near" for c in added)
+    assert len(added) == len(CHAIN_TARGETS)
+    assert [c.ops for c in other if c.name.endswith("_f48")] != [c.ops for c in added]
+    assert suite(profile, fresh=47) == first
+
+
+def test_a_gate_whose_square_is_local_is_undone_by_one_more_of_it() -> None:
+    data = Profile.uniform(
+        "swaps",
+        technology="superconducting",
+        num_qubits=4,
+        connectivity=LINE,
+        one_qubit_error=1e-3,
+        two_qubit_error=1e-2,
+        one_qubit_ns=32.0,
+        two_qubit_ns=68.0,
+    ).to_dict()
+    data["gates"] = {k: v for k, v in data["gates"].items() if k in ("rz", "sx", "x", "iswap")}
+    profile = Profile.model_validate(data)
+    circuit = next(c for c in suite(profile) if c.name.startswith("pair0_"))
+    depth = int(circuit.name.split("_")[1][1:])
+
+    # Each layer has one iswap, and its inverse has one iswap and Z rotations. Three more
+    # iswap gates for each inverse would give 4 * depth.
+    assert sum(op.name == "iswap" for op in circuit.ops) == 2 * depth
+    assert ideal_result(circuit) in {"00", "01", "10", "11"}
+
+
+def test_a_circuit_with_no_certain_result_has_no_ideal_result() -> None:
+    half = PlannedCircuit(name="half", qubits=(0,), ops=(Op("sx", (0,)),))
+
+    with pytest.raises(nv.errors.NoiseVaultError, match="no certain result"):
+        ideal_result(half)

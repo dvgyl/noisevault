@@ -26,26 +26,36 @@ This file lists all notable changes to NoiseVault. Versions follow
   `MeasuredCounts.select(names)` and `MeasuredCounts.split(fraction, seed)` for held-out data.
   [docs/scoring.md](docs/scoring.md)
 - **Deep circuit set.** `noisevault.suite.suite(profile)` gives the `nv compare` circuits and
-  deep mirror circuits on the same chain. Each deep circuit applies layers of random native
-  gates and then undoes them. Its depth comes from the profile with gate errors 2 times the
-  stated errors, at the predicted probabilities 0.8, 0.6 and 0.4 of the ideal result. On the
-  bundled `ibm_kingston` profile, 18,000 shots of the fit circuits give the gate factor a
-  relative standard error of 0.021. The `nv compare` circuits give 0.149 with 16,000 shots. Both
-  numbers come from the Fisher information of the profile, not from a device. The set also
-  holds two deep circuits on a chain of 8 qubits, to test a fitted model on more qubits.
-  `noisevault.suite.role(name)` separates the circuits
-  for a fit from the circuits for a test. `scripts/run_on_ibm.py --suite` and
-  `scripts/ibm_campaign.py --suite` run the set. The weekly campaign workflow now runs it on
-  `ibm_kingston`, `ibm_fez` and `ibm_marrakesh`.
+  deep mirror circuits on the same chain. A mirror circuit applies layers of random native
+  gates, one random Pauli gate on each qubit, and the layers undone in the opposite order. This
+  is the design of randomized mirror circuits (Proctor et al., Nature Physics 18, 75, 2022). On
+  a device whose 1-qubit gates turn about one axis, such as `sx` and `x`, a random virtual Z
+  rotation comes before each gate, and `sx` is undone by `rz(pi) sx rz(pi)`. A small systematic
+  rotation error then does not add up over a circuit. The depth of a circuit comes from the
+  profile, at a predicted polarization of 0.8, 0.6 and 0.4. On the bundled `ibm_kingston`
+  profile, 36,000 shots of the fit circuits give the gate factor a relative standard error of
+  0.012. The `nv compare` circuits give 0.10 with the same number of shots. Both numbers come
+  from the Fisher information of the profile, not from a device. The set also holds two deep
+  circuits on a chain of 8 qubits, to test a fitted model on more qubits.
+  `noisevault.suite.role(name)` separates the circuits for a fit from the circuits for a test.
+  `scripts/run_on_ibm.py --suite` and `scripts/ibm_campaign.py --suite` run the set. The weekly
+  campaign workflow runs it on `ibm_kingston`, `ibm_fez` and `ibm_marrakesh`, with new random
+  test circuits each week and the circuits of a job in a random order.
   [Run the deep circuit set](docs/recipes.md#run-the-deep-circuit-set) tells how.
+- **Probe circuits for systematic rotation error.** The deep circuit set holds `axis_d64` and
+  `axis_d256`: one gate 64 and 256 times on each qubit of the chain. A noise model from a
+  calibration cannot forecast a circuit in which each gate turns about one axis, because a small
+  systematic error of each gate adds up. In six runs on IBM devices on 2026-11-12, such a
+  circuit on 4 qubits gave its ideal result in 0.6% to 3.1% of the shots, and the calibration
+  predicted 27% to 55%. The probe circuits have the role `probe`. No fit and no comparison of
+  models uses them.
 - **Clifford circuits on 20, 40 and 80 qubits.** `noisevault.suite.suite(profile)` adds one
   Clifford mirror circuit on a chain of each size that the device has, with the role
   `test_far`. `noisevault.wide` gives the forecast of a profile for such a circuit from the
   Stim stabilizer simulator, with the Pauli twirl of the noise that the reference simulator
   applies and the asymmetric readout error of each qubit. Without Stim, `suite` makes no
   Clifford circuit. The depth of a Clifford circuit is the first whole depth at which the
-  profile with gate errors 2 times the stated errors predicts a wrong bit with a mean
-  probability of 0.15 or more. `study/wide.py` scores two models on these circuits by the
+  profile predicts a wrong bit with a mean probability of 0.15 or more. `study/wide.py` scores two models on these circuits by the
   probability of the ideal result, the number of wrong bits and the error of each qubit, with
   paired tests. `noisevault.design.design` and `scripts/run_on_braket.py` leave out each
   circuit on more than 10 qubits, and the Braket summary says how many.

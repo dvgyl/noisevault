@@ -17,6 +17,8 @@ from study import wide  # noqa: E402
 
 RUN_AT = datetime(2026, 11, 2, 9, 0, tzinfo=UTC)
 SHOTS = 2000
+# The simulated device has two times the stated gate errors.
+TRUE_FACTOR = 2.0
 
 
 @pytest.fixture(scope="module")
@@ -45,8 +47,8 @@ def _factor(profile: Profile, factor: float) -> Profile:
 
 @pytest.fixture(scope="module")
 def counts(line_24: Profile):
-    truth = _factor(line_24, ASSUMED_GATE_FACTOR)
-    circuits = _clifford_circuits(line_24, truth, 0)
+    truth = _factor(line_24, TRUE_FACTOR)
+    circuits = _clifford_circuits(line_24, _factor(line_24, ASSUMED_GATE_FACTOR), 0)
     assert [len(c.qubits) for c in circuits] == [20]
     return wide.simulate(truth, circuits, shots=SHOTS, seed=4, run_at=RUN_AT)
 
@@ -54,7 +56,7 @@ def counts(line_24: Profile):
 def test_the_model_of_the_truth_scores_above_the_calibration_on_each_score(
     line_24: Profile, counts
 ) -> None:
-    result = wide.paired(_factor(line_24, 2.0), line_24, counts)
+    result = wide.paired(_factor(line_24, TRUE_FACTOR), line_24, counts)
 
     tests = [
         result.success_log,

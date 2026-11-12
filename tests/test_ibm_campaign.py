@@ -20,7 +20,7 @@ from noisevault import wide
 from noisevault.compare import compare
 from noisevault.counts import load_counts, plan
 from noisevault.errors import NoiseVaultError
-from noisevault.suite import role
+from noisevault.suite import role, suite
 
 campaign = load_script("ibm_campaign")
 
@@ -439,8 +439,13 @@ def test_a_suite_run_saves_the_deep_circuits_beside_the_compare_circuits(tmp_pat
         counts = load_counts(week / f"{kind}-deep.counts.json")
         profile = nv.load(week / f"{kind}-deep.profile.json")
         names = [c.name for c in counts.circuits]
-        assert names[: len(short.circuits)] == [c.name for c in short.circuits]
-        assert {role(name) for name in names} == {"train", "test_near", "test_far"}
+        made = [c.name for c in suite(profile, chains[kind]["qubits"], fresh=202645)]
+        # The week 2026-11-02 is ISO week 45. Its job holds the test circuits of that week, and
+        # the circuits are in a random order.
+        assert sorted(names) == sorted(made) and names != made
+        assert {c.name for c in short.circuits} < set(names)
+        assert sum(name.endswith("_f202645") for name in names) == 3
+        assert {role(name) for name in names} == {"train", "test_near", "test_far", "probe"}
         by_name = {c.name: c for c in counts.circuits}
         assert by_name["readout_1"].qubits == tuple(chains[kind]["qubits"])
         assert any(len(c.qubits) == 8 for c in counts.circuits if c.name.startswith("wide_"))

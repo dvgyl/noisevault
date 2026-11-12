@@ -108,7 +108,7 @@ def test_a_run_of_the_deep_circuit_set_is_fitted_on_its_train_circuits_only() ->
     used, fit_on = derive.fit_counts(counts)
 
     assert fit_on == "train"
-    assert {role(c.name) for c in counts.circuits} == {"train", "test_near", "test_far"}
+    assert {role(c.name) for c in counts.circuits} == {"train", "test_near", "test_far", "probe"}
     assert {role(c.name) for c in used.circuits} == {"train"}
     assert derive.fit_counts(counts.select(["readout", "ghz_chain"]))[1] == "all"
 

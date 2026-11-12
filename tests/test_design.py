@@ -34,8 +34,9 @@ def test_a_deeper_circuit_tells_more_about_the_gate_factor(device, circuits):
         (c for c in circuits if c.name.startswith("deep_") and c.name.endswith("_s0")),
         key=lambda c: len(c.ops),
     )
-    deep = information(device, family[-1], gate_factor=1.0)
-    assert deep[0, 0] > 2 * information(device, family[0], gate_factor=1.0)[0, 0]
+    found = [information(device, c, gate_factor=1.0)[0, 0] for c in family]
+    assert found == sorted(found)
+    assert found[-1] > 1.5 * found[0]
     assert information(device, by_name["readout"])[0, 0] == pytest.approx(0.0, abs=1e-12)
     assert information(device, by_name["readout"])[1, 1] > 0
 

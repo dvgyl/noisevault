@@ -489,26 +489,45 @@ the two calibrations, with the largest changes by qubit and by pair.
 
 The `nv compare` circuits are short. A short circuit has few errors, so most shots give no
 information on the error rates. `noisevault.suite.suite(profile)` adds deep mirror circuits to
-them. A deep mirror circuit applies layers of random native gates and then undoes them, so the
-ideal result is one known bit string. The depth of each circuit comes from the profile. The
-first runs on IBM devices gave gate errors about 2 times the stated errors, so `suite` assumes
-that factor. It takes the depths at which the profile with that factor predicts the ideal result
-with a probability of 0.8, 0.6 and 0.4. The set also has such circuits on each pair and each
-qubit of the chain, a second readout circuit that prepares each qubit in 1, and circuits that no
-fit uses. Two of those circuits run on a chain of 8 qubits, when the device has one.
+them. A mirror circuit has three parts: layers of random native gates, one random Pauli gate on
+each qubit, and the layers undone in the opposite order. The ideal result is one known bit
+string.
 
-The set also has one Clifford mirror circuit on a chain of 20, 40 and 80 qubits, when the device
-has such a chain. These circuits use only Clifford gates and angles, such as `sx`, `x` and `cz`
-(see `noisevault.wide.CLIFFORD`). The exact reference simulator holds at most 10 qubits, so the
-Stim stabilizer simulator gives the forecast of a model for these circuits. Each forecast applies
-the Pauli twirl of the noise that the reference applies. The depth of a Clifford circuit is the
-first whole depth at which the profile with the assumed factor predicts a wrong bit with a
-mean probability of 0.15 or more over the qubits. On 80 qubits, readout error alone makes the
-ideal result rare, so the ideal result does not set the depth. The names are `clifford_n20_d11`
-and similar. Without Stim (the
-`stim` extra), `suite` makes no Clifford circuit. `nv compare` and `nv score` refuse these
+The depth of each circuit comes from the profile. `suite` takes the depths at which the profile
+predicts a polarization of 0.8, 0.6 and 0.4. The polarization is 1 when the ideal result is
+certain and 0 when the result is random bits. On 4 qubits, these depths give the ideal result
+in about 81%, 63% and 44% of the shots, if the stated errors are correct. The set also has such
+circuits on each pair and each qubit of the chain, a second readout circuit that prepares each
+qubit in 1, and circuits that no fit uses. Two of those circuits run on a chain of 8 qubits,
+when the device has one.
+
+A noise model from a calibration holds errors that have no direction. A real gate can also have
+a small systematic error, for example a rotation that is 0.3 degrees too large. In a circuit of
+the usual kind, such errors point in changing directions, and the model is a fair forecast. In a
+circuit in which each gate turns about one axis, the errors add up, and no such model forecasts
+the result. On an IBM device, `sx` and `x` turn about one axis. Thus `suite` puts a random
+virtual Z rotation before each gate, undoes `sx` with `rz(pi) sx rz(pi)`, and puts the random
+Pauli gates in the middle. This is the design of randomized mirror circuits (Proctor et al.,
+Nature Physics 18, 75, 2022).
+
+The circuits `axis_d64` and `axis_d256` are the opposite case on purpose. They apply one gate 64
+and 256 times on each qubit of the chain, and the ideal result is 0 on each qubit. They show the
+size of the systematic rotation error of that gate. A systematic error gives about 16 times more
+wrong bits at 256 gates than at 64 gates, and an error with no direction gives about 4 times
+more. In six runs on IBM devices on 2026-11-12, a circuit of 4 qubits with only gates about one
+axis gave its ideal result in 0.6% to 3.1% of the shots. The calibration predicted 27% to 55%.
+
+The set also has one mirror circuit on a chain of 20, 40 and 80 qubits, when the device has such
+a chain. These circuits use only the Clifford gates and angles of `noisevault.wide.CLIFFORD`,
+such as `sx`, `x`, `rz(pi/2)` and `cz`. The exact reference simulator holds at most 10 qubits, so
+the Stim stabilizer simulator gives the forecast of a model for these circuits. Each forecast
+applies the Pauli twirl of the noise that the reference applies. The depth of such a circuit is
+the first whole depth at which the profile predicts a wrong bit with a mean probability of 0.15
+or more over the qubits. On 80 qubits, readout error alone makes the ideal result rare, so the
+ideal result does not set the depth. The names are `clifford_n20_d16` and similar. Without Stim
+(the `stim` extra), `suite` makes no such circuit. `nv compare` and `nv score` refuse these
 circuits, so select the circuits of 10 qubits or fewer first. `study/wide.py` scores two models
-on the Clifford circuits.
+on them.
 
 To run the set, add `--suite` to `scripts/run_on_ibm.py` or to the campaign:
 
@@ -517,8 +536,10 @@ python scripts/ibm_campaign.py ibm_kingston ibm_fez --suite --shots 2000
 ```
 
 The campaign then writes `best-deep.*` and `median-deep.*` files beside the files of the
-`nv compare` circuits, for the same two chains. One job with 2000 shots for each circuit uses
-about 18 s of QPU time. The three Clifford circuits use about 1.5 s of it.
+`nv compare` circuits, for the same two chains. Each week, the campaign adds test circuits from
+a random stream of that week, such as `deep_d32_f202647` for ISO week 47 of 2026, and it runs the
+circuits of a job in a random order. One job holds 37 circuits on an IBM Heron device. With 2000
+shots for each circuit, it uses about 22 s of QPU time.
 
 On Amazon Braket, add `--suite` to `scripts/run_on_braket.py`. Braket charges for each shot, so
 give `--budget USD` in place of `--shots`. The script then runs the circuits and the shots that
@@ -531,8 +552,9 @@ gives the rules and an example.
 | Role | Circuits | Use |
 | --- | --- | --- |
 | `train` | `readout`, `readout_1`, `deep_d*_s0`, `deep_d*_s1`, `pair*`, `qubit*` | Fit a model on these circuits |
-| `test_near` | `deep_d*_s2` | Deep circuits from another random seed |
+| `test_near` | `deep_d*_s2`, `deep_d*_f*` | Deep circuits from other random seeds |
 | `test_far` | the `nv compare` circuits, `periodic_d*`, `qubits_d*`, `wide_d*`, `clifford_n*` | Circuits of another kind |
+| `probe` | `axis_d*` | Show the systematic rotation error. No fit and no comparison of models uses them |
 
 Fit on the `train` circuits and score on the test circuits. A model that fits the `train`
 circuits and fails on the test circuits does not describe the device.
