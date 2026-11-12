@@ -507,6 +507,12 @@ The campaign then writes `best-deep.*` and `median-deep.*` files beside the file
 `nv compare` circuits, for the same two chains. One job with 2000 shots for each circuit uses
 about 17 s of QPU time.
 
+On Amazon Braket, add `--suite` to `scripts/run_on_braket.py`. Braket charges for each shot, so
+give `--budget USD` in place of `--shots`. The script then runs the circuits and the shots that
+give the smallest predicted error of the gate factor for at most USD.
+[Counts from an Amazon Braket device](counts-format.md#counts-from-an-amazon-braket-device)
+gives the rules and an example.
+
 `noisevault.suite.role(name)` gives the role of each circuit:
 
 | Role | Circuits | Use |

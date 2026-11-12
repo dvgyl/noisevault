@@ -6,6 +6,7 @@ so the tests take the paid path (cost check, job file, collection) without a pai
 
 from __future__ import annotations
 
+import functools
 import importlib.util
 import json
 import math
@@ -26,6 +27,7 @@ from noisevault import gates
 from noisevault.counts import PlannedCircuit, load_counts, plan
 from noisevault.errors import NoiseVaultError, install_hint
 from noisevault.reference import Op
+from noisevault.suite import role, suite
 
 require("braket.emulation.local_emulator")
 from botocore.exceptions import ClientError  # noqa: E402
@@ -202,7 +204,19 @@ def test_a_device_without_a_known_price_needs_both_prices(tmp_path: Path) -> Non
 @pytest.mark.parametrize("arn", list(DEVICES))
 def test_each_planned_gate_runs_as_one_native_gate_in_a_verbatim_box(arn: str) -> None:
     target, _ = _target(arn)
-    batch = script.prepare(target, 100, script.PRICES[arn])
+    _assert_native(script.prepare(target, 100, script.PRICES[arn]), target)
+
+
+@pytest.mark.parametrize("arn", list(DEVICES))
+def test_each_gate_of_the_deep_circuit_set_runs_as_one_native_gate(arn: str) -> None:
+    target, _ = _target(arn)
+    batch = script.prepare(target, 100, script.PRICES[arn], deep=True)
+    assert [c.name for c in batch.planned] == [c.name for c in suite(batch.profile)]
+    assert len(batch.planned) > 20
+    _assert_native(batch, target)
+
+
+def _assert_native(batch: Any, target: Any) -> None:
     natives = {g.lower() for g in target.properties["paradigm"]["nativeGateSet"]}
     for planned, built in zip(batch.planned, batch.circuits, strict=True):
         source = built.to_ir("OPENQASM").source
@@ -298,6 +312,153 @@ def test_a_braket_key_lists_the_measured_qubits_in_their_order() -> None:
         NoiseVaultError, match="Braket measured qubits 2-4, not the planned qubits 2-3"
     ):
         script._clbit0_left(PlannedCircuit(name="c", qubits=(2, 3), ops=()), {"00": 1}, [2, 4])
+
+
+# The deep circuit set and the budget -----------------------------------------------------------
+
+
+@functools.cache
+def _designed(arn: str, budget: str) -> Any:
+    target, _ = _target(arn)
+    return script.prepare(target, 0, script.PRICES[arn], budget=Decimal(budget))
+
+
+def _reuse(monkeypatch: pytest.MonkeyPatch, arn: str, budget: str) -> Any:
+    """Make run() take the cached batch, so that a test makes each design only one time."""
+    batch = _designed(arn, budget)
+
+    def prepare(target: Any, shots: int, price: Any, **options: Any) -> Any:
+        assert options == {"deep": False, "budget": Decimal(budget)}
+        return batch
+
+    monkeypatch.setattr(script, "prepare", prepare)
+    return batch
+
+
+@pytest.mark.parametrize(
+    ("arn", "budget"), [(FORTE, "40"), (IBEX, "100"), (GARNET, "2"), (CEPHEUS, "10.50")]
+)
+def test_a_budget_run_costs_at_most_the_budget_and_one_more_shot_costs_more(
+    arn: str, budget: str
+) -> None:
+    batch = _designed(arn, budget)
+    price = script.PRICES[arn]
+    n = len(batch.planned)
+    assert batch.design is not None and batch.planned == batch.design.circuits
+    assert batch.shots == batch.design.shots >= 100
+    assert batch.cost == script.estimate(price, n, batch.shots, batch.program_set)
+    assert batch.cost <= Decimal(budget)
+    assert script.estimate(price, n, batch.shots + 1, batch.program_set) > Decimal(budget)
+    assert batch.program_set is (arn != FORTE)
+    names = [c.name for c in batch.planned]
+    assert {"readout", "readout_1"} <= set(names)
+    assert [role(name) for name in names].count("test_near") == 1
+    assert names == [c.name for c in suite(batch.profile) if c.name in names]
+
+
+@pytest.mark.parametrize(
+    ("limit", "value", "budget", "program_set"),
+    [("maximumTotalShots", 1500, "3", True), ("maximumExecutables", 3, "3", False)],
+)
+def test_a_design_keeps_to_the_program_set_limits_or_pays_one_task_per_circuit(
+    limit: str, value: int, budget: str, program_set: bool
+) -> None:
+    properties = _properties(GARNET)
+    limits = properties["action"]["braket.ir.openqasm.program_set"]
+    limits[limit] = value
+    target, _ = _target(GARNET, properties)
+    price = script.PRICES[GARNET]
+    batch = script.prepare(target, 0, price, budget=Decimal(budget))
+    n = len(batch.planned)
+    assert batch.program_set is program_set
+    assert n * batch.shots <= limits["maximumTotalShots"] or not program_set
+    assert batch.cost == script.estimate(price, n, batch.shots, batch.program_set)
+    assert batch.cost <= Decimal(budget)
+
+
+def test_a_budget_run_shows_the_design_and_saves_exactly_its_circuits(
+    garnet: Run, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    batch = _reuse(monkeypatch, GARNET, "2")
+    assert garnet(confirm_cost=None, budget=Decimal("2")) is None
+    out = capsys.readouterr().out
+    lines = out.splitlines()
+    assert ["circuit", "qubits", "gates", "role"] in [x.split() for x in lines]
+    for c in batch.planned:
+        assert any(x.startswith(f"{c.name} ") and x.endswith(f"  {role(c.name)}") for x in lines)
+    assert "budget          $2\n" in out
+    assert f"shots           {batch.shots} per circuit, {len(batch.planned)} circuits in 1" in out
+    assert "gate factor     predicted standard error " in out
+    assert "readout factor  predicted standard error " in out
+    shown = script._cents(batch.cost)
+    assert shown <= Decimal("2")
+    assert out.endswith(f"run the same command with --confirm-cost {shown}\n")
+    assert not garnet.hardware.tasks
+
+    measured = garnet(confirm_cost=shown, budget=Decimal("2"))
+    assert load_counts(garnet.output) == measured
+    assert [(c.name, c.qubits, c.ops) for c in measured.circuits] == [
+        (c.name, c.qubits, c.ops) for c in batch.planned
+    ]
+    assert all(c.shots == batch.shots for c in measured.circuits)
+    assert measured.execution.options["shots"] == batch.shots
+    assert len(garnet.hardware.tasks) == 1
+
+
+def test_a_budget_run_on_a_device_without_program_sets_runs_one_task_per_circuit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run = _run(tmp_path, FORTE)
+    batch = _reuse(monkeypatch, FORTE, "40")
+    measured = run(budget=Decimal("40"))
+    assert [c.name for c in measured.circuits] == [c.name for c in batch.planned]
+    assert len(run.hardware.tasks) == len(batch.planned)
+    assert measured.execution.options["program_set"] is False
+    assert load_counts(run.output) == measured
+
+
+def test_a_budget_below_the_smallest_design_submits_nothing(garnet: Run) -> None:
+    with pytest.raises(NoiseVaultError) as caught:
+        garnet(budget=Decimal("0.50"))
+    assert caught.value.message == (
+        "a budget of 0.5 does not pay 100 shots of 4 circuits, which cost 0.88. The script"
+        " submitted nothing"
+    )
+    assert caught.value.hint == "give a larger --budget"
+    assert not garnet.hardware.tasks
+    assert not garnet.pending.exists()
+
+
+def test_a_suite_run_on_an_ion_trap_saves_every_suite_circuit(tmp_path: Path) -> None:
+    run = _run(tmp_path, IBEX)
+    measured = run(shots=10, deep=True)
+    profile = nv.load(str(run.output.with_name("dev.profile.json")))
+    assert [c.name for c in load_counts(run.output).circuits] == [c.name for c in suite(profile)]
+    assert len(run.hardware.tasks) == 1
+    assert all(c.shots == 10 for c in measured.circuits)
+
+
+def test_the_same_command_collects_a_stopped_suite_run(
+    garnet: Run, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    collect = script.collect
+    monkeypatch.setattr(script, "collect", lambda *a: (_ for _ in ()).throw(KeyboardInterrupt))
+    with pytest.raises(NoiseVaultError):
+        garnet(shots=10, deep=True)
+    monkeypatch.setattr(script, "collect", collect)
+    capsys.readouterr()
+    measured = garnet(confirm_cost=None)
+    assert measured is not None
+    assert len(garnet.hardware.tasks) == 1
+    assert capsys.readouterr().out.startswith("collecting task ")
+    profile = nv.load(str(garnet.output.with_name("dev.profile.json")))
+    assert [c.name for c in load_counts(garnet.output).circuits] == [c.name for c in suite(profile)]
+    assert not garnet.pending.exists()
+
+
+def test_a_shown_cost_is_rounded_up_to_the_cent() -> None:
+    assert script._cents(Decimal("0.4717")) == Decimal("0.48")
+    assert script._cents(Decimal("2.62")) == Decimal("2.62")
 
 
 # The run ---------------------------------------------------------------------------------------
@@ -617,6 +778,29 @@ def test_a_local_run_writes_simulated_counts_with_no_aws_account(
     assert sorted(p.name for p in tmp_path.iterdir()) == ["f.counts.json", "f.profile.json"]
 
 
+@pytest.mark.parametrize(
+    ("args", "deep", "budget", "shots"),
+    [
+        ([], False, None, 4000),
+        (["--suite", "--shots", "20"], True, None, 20),
+        (["--budget", "35"], False, Decimal("35"), 4000),
+    ],
+)
+def test_suite_and_budget_reach_the_run(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    args: list[str],
+    deep: bool,
+    budget: Decimal | None,
+    shots: int,
+) -> None:
+    seen: dict[str, Any] = {}
+    monkeypatch.setattr(script, "run", lambda **options: seen.update(options))
+    out = str(tmp_path / "x.counts.json")
+    assert script.main(["iqm_garnet", *args, "-o", out]) == 0
+    assert (seen["deep"], seen["budget"], seen["shots"]) == (deep, budget, shots)
+
+
 def test_a_gz_counts_file_from_a_local_run_is_gzip(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -673,6 +857,10 @@ def test_a_missing_braket_extra_gives_the_install_command(
             "error: give --task-price and --shot-price together",
         ),
         (["iqm_garnet", "--collect", "none.job.json"], "error: no job file none.job.json"),
+        (
+            ["iqm_garnet", "--budget", "35", "--shots", "100"],
+            "error: give --budget or --shots, not both",
+        ),
     ],
 )
 def test_command_line_mistakes_stop_before_any_account_opens(
@@ -690,9 +878,10 @@ def test_command_line_mistakes_stop_before_any_account_opens(
 
 
 @pytest.mark.parametrize("amount", ["-1", "nan", "twenty", "inf"])
-def test_confirm_cost_takes_only_an_amount_in_dollars(amount: str) -> None:
+@pytest.mark.parametrize("option", ["--confirm-cost", "--budget"])
+def test_confirm_cost_and_budget_take_only_an_amount_in_dollars(amount: str, option: str) -> None:
     with pytest.raises(SystemExit):
-        script._parser().parse_args(["iqm_garnet", "-o", "x", "--confirm-cost", amount])
+        script._parser().parse_args(["iqm_garnet", "-o", "x", option, amount])
     assert script._dollars("$23.50") == Decimal("23.50")
 
 

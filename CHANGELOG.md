@@ -31,12 +31,23 @@ This file lists all notable changes to NoiseVault. Versions follow
   takes the circuits of the deep circuit set and the number of shots that give the smallest
   predicted error of the gate factor for a price for each task and each shot. The design keeps
   the readout circuits and one test circuit.
+- **The deep circuit set and the design on Amazon Braket.** `scripts/run_on_braket.py --suite`
+  runs the deep circuit set with `--shots` for each circuit. `--budget USD` runs the circuits and
+  the shots of the design for at most USD, and shows the design before the cost check. The task
+  price of the design follows the way that the script submits: one program set task when the
+  design fits in the program set limits of the device, else one task for each circuit. The cost
+  of the run is never more than the budget. Each circuit of the set runs as native gates on the
+  IQM, Rigetti, AQT and IonQ test devices.
+  [Counts from an Amazon Braket device](docs/counts-format.md#counts-from-an-amazon-braket-device)
+  tells how.
 - `study/derive.py` fits each counts file below a folder and writes the fitted factors, the
   intervals and the tests as `fits.json` and `fits.md`. The **Study results** workflow runs it
   on the campaign folder and publishes these derived numbers.
 
 ### Fixed
 
+- `scripts/run_on_braket.py` shows the cost rounded up to the cent. Before, a cost such as
+  $0.4717 showed as $0.47, and `--confirm-cost 0.47` then refused the run.
 - `scripts/run_on_ibm.py` refuses to save the counts of a hardware job that ran an IBM program
   other than `sampler`. The client-side `SamplerV2` of qiskit-ibm-runtime 0.52 runs the
   `executor` program, and the options in the counts file are then not proved. Before, the
