@@ -61,7 +61,8 @@ def test_a_counts_file_with_no_profile_beside_it_is_a_failure(tmp_path: Path) ->
     _run(tmp_path / "week", "best", 1.0, 1.0, seed=1)
     (tmp_path / "week" / "best.profile.json").unlink()
 
-    assert derive.main([str(tmp_path), "--out", str(tmp_path / "results")]) == 1
+    out, rows = str(tmp_path / "results"), str(tmp_path / "rows")
+    assert derive.main([str(tmp_path / "week"), "--out", out, "--rows", rows]) == 1
     data = json.loads((tmp_path / "results" / "fits.json").read_text())
     assert data["rows"] == []
     assert len(data["failures"]) == 1
@@ -110,3 +111,21 @@ def test_a_run_of_the_deep_circuit_set_is_fitted_on_its_train_circuits_only() ->
     assert {role(c.name) for c in counts.circuits} == {"train", "test_near", "test_far"}
     assert {role(c.name) for c in used.circuits} == {"train"}
     assert derive.fit_counts(counts.select(["readout", "ghz_chain"]))[1] == "all"
+
+
+def test_a_kept_fit_is_used_again_for_the_same_files_and_the_same_code(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _run(tmp_path / "campaign" / "week", "best", 1.8, 1.3, seed=1)
+    rows = tmp_path / "rows"
+    first, _ = derive.derive(tmp_path / "campaign", rows)
+    calls = []
+    real = derive.fit
+    monkeypatch.setattr(derive, "fit", lambda path: calls.append(path) or real(path))
+
+    again, table = derive.derive(tmp_path / "campaign", rows)
+
+    assert calls == [] and again == first and len(table["rows"]) == 1
+    monkeypatch.setattr("study.code_version", lambda: "another version")
+    derive.derive(tmp_path / "campaign", rows)
+    assert len(calls) == 1

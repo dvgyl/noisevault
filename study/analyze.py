@@ -41,7 +41,7 @@ from noisevault.profile import Profile, iso_z
 from noisevault.reference import outcome_bits
 from noisevault.score import Forecast, paired, score
 from noisevault.suite import role
-from study import ages, models
+from study import ages, kept, models
 from study.derive import counts_files, profile_beside
 
 FORMAT = "1"
@@ -278,11 +278,23 @@ def analyze(
     offline: bool = False,
     pull: models.Pull | None = None,
     properties: ages.Properties | None = None,
+    rows_folder: Path | None = None,
 ) -> dict[str, Any]:
+    """The analysis of each run of the deep circuit set below ``root``.
+
+    ``rows_folder`` keeps the row of each counts file, so that a later call does not analyze the
+    same run again.
+    """
     rows, failures, skipped = [], [], 0
+    kind = "analysis-offline" if offline else "analysis"
     for path in counts_files(root):
+
+        def run(path: Path = path) -> dict[str, Any] | None:
+            return analyze_run(path, cache=cache, offline=offline, pull=pull, properties=properties)
+
         try:
-            row = analyze_run(path, cache=cache, offline=offline, pull=pull, properties=properties)
+            beside = profile_beside(path)
+            row = kept(rows_folder, kind, [path, beside] if beside.exists() else [path], run)
         except NoiseVaultError as exc:
             # A message can hold the path of the file, and a file name can hold an id of the
             # account. So a failure gives only the error type and the hash of the file.
@@ -351,11 +363,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--cache", type=Path, default=None, help="the folder for pulled calibrations"
     )
     parser.add_argument("--offline", action="store_true", help="skip the stale models")
+    parser.add_argument(
+        "--rows", type=Path, default=None, help="a folder that keeps the row of each run"
+    )
     args = parser.parse_args(argv)
     if not args.root.is_dir():
         print(f"error: {args.root} is not a folder", file=sys.stderr)
         return 2
-    data = analyze(args.root, cache=args.cache, offline=args.offline)
+    data = analyze(args.root, cache=args.cache, offline=args.offline, rows_folder=args.rows)
     write(data, args.out)
     print(f"wrote {len(data['rows'])} runs and {len(data['failures'])} failures to {args.out}")
     return 0 if data["rows"] and not data["failures"] else 1

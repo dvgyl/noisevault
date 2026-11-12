@@ -30,6 +30,7 @@ import noisevault as nv
 from noisevault.counts import MeasuredCounts, load_counts
 from noisevault.errors import NoiseVaultError
 from noisevault.suite import train_names
+from study import kept
 
 FORMAT = "1"
 COUNTS_SUFFIXES = (".counts.json", ".counts.json.gz")
@@ -78,12 +79,18 @@ def fit(path: Path) -> tuple[dict[str, Any], dict[str, Any]]:
     return row, table_row
 
 
-def derive(root: Path) -> tuple[dict[str, Any], dict[str, Any]]:
-    """The fits of each counts file below ``root``, and the realism table of the same fits."""
+def derive(root: Path, rows_folder: Path | None = None) -> tuple[dict[str, Any], dict[str, Any]]:
+    """The fits of each counts file below ``root``, and the realism table of the same fits.
+
+    ``rows_folder`` keeps the fit of each counts file, so that a later call does not fit the
+    same file again.
+    """
     rows, table_rows, failures = [], [], []
     for path in counts_files(root):
         try:
-            row, table_row = fit(path)
+            beside = profile_beside(path)
+            inputs = [path, beside] if beside.exists() else [path]
+            row, table_row = kept(rows_folder, "fit", inputs, lambda path=path: fit(path))
         except NoiseVaultError as exc:
             # A message can hold the path of the file, and a file name can hold an id of the
             # account. So a failure gives only the error type and the hash of the file.
@@ -160,11 +167,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("root", type=Path, help="the folder with the counts files")
     parser.add_argument("--out", type=Path, default=Path("results"), help="the output folder")
+    parser.add_argument(
+        "--rows", type=Path, default=None, help="a folder that keeps the fit of each counts file"
+    )
     args = parser.parse_args(argv)
     if not args.root.is_dir():
         print(f"error: {args.root} is not a folder", file=sys.stderr)
         return 2
-    data, table = derive(args.root)
+    data, table = derive(args.root, args.rows)
     args.out.mkdir(parents=True, exist_ok=True)
     (args.out / "fits.json").write_text(json.dumps(data, indent=1) + "\n", encoding="utf-8")
     (args.out / "fits.md").write_text(markdown(data), encoding="utf-8")
