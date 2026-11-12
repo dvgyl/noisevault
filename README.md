@@ -288,6 +288,7 @@ cannot express.
 | [Profile format](docs/profile-format.md) | Every field of format 1.0, with examples |
 | [Counts format](docs/counts-format.md) | The file that records a hardware run for `nv compare` |
 | [Scoring](docs/scoring.md) | `nv score`: which profile forecasts measured counts better, with no fit |
+| [For scripts and AI agents](docs/for-scripts.md) | The rules of each command, the exit status and the JSON output |
 | [Conventions](docs/conventions.md) | Error metrics, channel construction, readout and qubit order |
 | [Limitations](docs/limitations.md) | What the noise models leave out and what has been checked |
 | [JSON Schema](docs/schema/profile-1.0.json) | The schema of format 1.0, also printed by `nv schema` |

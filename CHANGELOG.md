@@ -25,6 +25,9 @@ This file lists all notable changes to NoiseVault. Versions follow
   Python, use `Profile.score(counts)`, `noisevault.score.paired(a, b)`, and
   `MeasuredCounts.select(names)` and `MeasuredCounts.split(fraction, seed)` for held-out data.
   [docs/scoring.md](docs/scoring.md)
+- **A page for scripts and AI agents.** [docs/for-scripts.md](docs/for-scripts.md) gives the
+  rules that each command follows (the result on standard output, `--json`, no question, the
+  exit status, one `error:` line), and the top-level JSON keys of each command.
 - **A first page for the question "Is my noise model any good?".**
   [docs/first-score.md](docs/first-score.md) shows the three commands `nv show`, `nv score` and
   `nv compare -o` on example counts, with their real output and with what a score cannot tell.
