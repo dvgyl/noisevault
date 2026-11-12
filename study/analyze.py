@@ -380,10 +380,11 @@ def analyze_run(
             forecasts[name] = found
 
     stated_forecasts = scored("calibration (stated)", calibration.uncorrected()) if every else {}
-    narrow = tuple(
-        dict.fromkeys(q for c in counts.circuits if len(c.qubits) <= MAX_QUBITS for q in c.qubits)
-    )
     chain = chain_of(counts)
+    # The circuits of a run come in a random order, so the qubits are the chain in the order of
+    # the readout circuit, then the other qubits in increasing order.
+    others = {q for c in counts.circuits if len(c.qubits) <= MAX_QUBITS for q in c.qubits}
+    narrow = (*(chain or ()), *sorted(others - set(chain or ())))
     when = calibration.device.calibrated_at
     age = None if when is None else (counts.run_at - when).total_seconds() / 3600
     shots = {c.shots for c in counts.circuits}
@@ -403,7 +404,7 @@ def analyze_run(
         "counts_sha256": counts.sha256,
         "calibration": calibration.calibration_fingerprint,
         "marked": marked,
-        "ages": {} if offline else _ages(calibration, counts, cache, properties, narrow),
+        "ages": {} if offline else _ages(calibration, counts, cache, properties, narrow, chain),
         "stated": {
             "zero_readouts": models.zero_readouts(calibration),
             "zero_on_chain": None if chain is None else zero_on(calibration, chain),
@@ -814,10 +815,14 @@ def _ages(
     cache: Path | None,
     properties: ages.Properties | None,
     qubits: Sequence[int] | None = None,
+    chain: Sequence[int] | None = None,
 ) -> dict[str, Any]:
     """For the calibration C and for each stale calibration, the age of the calibration time and
     of the values of ``qubits`` at the run time, in hours. IBM dates each value, so only an IBM
     device has ages. Without ``qubits``, the ages are of every qubit that ``counts`` measures.
+    The ages of each qubit and each pair (``loci``) are of ``chain``, in the order of the
+    ``readout`` circuit, so that neighbours in the list are the pairs of the chain. Without
+    ``chain``, they are of the ``readout`` circuit of ``counts``, or of ``qubits``.
 
     The entry ``"calibration"`` comes from the reply of C itself, whose ``last_update_date`` is
     the time of C. IBM publishes a calibration some minutes after that time, so the source is
@@ -830,6 +835,7 @@ def _ages(
         return {}
     device = calibration.device.name
     qubits = counts.qubits if qubits is None else qubits
+    loci = chain or chain_of(counts) or qubits
 
     def public(name: str, at: datetime) -> Mapping[str, Any] | None:
         return ages.public_properties(name, at, cache)
@@ -840,7 +846,7 @@ def _ages(
         return {
             "calibration_h": ages.calibration_age(reply, counts.run_at),
             "values": ages.value_ages(reply, counts.run_at, qubits),
-            "loci": ages.locus_ages(reply, counts.run_at, qubits),
+            "loci": ages.locus_ages(reply, counts.run_at, loci),
         }
 
     found: dict[str, Any] = {}
