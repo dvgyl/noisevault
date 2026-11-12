@@ -19,7 +19,7 @@ CALIBRATED = "2026-11-12T04:00:00Z"
 runner = CliRunner()
 
 
-def _p(name: str, value: float, date: Any = None, unit: str = "") -> dict[str, Any]:
+def _p(name: str, value: float | None, date: Any = None, unit: str = "") -> dict[str, Any]:
     param: dict[str, Any] = {"name": name, "value": value, "unit": unit}
     if date is not None:
         param["date"] = date
@@ -167,6 +167,23 @@ def test_a_kind_with_no_dated_values_is_left_out() -> None:
             param.pop("date")
     ages = _profile(props).value_ages()
     assert ages is not None and set(ages) == {"readout", "t1", "t2"}
+
+
+def test_a_parameter_with_no_value_gives_no_time_and_a_value_of_0_does() -> None:
+    props = copy.deepcopy(PROPERTIES)
+    props["qubits"][0][0] = _p("T1", 100.0, "2026-11-11T18:00:00Z", "us")
+    props["qubits"][1][0] = _p("T1", None, "2026-10-30T16:00:00Z", "us")
+    props["qubits"][1][3] = _p("prob_meas1_prep0", 0.0, "2026-10-30T16:00:00Z")
+
+    times = _profile(props).provenance.extra["value_times"]
+
+    assert times["t1"] == {
+        "oldest": "2026-11-11T18:00:00Z",
+        "median": "2026-11-11T18:00:00Z",
+        "newest": "2026-11-11T18:00:00Z",
+        "values": 1,
+    }
+    assert times["readout"]["oldest"] == "2026-10-30T16:00:00Z"
 
 
 def test_the_fingerprint_does_not_depend_on_the_dates() -> None:

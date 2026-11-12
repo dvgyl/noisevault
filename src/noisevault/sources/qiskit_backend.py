@@ -453,7 +453,8 @@ def calibration_from_properties(props: Mapping[str, Any], *, origin: Origin) -> 
     also raises one, and so does an ``operational`` flag that is not 0 or 1. A gate on the wrong
     number of qubits, or on a qubit that ``qubits`` does not list, also raises one.
 
-    ``value_times`` gets the ``date`` of each readout, T1, T2 and gate error value. A gate error
+    ``value_times`` gets the ``date`` of each readout, T1, T2 and gate error value. A parameter
+    with no value gets no time. A gate error
     of 0 with no duration is a virtual gate, not a measured value, and gets no time. A date that
     is not an ISO 8601 time also raises a SourceDataError.
     """
@@ -539,7 +540,10 @@ def _measured(values: Mapping[str, Mapping[str, Any]], arity: int) -> bool:
 
 
 def _add_time(times: list[datetime], param: Mapping[str, Any] | None) -> None:
-    if param is not None and param.get("date") is not None:
+    """Add the date of ``param`` when it has a date and a numerical value. 0 is a value."""
+    if param is None or param.get("value") is None:
+        return
+    if param.get("date") is not None:
         times.append(as_utc(param["date"]))
 
 
