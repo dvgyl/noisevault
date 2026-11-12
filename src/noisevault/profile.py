@@ -63,6 +63,7 @@ if TYPE_CHECKING:
     from .compare import Comparison
     from .counts import MeasuredCounts
     from .diff import ProfileDiff
+    from .score import Forecast
     from .table import GateNoise, NoiseTable
 
 FORMAT_VERSION = "1.0"
@@ -1028,6 +1029,11 @@ class Profile(_Model):
         from .compare import compare
 
         return compare(self, counts)
+
+    def score(self, counts: MeasuredCounts, *, circuits: Iterable[str] | None = None) -> Forecast:
+        from .score import score
+
+        return score(self, counts, circuits=circuits)
 
     def to_qiskit(self, *, unknown_gates: str = "typical", **options: Any) -> Any:
         from .frameworks.qiskit import to_qiskit
