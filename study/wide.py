@@ -10,9 +10,10 @@ string. The score compares the measured shots with the forecast in three ways:
 - ``qubit``: the score of a shot is the sum over the qubits of the log probability of its bit
   (right or wrong) under the marginal of the model for that qubit.
 
-``success`` and ``wrong`` use the log rule, the quadratic rule and the paired test of
-``noisevault.score`` on their cells. ``qubit`` uses a paired z-test of the per-shot score
-differences (see :func:`paired`).
+``success`` and ``wrong`` use the log rule and the quadratic rule on their cells. Only the log
+rule of ``wrong`` (the paired test of ``noisevault.score``) and ``qubit`` (a paired z-test of
+the per-shot score differences, see :func:`paired`) give a verdict, because only their tests
+hold the sampling variance. The other scores are values with no verdict, on each size.
 
 Each forecast probability comes from ``samples`` Stim shots with add-half smoothing:
 (k + 1/2) / (samples + 1) for a probability of two outcomes. For the ``wrong`` cells, the
@@ -28,7 +29,6 @@ both forecasts to the shot variance (see :func:`compare`).
 
 from __future__ import annotations
 
-import dataclasses
 import hashlib
 import math
 from collections.abc import Sequence
@@ -48,14 +48,12 @@ from noisevault.counts import (
 )
 from noisevault.errors import CountsError
 from noisevault.profile import Profile
-from noisevault.score import LEVEL, Choice, RuleTest, _log, _quadratic, _test
+from noisevault.score import LEVEL, Choice, RuleTest, _log, _test
 
 SAMPLES = 4_000_000
 CHUNK = 250_000
 MIN_EXPECTED = 5
 PREFIX = "clifford_"
-# The score of the ideal bit string gives no verdict on circuits of this many qubits or more.
-SUCCESS_LIMIT = 40
 
 
 @dataclass(frozen=True)
@@ -117,25 +115,22 @@ class Sampling:
 
 @dataclass(frozen=True)
 class Paired:
-    """The scores of models a and b and the paired test of each score.
+    """The scores of models a and b, and the paired test of each score that gives a verdict.
 
-    ``qubit_log`` and ``wrong_log`` hold the sampling variance of both forecasts in their
-    standard error, and ``qubit_sampling`` and ``wrong_sampling`` give its size. A test whose
-    sampling variance is larger than its shot variance gives no verdict. ``success_verdict`` is
-    False when a circuit has ``SUCCESS_LIMIT`` qubits or more, and the ``success`` tests then
-    give no verdict.
+    Only two scores give a verdict, because only their tests hold the sampling variance of both
+    forecasts: the score of each qubit (``qubit_log``) and the log score of the number of wrong
+    bits (``wrong_log``). ``qubit_sampling`` and ``wrong_sampling`` give the size of the
+    sampling variance. A test whose sampling variance is larger than its shot variance gives no
+    verdict. The score of the ideal bit string and the quadratic score of the number of wrong
+    bits are values only: the scores ``a`` and ``b`` of each model.
     """
 
     a: Scores
     b: Scores
-    success_log: RuleTest
-    success_quadratic: RuleTest
     wrong_log: RuleTest
-    wrong_quadratic: RuleTest
     qubit_log: RuleTest
     qubit_sampling: Sampling
     wrong_sampling: Sampling
-    success_verdict: bool
 
 
 def forecast(
@@ -199,7 +194,7 @@ def paired(
     """Score models ``a`` and ``b`` on the named wide Clifford ``circuits`` of ``counts``.
 
     Without ``circuits``, the score takes every circuit whose name starts with ``clifford_``.
-    ``success`` and ``wrong`` use the paired test of ``noisevault.score`` (its ``_test``,
+    The log rule of ``wrong`` uses the paired test of ``noisevault.score`` (its ``_test``,
     without the grouping of rare outcomes, because ``wrong`` merges its rare cells first).
 
     ``qubit`` uses a paired z-test. Each shot gives one difference d = s_a - s_b of the two
@@ -246,7 +241,7 @@ def compare(
       the forecast p of a cell.
 
     A test gives no verdict when the sampling variance is larger than the shot variance. The
-    ``success`` tests give no verdict when a circuit has ``SUCCESS_LIMIT`` qubits or more.
+    ``success`` scores and the quadratic ``wrong`` score are values with no test.
     """
     cells = [_cells(c, fa, fb, merge=True) for c, fa, fb in zip(circuits, a, b, strict=True)]
     success, wrong, qubit = (list(kind) for kind in zip(*cells, strict=True))
@@ -273,23 +268,13 @@ def compare(
     wrong_test, wrong_sampling = with_sampling(
         _test("log", wrong, _log, group_rare=False), wrong_variance, shots, few=few_cells
     )
-    verdict = all(len(c.qubits) < SUCCESS_LIMIT for c in circuits)
-    success_log = _test("log", success, _log, group_rare=False)
-    success_quadratic = _test("quadratic", success, _quadratic, group_rare=False)
-    if not verdict:
-        success_log = dataclasses.replace(success_log, better="neither")
-        success_quadratic = dataclasses.replace(success_quadratic, better="neither")
     return Paired(
         a=_scores(success, wrong, qubit, 1),
         b=_scores(success, wrong, qubit, 2),
-        success_log=success_log,
-        success_quadratic=success_quadratic,
         wrong_log=wrong_test,
-        wrong_quadratic=_test("quadratic", wrong, _quadratic, group_rare=False),
         qubit_log=qubit_test,
         qubit_sampling=qubit_sampling,
         wrong_sampling=wrong_sampling,
-        success_verdict=verdict,
     )
 
 

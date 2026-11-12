@@ -1152,14 +1152,15 @@ def _clifford(counts: MeasuredCounts, built: dict[str, Profile], samples: int) -
                     "b": b,
                     "circuits": label,
                     "winner": {"a": a, "b": b, "neither": None}[result.qubit_log.better],
+                    # The score of the ideal bit string and the quadratic score of the number of
+                    # wrong bits are values with no verdict: score of a minus score of b.
                     "success": {
-                        "log": _rule(result.success_log),
-                        "quadratic": _rule(result.success_quadratic),
-                        "verdict": result.success_verdict,
+                        "log": result.a.success_log - result.b.success_log,
+                        "quadratic": result.a.success_quadratic - result.b.success_quadratic,
                     },
                     "wrong": {
                         "log": _rule(result.wrong_log),
-                        "quadratic": _rule(result.wrong_quadratic),
+                        "quadratic": result.a.wrong_quadratic - result.b.wrong_quadratic,
                         "sampling_ratio": result.wrong_sampling.ratio,
                         "no_verdict": result.wrong_sampling.reason,
                     },

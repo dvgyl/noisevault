@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -58,18 +59,29 @@ def test_the_model_of_the_truth_scores_above_the_calibration_on_each_score(
 ) -> None:
     result = wide.paired(_factor(line_24, TRUE_FACTOR), line_24, counts)
 
-    tests = [
-        result.success_log,
-        result.success_quadratic,
-        result.wrong_log,
-        result.wrong_quadratic,
-        result.qubit_log,
-    ]
-    assert [t.better for t in tests] == ["a"] * 5
+    tests = [result.wrong_log, result.qubit_log]
+    assert [t.better for t in tests] == ["a"] * 2
     assert all(t.outcome == "tested" and t.p_value < 0.05 for t in tests)
     assert result.a.success_log > result.b.success_log
     assert result.a.wrong_log > result.b.wrong_log
     assert result.a.qubit_log > result.b.qubit_log
+
+
+def test_only_the_scores_with_the_sampling_variance_give_a_verdict(
+    line_24: Profile, counts
+) -> None:
+    result = wide.paired(_factor(line_24, TRUE_FACTOR), line_24, counts, samples=200_000)
+
+    # The score of the ideal bit string and the quadratic wrong-bit score are values only.
+    assert {f.name for f in dataclasses.fields(result)} == {
+        "a",
+        "b",
+        "wrong_log",
+        "qubit_log",
+        "qubit_sampling",
+        "wrong_sampling",
+    }
+    assert result.a.success_quadratic != result.b.success_quadratic
 
 
 def test_two_equal_models_give_no_verdict(line_24: Profile, counts) -> None:
@@ -79,7 +91,7 @@ def test_two_equal_models_give_no_verdict(line_24: Profile, counts) -> None:
     result = wide.compare([circuit], [same], [same])
     independent = wide.paired(line_24, line_24, counts, samples=20_000)
 
-    for test in (result.success_log, result.wrong_quadratic, result.qubit_log):
+    for test in (result.wrong_log, result.qubit_log):
         assert test.outcome == "identical"
         assert test.better == "neither"
     assert result.a == result.b
@@ -328,37 +340,6 @@ def test_a_test_with_more_sampling_variance_than_shot_variance_gives_no_verdict(
     assert kept.z == pytest.approx(10 / np.sqrt(1.5))
     assert large.ratio == pytest.approx(1.5) and lost.better == "neither"
     assert lost.z == pytest.approx(10 / np.sqrt(2.5)) and lost.p_value < 0.05
-
-
-def test_the_ideal_bit_string_gives_no_verdict_on_40_qubits() -> None:
-    data = Profile.uniform(
-        "line",
-        technology="superconducting",
-        num_qubits=44,
-        connectivity=[(q, q + 1) for q in range(43)],
-        one_qubit_error=1e-3,
-        two_qubit_error=1e-2,
-        readout_error=2e-2,
-        t1_us=200.0,
-        t2_us=150.0,
-        one_qubit_ns=32.0,
-        two_qubit_ns=68.0,
-    ).to_dict()
-    data["gates"] = {k: v for k, v in data["gates"].items() if k in ("rz", "sx", "x", "cz")}
-    line = Profile.model_validate(data)
-    truth = _factor(line, ASSUMED_GATE_FACTOR)
-    circuits = _clifford_circuits(line, truth, 0)
-    assert [len(c.qubits) for c in circuits] == [20, 40]
-    found = wide.simulate(truth, circuits, shots=500, seed=4, run_at=RUN_AT)
-
-    both = wide.paired(_factor(line, 3.0), line, found, samples=20_000)
-    small = wide.paired(
-        _factor(line, 3.0), line, found, circuits=[circuits[0].name], samples=20_000
-    )
-
-    assert both.success_verdict is False and both.success_log.better == "neither"
-    assert both.success_quadratic.better == "neither"
-    assert small.success_verdict is True
 
 
 def test_a_run_without_a_clifford_circuit_is_refused(line_24: Profile, counts) -> None:

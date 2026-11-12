@@ -572,7 +572,12 @@ def test_the_clifford_block_ranks_two_factor_above_the_calibration(clifford_resu
     assert together["qubit"]["log"]["better"] == "a"
     assert 0 < together["qubit"]["sampling_ratio"] < 1
     assert together["wrong"]["sampling_ratio"] > 0
-    assert together["success"]["verdict"] is True
+    # The score of the ideal bit string and the quadratic wrong-bit score are values only.
+    assert set(together["success"]) == {"log", "quadratic"}
+    assert all(isinstance(v, float) for v in together["success"].values())
+    assert isinstance(together["wrong"]["quadratic"], float)
+    text = json.dumps(together["success"]) + json.dumps(together["wrong"]["quadratic"])
+    assert "p_value" not in text and "better" not in text
     assert block["samples"] == CLIFFORD_SAMPLES
     assert {(t["a"], t["b"]) for t in block["paired"]} == {
         ("calibration", "medians"),
