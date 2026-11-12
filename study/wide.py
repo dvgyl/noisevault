@@ -64,6 +64,8 @@ class Forecast:
 
     ``success`` is the probability of the ideal bit string, ``wrong[k]`` the probability of k
     wrong bits, and ``qubit[q]`` the probability that the bit of circuit qubit q is wrong.
+    ``covariance`` is the covariance matrix of the wrong-bit values of the qubits over the
+    samples (each value is 0 or 1), without smoothing. None means independent qubits.
     """
 
     circuit: str
@@ -72,6 +74,7 @@ class Forecast:
     success: float
     wrong: np.ndarray
     qubit: np.ndarray
+    covariance: np.ndarray | None = None
 
 
 @dataclass(frozen=True)
@@ -141,6 +144,7 @@ def forecast(
     sampler = noisy.compile_sampler(seed=int(rng.integers(2**63)))
     cells = np.zeros(len(ideal) + 1)
     qubit = np.zeros(len(ideal))
+    both = np.zeros((len(ideal), len(ideal)))
     left = samples
     while left > 0:
         size = min(chunk, left)
@@ -150,8 +154,12 @@ def forecast(
         wrong = bits != target
         cells += np.bincount(wrong.sum(axis=1), minlength=len(ideal) + 1)
         qubit += wrong.sum(axis=0)
+        # float32 counts each sum of one chunk exactly, because a chunk has fewer than 2^24 rows.
+        values = wrong.astype(np.float32)
+        both += values.T @ values
         left -= size
     smoothed = cells + 0.5
+    mean = qubit / samples
     return Forecast(
         circuit=circuit.name,
         ideal=ideal,
@@ -159,6 +167,7 @@ def forecast(
         success=_smoothed(int(cells[0]), samples),
         wrong=smoothed / smoothed.sum(),
         qubit=(qubit + 0.5) / (samples + 1),
+        covariance=both / samples - np.outer(mean, mean),
     )
 
 
@@ -206,8 +215,9 @@ def compare(
     variance of both forecasts to the variance of the summed difference. For one model and one
     circuit with N shots and S samples, the term is:
 
-    - ``qubit``: (N^2 / S) times the sum over the qubits of (f - q)^2 / (q (1 - q)), with the
-      measured fraction f and the forecast q of a wrong bit.
+    - ``qubit``: a^T C a / S, with a_j = N (f_j - q_j) / (q_j (1 - q_j)) for the measured
+      fraction f and the forecast q of a wrong bit, and C the covariance matrix of the wrong-bit
+      values of the qubits over the samples (see :func:`qubit_sampling_variance`).
     - ``wrong``: (N^2 / S) (sum over the cells of f^2 / p - 1), with the measured fraction f and
       the forecast p of a cell.
 
@@ -221,7 +231,9 @@ def compare(
         keys, times = _rows(c)
         fraction = times @ (keys != np.array([bit == "1" for bit in fa.ideal])) / c.shots
         for found in (fa, fb):
-            qubit_variance += qubit_sampling_variance(c.shots, found.samples, fraction, found.qubit)
+            qubit_variance += qubit_sampling_variance(
+                c.shots, found.samples, fraction, found.qubit, found.covariance
+            )
         for found, probs in ((fa, pa), (fb, pb)):
             wrong_variance += cell_sampling_variance(c.shots, found.samples, measured, probs)
     shots = float(sum(c.shots for c in circuits))
@@ -250,12 +262,25 @@ def compare(
 
 
 def qubit_sampling_variance(
-    shots: float, samples: int, measured: np.ndarray, forecast: np.ndarray
+    shots: float,
+    samples: int,
+    measured: np.ndarray,
+    forecast: np.ndarray,
+    covariance: np.ndarray | None = None,
 ) -> float:
-    """The sampling variance of the summed ``qubit`` score of one model on one circuit:
-    (N^2 / S) times the sum over the qubits of (f - q)^2 / (q (1 - q))."""
+    """The sampling variance of the summed ``qubit`` score of one model on one circuit.
+
+    The value is a^T C a / S, with a_j = N (f_j - q_j) / (q_j (1 - q_j)) for the measured
+    fraction f and the forecast q of a wrong bit of qubit j. C is the covariance matrix of the
+    wrong-bit values of the qubits over the samples. The marginals come from one set of samples,
+    so their errors are correlated. Without ``covariance``, C is diagonal with q (1 - q), and the
+    value is (N^2 / S) times the sum over the qubits of (f - q)^2 / (q (1 - q)).
+    """
     f, q = np.asarray(measured, dtype=float), np.asarray(forecast, dtype=float)
-    return shots**2 / samples * float(((f - q) ** 2 / (q * (1 - q))).sum())
+    a = shots * (f - q) / (q * (1 - q))
+    if covariance is None:
+        return float((a**2 * q * (1 - q)).sum()) / samples
+    return float(a @ np.asarray(covariance, dtype=float) @ a) / samples
 
 
 def cell_sampling_variance(
