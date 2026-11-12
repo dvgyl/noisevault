@@ -36,6 +36,7 @@ import argparse
 import hashlib
 import json
 import math
+import multiprocessing
 import os
 import sys
 from collections.abc import Callable, Mapping, Sequence
@@ -484,7 +485,10 @@ def analyze(
         todo.append(path)
     if jobs > 1 and pull is None and properties is None and len(todo) > 1:
         tasks = [(path, cache, offline, samples, rows_folder, kind) for path in todo]
-        with ProcessPoolExecutor(max_workers=min(jobs, len(todo))) as pool:
+        # A new process that starts from a copy of this one can stop for ever when a library holds
+        # a lock at that moment. A process that starts fresh has no such copy.
+        fresh = multiprocessing.get_context("spawn")
+        with ProcessPoolExecutor(max_workers=min(jobs, len(todo)), mp_context=fresh) as pool:
             found = list(pool.map(_one_in_a_process, tasks))
     else:
         found = [

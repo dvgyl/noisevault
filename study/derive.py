@@ -26,6 +26,7 @@ import argparse
 import hashlib
 import importlib.util
 import json
+import multiprocessing
 import os
 import sys
 from collections.abc import Iterator, Sequence
@@ -129,7 +130,10 @@ def derive(
     rows, table_rows, failures = [], [], []
     tasks = [(path, rows_folder) for path in counts_files(root)]
     if jobs > 1 and len(tasks) > 1:
-        with ProcessPoolExecutor(max_workers=min(jobs, len(tasks))) as pool:
+        # A new process that starts from a copy of this one can stop for ever when a library holds
+        # a lock at that moment. A process that starts fresh has no such copy.
+        fresh = multiprocessing.get_context("spawn")
+        with ProcessPoolExecutor(max_workers=min(jobs, len(tasks)), mp_context=fresh) as pool:
             found = list(pool.map(_kept_fit, tasks))
     else:
         found = [_kept_fit(task) for task in tasks]
