@@ -21,7 +21,7 @@ import numpy as np
 from .counts import PlannedCircuit
 from .errors import NoiseVaultError
 from .metrics import METRIC_KEYS
-from .reference import probabilities
+from .reference import MAX_QUBITS, probabilities
 from .suite import ASSUMED_GATE_FACTOR, role
 
 if TYPE_CHECKING:
@@ -132,7 +132,11 @@ def design(
     ``max_circuits`` limits the number of circuits, and ``max_total_shots`` limits the shots of
     all circuits together, for example the limits of one task. Raises NoiseVaultError when
     ``budget`` or the limits do not pay ``min_shots`` shots of the smallest design.
+
+    The design leaves out each circuit on more than ``MAX_QUBITS`` qubits, because the exact
+    simulator gives the information of a circuit.
     """
+    circuits = [c for c in circuits if len(c.qubits) <= MAX_QUBITS]
     by_name = {c.name: c for c in circuits}
     fixed = [by_name[name] for name in _READOUT if name in by_name]
     fixed += _tests(circuits, tests)
@@ -198,7 +202,8 @@ def _states_gate_error(profile: Profile) -> bool:
 
 def _tests(circuits: Sequence[PlannedCircuit], count: int) -> list[PlannedCircuit]:
     """``count`` test circuits: first the deep circuits of the test seed, from the middle depth
-    out, then the other test circuits in their order."""
+    out, then the other test circuits of ``MAX_QUBITS`` qubits or fewer in their order."""
+    circuits = [c for c in circuits if len(c.qubits) <= MAX_QUBITS]
     near = [c for c in circuits if role(c.name) == "test_near"]
     middle = (len(near) - 1) / 2
     from_middle = sorted(enumerate(near), key=lambda found: abs(found[0] - middle))

@@ -145,3 +145,14 @@ def test_max_shots_limits_the_shots_of_each_circuit(device, circuits):
         device, circuits, budget=1000.0, price=Price(task=0.0, shot=0.001), max_shots=500
     )
     assert found.shots == 500
+
+
+def test_a_design_leaves_out_each_circuit_above_10_qubits(device, circuits):
+    wide = PlannedCircuit(name="clifford_n20_d3", qubits=tuple(range(20)), ops=())
+    price = Price(task=0.30, shot=0.08)
+
+    found = design(device, (*circuits, wide), budget=320.0, price=price, tests=100)
+
+    assert role(wide.name) == "test_far"
+    assert wide.name not in [c.name for c in found.circuits]
+    assert any(role(c.name) == "test_far" for c in found.circuits)
