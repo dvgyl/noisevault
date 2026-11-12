@@ -107,3 +107,10 @@ The adequacy of the best model is its excess on `test_far`, with the p-value of 
 ## Changes
 
 - 2026-11-12: first version.
+- 2026-11-12: the age of a calibration. IBM gives a time for each value of a calibration. On
+  2026-11-12, the readout values of `ibm_fez` were 51 hours older than the time of the
+  calibration, and its 1-qubit gate errors were 151 hours older. The staleness curve therefore
+  uses the age of the values at the run time: the median age of the readout values, of the
+  1-qubit gate errors and of the 2-qubit gate errors of each model. The age from the time of the
+  calibration is also given. This entry was written before a test circuit of the deep circuit
+  set was scored.

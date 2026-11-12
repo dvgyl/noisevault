@@ -29,9 +29,13 @@ def test_derive_fits_each_counts_file_below_the_root(tmp_path: Path) -> None:
     _run(tmp_path / "ibm_kingston" / "2026-04-20", "median", 1.0, 1.0, seed=2)
     (tmp_path / "ibm_kingston" / "2026-04-13" / "._best.counts.json").write_bytes(b"\x00\x05")
 
-    data = derive.derive(tmp_path)
+    data, table = derive.derive(tmp_path)
 
     assert data["failures"] == []
+    assert [r["gates"]["factor"] for r in table["rows"]] == [
+        float(f"{r['gates']['factor']:.6g}") for r in data["rows"]
+    ]
+    assert {r["source"] for r in table["rows"]} == {"simulated"}
     high, low = sorted(data["rows"], key=lambda r: -r["gates"]["factor"])
     assert high["gates"]["low"] < 1.8 < high["gates"]["high"]
     assert low["gates"]["low"] < 1.0 < low["gates"]["high"]
@@ -45,7 +49,8 @@ def test_the_output_holds_no_counts_and_no_file_name(tmp_path: Path) -> None:
 
     assert derive.main([str(tmp_path / "campaign"), "--out", str(out)]) == 0
 
-    text = (out / "fits.json").read_text() + (out / "fits.md").read_text()
+    text = "".join((out / name).read_text() for name in ("fits.json", "fits.md", "table.md"))
+    assert json.loads((out / "table.json").read_text())["rows"][0]["device"] == "ibm_kingston"
     data = json.loads((out / "fits.json").read_text())
     assert "best.counts.json" not in text
     assert str(tmp_path) not in text
