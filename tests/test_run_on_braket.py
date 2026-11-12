@@ -376,6 +376,22 @@ def test_a_design_keeps_to_the_program_set_limits_or_pays_one_task_per_circuit(
     assert batch.cost <= Decimal(budget)
 
 
+def test_the_design_for_one_task_keeps_to_the_limits_while_it_selects_the_circuits() -> None:
+    properties = _properties(GARNET)
+    limits = properties["action"]["braket.ir.openqasm.program_set"]
+    limits["maximumExecutables"] = 4
+    target, _ = _target(GARNET, properties)
+    price = script.PRICES[GARNET]
+
+    batch = script.prepare(target, 0, price, budget=Decimal("2"))
+
+    assert batch.program_set is True
+    assert len(batch.planned) == 4
+    assert len(batch.planned) * batch.shots <= limits["maximumTotalShots"]
+    assert batch.cost <= Decimal("2")
+    assert script.estimate(price, 4, batch.shots + 1, True) > Decimal("2")
+
+
 def test_a_budget_run_shows_the_design_and_saves_exactly_its_circuits(
     garnet: Run, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

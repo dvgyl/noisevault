@@ -108,6 +108,19 @@ def test_a_factor_with_zero_information_leaves_the_other_factor_identified():
     assert gate == pytest.approx(1e-9 / (2e-9 - 1e-10))
 
 
+def test_a_design_keeps_to_a_limit_of_circuits_and_of_total_shots(device, circuits):
+    price = Price(task=0.30, shot=0.001, one_task=True)
+
+    found = design(device, circuits, budget=50.0, price=price, max_circuits=5, max_total_shots=2000)
+
+    assert len(found.circuits) <= 5
+    assert len(found.circuits) * found.shots <= 2000
+    with pytest.raises(NoiseVaultError, match="limit of 3 circuits"):
+        design(device, circuits, budget=50.0, price=price, max_circuits=3)
+    with pytest.raises(NoiseVaultError, match="limit of 300 shots"):
+        design(device, circuits, budget=50.0, price=price, max_total_shots=300)
+
+
 def test_task_fees_above_the_budget_pay_no_shots_also_when_shots_are_free(device, circuits):
     with pytest.raises(NoiseVaultError, match="does not pay 100 shots"):
         design(device, circuits, budget=1.0, price=Price(task=0.30, shot=0.0))

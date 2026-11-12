@@ -121,14 +121,17 @@ def design(
     tests: int = 1,
     min_shots: int = MIN_SHOTS,
     max_shots: int | None = None,
+    max_circuits: int | None = None,
+    max_total_shots: int | None = None,
 ) -> Design:
     """The circuits from ``circuits`` and the shots that give the smallest predicted error of
     the gate factor for at most ``budget``.
 
     ``circuits`` are the circuits of ``suite``. The design keeps the readout circuits and
     ``tests`` test circuits, and adds ``train`` circuits while they lower the predicted error.
-    Raises NoiseVaultError when ``budget`` does not pay ``min_shots`` shots of the smallest
-    design.
+    ``max_circuits`` limits the number of circuits, and ``max_total_shots`` limits the shots of
+    all circuits together, for example the limits of one task. Raises NoiseVaultError when
+    ``budget`` or the limits do not pay ``min_shots`` shots of the smallest design.
     """
     by_name = {c.name: c for c in circuits}
     fixed = [by_name[name] for name in _READOUT if name in by_name]
@@ -138,6 +141,12 @@ def design(
         raise NoiseVaultError(
             "the circuits hold no train circuit with gates",
             hint="give the circuits of noisevault.suite.suite",
+        )
+    if max_circuits is not None and max_circuits < len(fixed) + 1:
+        raise NoiseVaultError(
+            f"a limit of {max_circuits} circuits does not hold the {len(fixed) + 1} circuits of"
+            " the smallest design",
+            hint="give fewer test circuits, or a larger limit",
         )
     info = {c.name: information(profile, c, gate_factor=gate_factor) for c in (*fixed, *pool)}
     fits = [c for c in fixed if role(c.name) == "train"]
@@ -149,7 +158,11 @@ def design(
         pool.remove(added)
         chosen.append(added)
         total = len(fixed) + len(chosen)
+        if max_circuits is not None and total > max_circuits:
+            break
         shots = _shots(budget, price, total, max_shots)
+        if max_total_shots is not None:
+            shots = min(shots, max_total_shots // total)
         if shots < min_shots:
             break
         errors = _errors([*fits, *chosen], info, shots)
@@ -164,6 +177,12 @@ def design(
             best = found
     if best is None:
         least = price.cost(len(fixed) + 1, min_shots)
+        if max_total_shots is not None and max_total_shots < (len(fixed) + 1) * min_shots:
+            raise NoiseVaultError(
+                f"a limit of {max_total_shots} shots in all does not hold {min_shots} shots of"
+                f" {len(fixed) + 1} circuits",
+                hint="give fewer shots with min_shots, or a larger limit",
+            )
         raise NoiseVaultError(
             f"a budget of {budget:g} does not pay {min_shots} shots of {len(fixed) + 1} circuits,"
             f" which cost {least:.2f}",

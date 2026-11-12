@@ -370,9 +370,9 @@ def _design(
     """The design with the smallest predicted error of the gate factor that costs at most
     ``budget``, with the task price of the way that the run submits it.
 
-    The total shots of one program set task cost at most the task price and the shot price of
-    ``maximumTotalShots``, so the design for one task spends at most that amount. A design for
-    one task per circuit is also made, and the design with the smaller predicted error is taken.
+    The design for one program set task keeps to ``maximumExecutables`` and
+    ``maximumTotalShots`` while it selects the circuits. A design for one task per circuit is
+    also made, and the design with the smaller predicted error is taken.
     """
     low, high = shots_range
     least = max(MIN_SHOTS, int(low))
@@ -389,6 +389,8 @@ def _design(
                 price=task_price,
                 min_shots=least,
                 max_shots=shots,
+                max_circuits=limits.get("maximumExecutables", 0) if one_task else None,
+                max_total_shots=limits.get("maximumTotalShots", 0) if one_task else None,
             )
             exact = estimate(price, len(found.circuits), found.shots, one_task)
             if exact <= spend:
@@ -400,12 +402,10 @@ def _design(
     designs: list[Design] = []
     failure: NoiseVaultError | None = None
     if limits:
-        spend = min(budget, price.task + limits.get("maximumTotalShots", 0) * price.shot)
         try:
-            found = make(True, spend)
+            found = make(True, budget)
         except NoiseVaultError as exc:
-            if spend == budget:
-                failure = exc
+            failure = exc
         else:
             if _fits(limits, len(found.circuits), found.shots):
                 designs.append(found)
