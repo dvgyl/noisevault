@@ -32,7 +32,7 @@ env:
 jobs:
   results:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 240
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -72,11 +72,14 @@ jobs:
           status=0
           python -m study.derive campaign --out results || status=$?
           cat results/fits.md >> "$GITHUB_STEP_SUMMARY"
+          # The analysis pulls older calibrations of each device from IBM's public endpoint.
+          python -m study.analyze campaign --out results --cache calibrations || status=$?
+          cat results/analysis.md >> "$GITHUB_STEP_SUMMARY"
           exit "$status"
 
       - name: Remove the campaign folder
         if: always()
-        run: rm -rf campaign
+        run: rm -rf campaign calibrations
 
       - uses: actions/upload-artifact@v4
         if: always() && steps.restore.outputs.found == 'true'

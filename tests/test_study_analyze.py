@@ -174,8 +174,12 @@ def test_each_model_has_a_score_or_a_reason(result: dict[str, Any]) -> None:
 def test_stale_comparisons_use_every_circuit_and_the_cache(result: dict[str, Any]) -> None:
     row = _row(result)
     groups = {t["group"] for t in row["paired"] if t["b"] == "stale(7)"}
-    assert groups == {"test_near", "test_far", "all"}
-    assert {t["group"] for t in row["paired"] if t["b"] == "medians"} == {"test_near", "test_far"}
+    assert groups == {"all"}
+    assert {t["group"] for t in row["paired"] if t["b"] == "medians"} == {
+        "all",
+        "test_near",
+        "test_far",
+    }
     asked = len(result["source"].asked)
     again = models.stale(
         _device(), RUN_AT, 7, result["root"] / "cache", lambda d, a: pytest.fail("no cache")
@@ -231,3 +235,15 @@ def test_the_command_line_skips_a_tree_with_no_deep_run(tmp_path: Path) -> None:
     data = json.loads((tmp_path / "out" / "analysis.json").read_text())
     assert data["rows"] == [] and data["skipped"] == 1
     assert analyze.main([str(tmp_path / "missing")]) == 2
+
+
+def test_the_primary_comparisons_are_the_five_of_the_plan(result: dict[str, Any]) -> None:
+    row = _row(result)
+    primary = [(t["a"], t["b"], t["group"]) for t in row["paired"] if t["primary"]]
+    assert set(primary) <= set(analyze.PRIMARY)
+    assert ("two_factor", "calibration", "test") in primary
+    assert ("locus", "two_factor", "test") in primary
+    assert ("calibration", "medians", "all") in primary
+    secondary = {(t["a"], t["b"], t["group"]) for t in row["paired"] if not t["primary"]}
+    assert ("two_factor", "calibration", "test_near") in secondary
+    assert row["circuits"]["test"] == row["circuits"]["test_near"] + row["circuits"]["test_far"]

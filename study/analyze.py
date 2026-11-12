@@ -23,6 +23,7 @@ calibration identify the data.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import sys
@@ -44,7 +45,7 @@ from study.derive import counts_files, profile_beside
 
 FORMAT = "1"
 STALE_DAYS = (1, 7, 30, 90, 180, 365)
-GROUPS = ("test_near", "test_far", "all")
+GROUPS = ("test", "test_near", "test_far", "all")
 TEST_GROUPS = ("test_near", "test_far")
 DEEP_PREFIXES = ("deep_", "pair", "qubit", "periodic_")
 CHAIN_KINDS = ("best", "median")
@@ -61,14 +62,20 @@ MODELS = (
     "readout_measured",
     "locus",
 )
-# The primary comparisons of the plan: model a, model b and the circuit groups of the test.
-COMPARISONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
-    ("calibration", "medians", TEST_GROUPS),
-    *(("calibration", name, GROUPS) for name in (*STALE, "bundled")),
-    ("calibration", "symmetric", TEST_GROUPS),
-    ("two_factor", "calibration", TEST_GROUPS),
-    ("readout_measured", "two_factor", TEST_GROUPS),
-    ("locus", "readout_measured", TEST_GROUPS),
+# The five primary comparisons of the plan: model a, model b and the circuit group. Two models
+# with no fitted parameter are tested on every circuit. A fitted model is tested on "test".
+PRIMARY: tuple[tuple[str, str, str], ...] = (
+    ("calibration", "medians", "all"),
+    ("calibration", "stale(30)", "all"),
+    ("calibration", "symmetric", "all"),
+    ("two_factor", "calibration", "test"),
+    ("locus", "two_factor", "test"),
+)
+SECONDARY: tuple[tuple[str, str, str], ...] = (
+    *(("calibration", name, "all") for name in (*STALE, "bundled") if name != "stale(30)"),
+    ("readout_measured", "two_factor", "test"),
+    ("locus", "readout_measured", "test"),
+    *((a, b, group) for a, b, _ in PRIMARY for group in TEST_GROUPS),
 )
 _READOUT = ("readout", "readout_1")
 
@@ -81,6 +88,7 @@ def groups(counts: MeasuredCounts) -> dict[str, list[str]]:
     """The circuit names of each group that the plan scores. A group with no circuit is left out."""
     names = [c.name for c in counts.circuits]
     found = {g: [n for n in names if role(n) == g] for g in TEST_GROUPS}
+    found["test"] = [n for n in names if role(n) in TEST_GROUPS]
     found["all"] = names
     return {g: found[g] for g in GROUPS if found[g]}
 
@@ -241,8 +249,10 @@ def analyze(
         try:
             row = analyze_run(path, cache=cache, offline=offline, pull=pull)
         except NoiseVaultError as exc:
-            # The message of a counts or profile error names fields, not values of the account.
-            failures.append({"error": type(exc).__name__, "message": exc.message})
+            # A message can hold the path of the file, and a file name can hold an id of the
+            # account. So a failure gives only the error type and the hash of the file.
+            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+            failures.append({"error": type(exc).__name__, "file": f"sha256:{digest}"})
             continue
         if row is None:
             skipped += 1
@@ -270,20 +280,24 @@ def markdown(data: dict[str, Any]) -> str:
         for name, reason in r["failures"].items():
             lines.append(f"No {name}: {reason}")
         lines.append("")
-    lines += ["## Primary comparisons", ""]
-    lines.append("| Device | Chain | Run | A | B | Group | Better | z | p |")
-    lines.append("| --- | --- | --- | --- | --- | --- | --- | --- | --- |")
-    for r in data["rows"]:
-        for test in r["paired"]:
-            log = test["log"]
-            lines.append(
-                f"| {r['device']} | {r['chain'] or '-'} | {r['run_at']} | {test['a']} |"
-                f" {test['b']} | {test['group']} | {test['winner'] or 'neither'} |"
-                f" {_number(log['z'], '.2f')} | {_number(log['p_value'], '.3g')} |"
-            )
+    for title, primary in (("Primary comparisons", True), ("Secondary comparisons", False)):
+        lines += [f"## {title}", ""]
+        lines.append("| Device | Chain | Run | A | B | Group | Better | z | p |")
+        lines.append("| --- | --- | --- | --- | --- | --- | --- | --- | --- |")
+        for r in data["rows"]:
+            for test in r["paired"]:
+                if test["primary"] != primary:
+                    continue
+                log = test["log"]
+                lines.append(
+                    f"| {r['device']} | {r['chain'] or '-'} | {r['run_at']} | {test['a']} |"
+                    f" {test['b']} | {test['group']} | {test['winner'] or 'neither'} |"
+                    f" {_number(log['z'], '.2f')} | {_number(log['p_value'], '.3g')} |"
+                )
+        lines.append("")
     for failure in data["failures"]:
-        lines += ["", f"Failed: {failure['error']}: {failure['message']}"]
-    return "\n".join(lines) + "\n"
+        lines += [f"Failed: {failure['error']} on the counts file {failure['file'][:19]}", ""]
+    return "\n".join(lines)
 
 
 def write(data: dict[str, Any], out: Path) -> None:
@@ -349,11 +363,9 @@ def _forecast(forecast: Forecast) -> dict[str, Any]:
 
 def _comparisons(forecasts: dict[str, dict[str, Forecast]]) -> list[dict[str, Any]]:
     tests = []
-    for a, b, wanted in COMPARISONS:
-        if a not in forecasts or b not in forecasts:
-            continue
-        for group in wanted:
-            if group not in forecasts[a]:
+    for primary, comparisons in ((True, PRIMARY), (False, SECONDARY)):
+        for a, b, group in comparisons:
+            if a not in forecasts or b not in forecasts or group not in forecasts[a]:
                 continue
             test = paired(forecasts[a][group], forecasts[b][group])
             data = test.to_dict()
@@ -362,6 +374,7 @@ def _comparisons(forecasts: dict[str, dict[str, Forecast]]) -> list[dict[str, An
                     "a": a,
                     "b": b,
                     "group": group,
+                    "primary": primary,
                     "winner": {"a": a, "b": b, "neither": None}[test.better],
                     "level": data["level"],
                     "log": data["log"],

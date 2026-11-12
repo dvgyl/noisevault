@@ -132,6 +132,9 @@ The adequacy of the best model is its excess on `test_far`, with the p-value of 
   its Holm correction counted. The plan now names five primary comparisons, one sign test for
   each, and the secondary comparisons that are descriptive. This entry was written before a test
   circuit of the deep circuit set was scored.
+- 2026-11-12: the `generic` model. Its depolarizing error is the depolarizing parameter: 0.001
+  for 1-qubit gates and 0.01 for 2-qubit gates. These values are average infidelities of 0.0005
+  and 0.0075.
 - 2026-11-12: the depths of the deep circuit set. From the week of 2026-11-16, `suite` takes the
   depths at which the profile with a gate factor of 2 predicts the ideal result with the
   probabilities 0.8, 0.6 and 0.4 (pairs: 0.8 and 0.55, qubits: 0.85). The runs of the week of
