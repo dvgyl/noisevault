@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 from collections.abc import Iterator, Sequence
 from datetime import UTC, datetime, timedelta
@@ -784,3 +785,45 @@ def test_the_ages_of_c_with_no_reply_at_all() -> None:
     found = analyze._ages(calibration, counts, None, lambda device, at: None)
 
     assert found == {"missing": {"calibration": "no_reply"}}
+
+
+def test_a_run_alone_has_no_model_with_the_factors_of_an_earlier_run(
+    result: dict[str, Any],
+) -> None:
+    assert _row(result)["before"] == {"missing": "no_earlier_run"}
+
+
+def test_the_model_before_takes_the_factors_of_the_run_5_to_9_days_before(
+    result: dict[str, Any],
+) -> None:
+    row = copy.deepcopy(_row(result))
+    path = result["root"] / "campaign" / "ibm_line" / "2026-04-13" / "best-deep.counts.json"
+    own = row["fits"]["two_factor"]
+
+    def run(days: float, chain: str = "best", **fits: Any) -> dict[str, Any]:
+        when = RUN_AT - timedelta(days=days)
+        stamp = when.isoformat().replace("+00:00", "Z")
+        return {"device": "ibm_line", "chain": chain, "run_at": stamp, "fits": fits}
+
+    same = {k: own[k] for k in ("gates", "readout")}
+    others = [run(4.9, **{"two_factor": same}), run(7, "median", **{"two_factor": same})]
+    assert analyze.earlier_run(row, [*others, row]) is None
+    week = run(7, two_factor=same)
+    older = run(9, two_factor={"gates": {"factor": 5.0}, "readout": {"factor": 1.0}})
+    assert analyze.earlier_run(row, [older, week, row]) is week
+
+    analyze._add_before(row, [older, week, row], path)
+
+    assert row["before"]["days"] == pytest.approx(7.0)
+    assert row["before"]["factors"] == {k: own[k]["factor"] for k in ("gates", "readout")}
+    with_own = _test(row, "two_factor_before", "two_factor", "test4")
+    assert with_own["log"]["outcome"] == "identical"
+    against = _test(row, "two_factor_before", "calibration", "test4")
+    first = _test(row, "two_factor", "calibration", "test4")
+    assert against["log"]["difference"] == pytest.approx(first["log"]["difference"], rel=1e-4)
+    assert "p_value" not in row["scores"]["two_factor_before"]["test4"]
+
+    row = copy.deepcopy(_row(result))
+    analyze._add_before(row, [older, row], path)
+    assert row["before"]["factors"] == {"gates": 5.0, "readout": 1.0}
+    assert _test(row, "two_factor_before", "two_factor", "test4")["winner"] == "two_factor"

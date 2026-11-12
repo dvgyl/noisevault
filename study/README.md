@@ -50,6 +50,7 @@ error and of its first cause, such as `CountsError from MissingCalibrationError`
 | `clifford` | The scores and tests on the Clifford circuits. The tests of the qubit score and of the wrong-bit score hold the sampling variance of both forecasts, and `sampling_ratio` gives its size. |
 | `twirl_check` | For each model of the Clifford comparisons and each 8-qubit circuit: the log score from the exact simulator and from the stabilizer forecast. |
 | `fits` | The fitted factors and, for `averaged(7)`, the number of different calibrations in the median. |
+| `before` | The run of the same device and chain kind 5 to 9 days before, and its `two_factor` factors. The secondary model `two_factor_before` applies them to C of this run, with the zero floor after. A second pass of `study.analyze` adds its comparisons with `calibration` and `two_factor` on `test4`. |
 | `ages` | The age of the calibration time and of the values of C and of each stale calibration. |
 
 `analysis.json` also holds `shot_checks`: for each device-week with one run on each chain kind,

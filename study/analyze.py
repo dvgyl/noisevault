@@ -115,12 +115,20 @@ WIDE_COMPARISONS: tuple[tuple[str, str, str], ...] = (
     ("locus", "two_factor", "wide"),
     ("calibration", "medians", "wide"),
 )
+# The comparisons of the model with the factors of the run 5 to 9 days before. A second pass
+# over the runs gives them, because the model needs the fit of another run.
+BEFORE_DAYS = (5, 9)
+BEFORE_COMPARISONS: tuple[tuple[str, str, str], ...] = (
+    ("two_factor_before", "calibration", "test4"),
+    ("two_factor_before", "two_factor", "test4"),
+)
 SECONDARY: tuple[tuple[str, str, str], ...] = (
     *(("calibration", name, "all4") for name in (*STALE, "bundled") if name != "stale(30)"),
     *PARTS_OF_5,
     ("averaged(7)", "calibration", "all4"),
     *WIDE_COMPARISONS,
     *((a, b, group) for a, b, _ in PRIMARY for group in TEST_GROUPS),
+    *BEFORE_COMPARISONS,
 )
 _READOUT = ("readout", "readout_1")
 CLIFFORD_PREFIX = "clifford_"
@@ -447,6 +455,8 @@ def analyze(
             rows.append(row)
             paths[row["counts_sha256"]] = path
     rows.sort(key=lambda r: (r["device"], r["run_at"], r["chain"] or "", r["counts_sha256"]))
+    for row in rows:
+        _add_before(row, rows, paths[row["counts_sha256"]])
     return {
         "nv_study_analysis": FORMAT,
         "rows": rows,
@@ -459,8 +469,75 @@ def analyze(
 
 def device_week(row: Mapping[str, Any]) -> tuple[str, date]:
     """The device and the Monday of the ISO week of the run time in UTC."""
-    when = datetime.fromisoformat(str(row["run_at"]).replace("Z", "+00:00")).astimezone(UTC)
-    return row["device"], week_of(when.date())
+    return row["device"], week_of(_run_time(row).date())
+
+
+def earlier_run(
+    row: Mapping[str, Any], rows: Sequence[Mapping[str, Any]]
+) -> Mapping[str, Any] | None:
+    """The newest run of the same device and the same chain kind from ``BEFORE_DAYS`` before
+    ``row``, or None when there is no such run."""
+    when = _run_time(row)
+    low, high = (timedelta(days=d) for d in BEFORE_DAYS)
+    found = [
+        r
+        for r in rows
+        if r["device"] == row["device"]
+        and r["chain"] == row["chain"]
+        and low <= when - _run_time(r) <= high
+    ]
+    return max(found, key=_run_time, default=None)
+
+
+def _add_before(row: dict[str, Any], rows: Sequence[Mapping[str, Any]], path: Path) -> None:
+    """Add the model ``two_factor_before`` to ``row``: the gate factor and the readout factor of
+    ``two_factor`` in the earlier run (see :func:`earlier_run`), on the calibration C of this
+    run, with the zero floor after. ``row["before"]`` gives the earlier run and the factors, or
+    the reason for no model. The comparisons of ``BEFORE_COMPARISONS`` go to ``row["paired"]``.
+    """
+    earlier = earlier_run(row, rows)
+    if earlier is None:
+        row["before"] = {"missing": "no_earlier_run"}
+        return
+    fitted = (earlier.get("fits") or {}).get("two_factor")
+    own = (row.get("fits") or {}).get("two_factor")
+    if not fitted or not own:
+        row["before"] = {"missing": "no_two_factor_fit"}
+        return
+    factors = {k: (fitted.get(k) or {}).get("factor") for k in ("gates", "readout")}
+    row["before"] = {
+        "run_at": earlier["run_at"],
+        "days": (_run_time(row) - _run_time(earlier)).total_seconds() / 86400,
+        "factors": factors,
+    }
+    try:
+        counts = load_counts(path)
+        calibration = nv.load(str(profile_beside(path)))
+        named = groups(counts)
+        if "test4" not in named:
+            row["before"]["missing"] = "no_test4_circuits"
+            return
+        mine = {k: (own.get(k) or {}).get("factor") for k in ("gates", "readout")}
+        built = {
+            "two_factor_before": models.with_factors(calibration, *factors.values()),
+            "two_factor": models.with_factors(calibration, *mine.values()),
+            "calibration": calibration,
+        }
+        forecasts = {
+            name: {"test4": score(models.floored(profile), counts, circuits=named["test4"])}
+            for name, profile in built.items()
+        }
+    except NoiseVaultError as exc:
+        row["before"]["missing"] = _reason(exc)
+        return
+    row["scores"]["two_factor_before"] = {
+        "test4": _forecast(forecasts["two_factor_before"]["test4"], fitted=True)
+    }
+    row["paired"] += _comparisons(forecasts, BEFORE_COMPARISONS)
+
+
+def _run_time(row: Mapping[str, Any]) -> datetime:
+    return datetime.fromisoformat(str(row["run_at"]).replace("Z", "+00:00")).astimezone(UTC)
 
 
 def _shot_checks(rows: Sequence[dict[str, Any]], paths: Mapping[str, Path]) -> list[dict[str, Any]]:
@@ -858,9 +935,15 @@ def _forecast_wrong(probabilities: np.ndarray, ideal: str) -> list[float]:
     return found
 
 
-def _comparisons(forecasts: dict[str, dict[str, Forecast]]) -> list[dict[str, Any]]:
+def _comparisons(
+    forecasts: Mapping[str, Mapping[str, Forecast]],
+    secondary: Sequence[tuple[str, str, str]] | None = None,
+) -> list[dict[str, Any]]:
+    """The paired tests of the primary and the secondary comparisons. With ``secondary``, only
+    the tests of those secondary comparisons."""
     tests = []
-    for primary, comparisons in ((True, PRIMARY), (False, SECONDARY)):
+    chosen = [(True, PRIMARY), (False, SECONDARY)] if secondary is None else [(False, secondary)]
+    for primary, comparisons in chosen:
         for a, b, group in comparisons:
             if a not in forecasts or b not in forecasts or group not in forecasts[a]:
                 continue
