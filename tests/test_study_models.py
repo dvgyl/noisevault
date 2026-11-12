@@ -127,6 +127,22 @@ def test_medians_gives_every_qubit_and_every_pair_the_same_values() -> None:
     assert found.calibration_fingerprint != profile.calibration_fingerprint
 
 
+def test_medians_keeps_a_virtual_default_and_scales_only_calibrated_records() -> None:
+    data = uneven().to_dict()
+    data["calibrations"] += [
+        {"gate": "rz", "qubits": [0], "virtual": False, "avg_infidelity": 1e-4},
+        {"gate": "rz", "qubits": [1], "virtual": False, "avg_infidelity": 3e-4},
+    ]
+    profile = Profile.model_validate(data)
+
+    found = models.medians(profile)
+
+    assert found.gates["rz"].virtual
+    assert found.table.gate("rz", (2,)).state == "ideal"
+    errors = [found.table.gate("rz", (q,)).avg_infidelity for q in (0, 1)]
+    assert errors == pytest.approx([2e-4, 2e-4])
+
+
 def test_symmetric_keeps_the_mean_of_the_two_readout_errors() -> None:
     profile = uneven()
 

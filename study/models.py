@@ -28,7 +28,7 @@ from noisevault.counts import MeasuredCircuit, MeasuredCounts
 from noisevault.errors import SourceUnavailable
 from noisevault.profile import ErrorFactor, Profile, gate_loci, iso_z, qubit_medians
 from noisevault.reference import probabilities
-from noisevault.table import GateNoise
+from noisevault.table import GateNoise, NoiseTable
 
 Pull = Callable[[str, datetime], Profile]
 Locus = tuple[int, ...]
@@ -112,9 +112,12 @@ def medians(profile: Profile) -> Profile:
         values: dict[str, Any] = {"avg_infidelity": error}
         if durations:
             values["duration_ns"] = median(durations)
-        data["gates"][name] = _metric(data["gates"][name], values)
+        default = base.gates[name]
+        if not default.virtual and not default.disabled and default.metric is not None:
+            data["gates"][name] = _metric(data["gates"][name], values)
         data["calibrations"] = [
-            _metric(r, values) if r["gate"] == name else r for r in data.get("calibrations", ())
+            _metric(r, values) if r["gate"] == name and _calibrated(table, r) else r
+            for r in data.get("calibrations", ())
         ]
 
     middle = qubit_medians(base)
@@ -520,6 +523,12 @@ def _fixed(profile: Profile, one: float, two: float, readout: float, *, kind: st
         if "readout" in q:
             q["readout"] = _readout(q["readout"], readout, readout)
     return Profile.model_validate(data)
+
+
+def _calibrated(table: NoiseTable, record: Mapping[str, Any]) -> bool:
+    """True when the gate of ``record`` resolves on its qubits to a gate with an error."""
+    found = table.gate(record["gate"], tuple(record["qubits"]))
+    return isinstance(found, GateNoise) and found.state == "calibrated"
 
 
 def _metric(spec: Mapping[str, Any], values: Mapping[str, Any]) -> dict[str, Any]:
