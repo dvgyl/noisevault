@@ -21,14 +21,11 @@ import numpy as np
 from .counts import PlannedCircuit
 from .errors import NoiseVaultError
 from .reference import probabilities
-from .suite import role
+from .suite import ASSUMED_GATE_FACTOR, role
 
 if TYPE_CHECKING:
     from .profile import Profile
 
-# The gate factor that the design assumes for the device. The first runs on IBM Heron devices
-# gave gate factors from 1.7 to 3.2.
-ASSUMED_GATE_FACTOR = 2.0
 MIN_SHOTS = 100
 _STEP = 1e-3
 _READOUT = ("readout", "readout_1")

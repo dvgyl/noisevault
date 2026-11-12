@@ -8,16 +8,18 @@ import pytest
 import noisevault as nv
 from noisevault.counts import plan, simulate
 from noisevault.profile import Profile
-from noisevault.reference import probabilities
+from noisevault.reference import Op, probabilities
 from noisevault.suite import (
+    ASSUMED_GATE_FACTOR,
     CHAIN_TARGETS,
     DEPTHS,
     MIN_WAIT_NS,
     TEST_SEED,
-    _ideal,
+    _circuit,
     describe,
     role,
     suite,
+    train_names,
 )
 
 LINE = [(0, 1), (1, 2), (2, 3)]
@@ -93,13 +95,60 @@ def test_some_deep_circuit_ends_in_a_bit_string_other_than_all_0(device, circuit
     assert ends - {0}
 
 
-def test_the_chain_depths_are_the_first_depths_that_reach_the_targets(device, circuits) -> None:
+def test_each_chain_depth_reaches_its_target_at_the_assumed_gate_factor(device, circuits) -> None:
+    ideal = _noiseless(device)
+    assumed = device.model_copy(
+        update={"unmodeled_error": {"gates": {"factor": ASSUMED_GATE_FACTOR}}}
+    )
     deep = {c.name: c for c in circuits if c.name.endswith("_s0") and c.name.startswith("deep_")}
     depths = sorted(int(name.split("_")[1][1:]) for name in deep)
     assert len(depths) == len(set(depths)) <= len(CHAIN_TARGETS)
     assert set(depths) <= set(DEPTHS)
     for depth, target in zip(depths, sorted(CHAIN_TARGETS, reverse=True), strict=False):
-        assert _ideal(deep[f"deep_d{depth}_s0"], device) <= target
+        circuit = deep[f"deep_d{depth}_s0"]
+        wanted = int(np.argmax(probabilities(ideal, circuit.ops, 4, layout=circuit.qubits)))
+        predicted = probabilities(assumed, circuit.ops, 4, layout=circuit.qubits)[wanted]
+        assert predicted <= target
+        assert probabilities(device, circuit.ops, 4, layout=circuit.qubits)[wanted] > predicted
+
+
+def test_the_depth_comes_from_the_ideal_result_and_not_from_the_most_likely_result() -> None:
+    # With this much relaxation, a qubit that should end in 1 is most likely read as 0. The
+    # probability of the ideal result is then far below every target at depth 1.
+    data = Profile.uniform(
+        "hot",
+        technology="superconducting",
+        num_qubits=1,
+        one_qubit_error=0.3,
+        readout_error=0.0,
+        t1_us=0.01,
+        t2_us=0.01,
+        one_qubit_ns=1000.0,
+    ).to_dict()
+    data["gates"] = {"x": data["gates"]["x"]}
+    hot = Profile.model_validate(data)
+    names = [c.name for c in suite(hot)]
+    assert "qubit0_d1" in names
+
+
+def test_a_wait_on_a_later_qubit_that_disables_delay_is_refused() -> None:
+    data = _device().to_dict()
+    data["gates"]["delay"] = {}
+    data["calibrations"] = [{"gate": "delay", "qubits": [2], "disabled": True}]
+    profile = Profile.model_validate(data)
+    # Qubit 0 and qubit 2 wait while qubit 1 runs its gate. Only qubit 2 disables delay.
+    with pytest.raises(nv.errors.LayoutError, match="qubit 2 waits"):
+        _circuit(profile, "one_gate", (0, 1, 2), [(Op("x", (1,)),)])
+
+
+def test_train_names_gives_the_fit_circuits_of_each_run_that_suite_makes(circuits) -> None:
+    names = [c.name for c in circuits]
+    assert train_names(names) == [name for name in names if role(name) == "train"]
+    assert train_names(["ghz_chain", "mirror", "single_qubit", "readout"]) is None
+    assert train_names(["mirror", "single_qubit", "readout", "qubit0_d6"]) == [
+        "readout",
+        "qubit0_d6",
+    ]
 
 
 def test_a_wait_is_never_shorter_than_the_minimum(circuits) -> None:

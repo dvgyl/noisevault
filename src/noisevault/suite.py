@@ -3,8 +3,9 @@
 ``plan`` gives the short ``nv check`` circuits. A short circuit has few errors, so most shots
 carry no information on the error rates. ``suite`` adds deep mirror circuits: layers of random
 native gates, then the same layers undone, so the ideal result is one known bit string. The
-depth of each circuit comes from the profile. The profile predicts the probability of the
-ideal result, and ``suite`` takes the depths where that probability reaches fixed targets.
+depth of each circuit comes from the profile. The profile with ``ASSUMED_GATE_FACTOR`` on its
+gate errors predicts the probability of the ideal result, and ``suite`` takes the depths where
+that probability reaches fixed targets.
 
 The set has three roles, which ``role`` gives for each circuit name:
 
@@ -29,7 +30,7 @@ import numpy as np
 
 from . import check
 from .counts import PlannedCircuit, _delay_disabled, _duration, plan
-from .errors import LayoutError, NoiseVaultError
+from .errors import LayoutError
 from .reference import Op, probabilities
 
 if TYPE_CHECKING:
@@ -38,18 +39,22 @@ if TYPE_CHECKING:
 Role = Literal["train", "test_near", "test_far"]
 Layer = tuple[Op, ...]
 
-SUITE = "1"
 MIN_WAIT_NS = 16.0
 # Candidate depths in layers. A circuit of depth m holds m layers and then their inverses.
 DEPTHS = (1, 2, 3, 4, 6, 8, 12, 16, 24, 32, 48, 64, 96, 128, 192, 256)
+# The first runs on IBM Heron devices gave gate errors 1.7 to 3.2 times the stated errors. A
+# depth that suits the stated errors is then too deep: a circuit on two qubits gives its ideal
+# result with a probability near 1/4 and tells little. So the depths suit this factor.
+ASSUMED_GATE_FACTOR = 2.0
 # The predicted probability of the ideal result at which each family takes a depth.
-CHAIN_TARGETS = (0.9, 0.75, 0.55)
-PAIR_TARGETS = (0.85, 0.6)
-QUBIT_TARGETS = (0.9,)
+CHAIN_TARGETS = (0.8, 0.6, 0.4)
+PAIR_TARGETS = (0.8, 0.55)
+QUBIT_TARGETS = (0.85,)
 TRAIN_SEEDS = (0, 1)
 TEST_SEED = 2
 _CHAIN, _PAIR, _QUBIT, _FLIP = 1, 2, 3, 4
 _TRAIN_PREFIXES = ("readout", "pair", "qubit")
+_ONLY_IN_SUITE = ("readout_1", "deep_", "pair", "qubit", "periodic_")
 _FLIPPED = 1 - 1e-9
 
 
@@ -74,6 +79,9 @@ def suite(
     factors gives the circuits of its calibration.
     """
     base = profile.uncorrected()
+    assumed = base.model_copy(
+        update={"unmodeled_error": {"gates": {"factor": ASSUMED_GATE_FACTOR}}}
+    )
     planned = plan(base, layout)
     chain = max((c.qubits for c in planned), key=len)
     natives = _natives(base, chain)
@@ -87,21 +95,22 @@ def suite(
     middle = None
     if n >= 2 and all(natives.pairs):
         for s in (*TRAIN_SEEDS, TEST_SEED):
-            for depth, built in _family(base, chain, natives, CHAIN_TARGETS, (seed, _CHAIN, s)):
+            stream = (seed, _CHAIN, s)
+            for depth, built in _family(assumed, chain, natives, CHAIN_TARGETS, stream):
                 circuits.append(built.model_copy(update={"name": f"deep_d{depth}_s{s}"}))
-        depths = _depths(base, chain, natives, CHAIN_TARGETS, (seed, _CHAIN, TRAIN_SEEDS[0]))
+        depths = _depths(assumed, chain, natives, CHAIN_TARGETS, (seed, _CHAIN, TRAIN_SEEDS[0]))
         middle = depths[len(depths) // 2]
         for i in range(n - 1):
             sub = chain[i : i + 2]
             found = _natives(base, sub)
-            for depth, built in _family(base, sub, found, PAIR_TARGETS, (seed, _PAIR, i)):
+            for depth, built in _family(assumed, sub, found, PAIR_TARGETS, (seed, _PAIR, i)):
                 circuits.append(built.model_copy(update={"name": f"pair{i}_d{depth}_s0"}))
 
     longest = 0
     for i in range(n):
         sub = chain[i : i + 1]
         found = _natives(base, sub)
-        for depth, built in _family(base, sub, found, QUBIT_TARGETS, (seed, _QUBIT, i)):
+        for depth, built in _family(assumed, sub, found, QUBIT_TARGETS, (seed, _QUBIT, i)):
             circuits.append(built.model_copy(update={"name": f"qubit{i}_d{depth}"}))
             longest = max(longest, depth)
     if n >= 2 and longest:
@@ -122,6 +131,17 @@ def role(name: str) -> Role:
     if name.startswith("qubits_"):
         return "test_far"
     return "train" if name.startswith(_TRAIN_PREFIXES) else "test_far"
+
+
+def train_names(names: Sequence[str]) -> list[str] | None:
+    """The names of the ``train`` circuits of a run of ``suite``, in their order.
+
+    Returns None when ``names`` hold no circuit that only ``suite`` makes. Such a run holds the
+    circuits of ``plan``, and a fit uses all of them.
+    """
+    if not any(name.startswith(_ONLY_IN_SUITE) for name in names):
+        return None
+    return [name for name in names if role(name) == "train"]
 
 
 def _natives(profile: Profile, chain: Sequence[int]) -> _Natives:
@@ -204,9 +224,16 @@ def _mirror(
     stream: Sequence[int],
 ) -> PlannedCircuit:
     """``layers``, their inverses, and flips to a random ideal bit string."""
-    bits = np.random.default_rng([*stream, _FLIP]).integers(2, size=len(qubits))
+    bits = _ideal_bits(natives, len(qubits), stream)
     every = [*layers, *_undone(layers), *_flip_layers(natives, bits)]
     return _circuit(profile, name, qubits, every)
+
+
+def _ideal_bits(natives: _Natives, n: int, stream: Sequence[int]) -> list[int]:
+    """The ideal result of the mirror circuit of ``stream``, circuit qubit 0 first."""
+    if natives.flip is None:
+        return [0] * n
+    return [int(bit) for bit in np.random.default_rng([*stream, _FLIP]).integers(2, size=n)]
 
 
 def _circuit(
@@ -214,13 +241,13 @@ def _circuit(
 ) -> PlannedCircuit:
     chain = tuple(qubits)
     ops = _synchronous(profile, chain, layers)
-    waits = next((q for op in ops if op.name == "delay" for q in op.qubits), None)
-    if waits is not None and _delay_disabled(profile, chain[waits]):
-        raise LayoutError(
-            f"circuit {name!r}: qubit {chain[waits]} waits, but {profile.id} disables delay on"
-            " that qubit",
-            hint="pass layout= with qubits that allow delay",
-        )
+    for q in sorted({q for op in ops if op.name == "delay" for q in op.qubits}):
+        if _delay_disabled(profile, chain[q]):
+            raise LayoutError(
+                f"circuit {name!r}: qubit {chain[q]} waits, but {profile.id} disables delay on"
+                " that qubit",
+                hint="pass layout= with qubits that allow delay",
+            )
     return PlannedCircuit(name=name, qubits=chain, ops=tuple(ops))
 
 
@@ -240,10 +267,11 @@ def _synchronous(profile: Profile, qubits: tuple[int, ...], layers: Sequence[Lay
     return ops
 
 
-def _ideal(circuit: PlannedCircuit, profile: Profile) -> float:
-    """The probability that ``profile`` gives the most likely result of ``circuit``."""
+def _ideal(circuit: PlannedCircuit, profile: Profile, bits: Sequence[int]) -> float:
+    """The probability that ``profile`` gives the ideal result ``bits`` of ``circuit``."""
     n = len(circuit.qubits)
-    return float(probabilities(profile, circuit.ops, n, layout=circuit.qubits).max())
+    index = int("".join(str(bit) for bit in bits), 2)
+    return float(probabilities(profile, circuit.ops, n, layout=circuit.qubits)[index])
 
 
 def _depths(
@@ -256,9 +284,11 @@ def _depths(
     """For each target, the first depth at which the predicted ideal result is that rare."""
     found: list[int] = []
     remaining = sorted(targets, reverse=True)
+    bits = _ideal_bits(natives, len(qubits), stream)
     for depth in DEPTHS:
         layers = _layers(natives, len(qubits), depth, stream)
-        predicted = _ideal(_mirror(profile, "deep", qubits, natives, layers, stream), profile)
+        built = _mirror(profile, "deep", qubits, natives, layers, stream)
+        predicted = _ideal(built, profile, bits)
         while remaining and predicted <= remaining[0]:
             remaining.pop(0)
             if depth not in found:
@@ -301,12 +331,3 @@ def describe(circuits: Sequence[PlannedCircuit]) -> list[dict[str, Any]]:
             }
         )
     return rows
-
-
-def require_deep(circuits: Sequence[PlannedCircuit], profile: Profile) -> None:
-    """Raise NoiseVaultError when ``circuits`` hold no deep circuit."""
-    if not any(c.name.startswith("deep_") or c.name.startswith("qubit") for c in circuits):
-        raise NoiseVaultError(
-            f"{profile.id} has no native gate that a deep circuit can undo on this chain",
-            hint="use the circuits of plan(), or pass layout= with other qubits",
-        )

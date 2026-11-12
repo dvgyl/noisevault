@@ -490,10 +490,12 @@ the two calibrations, with the largest changes by qubit and by pair.
 The `nv compare` circuits are short. A short circuit has few errors, so most shots give no
 information on the error rates. `noisevault.suite.suite(profile)` adds deep mirror circuits to
 them. A deep mirror circuit applies layers of random native gates and then undoes them, so the
-ideal result is one known bit string. The depth of each circuit comes from the profile: `suite`
-takes the depths at which the profile predicts the ideal result with a probability of 0.9, 0.75
-and 0.55. The set also has such circuits on each pair and each qubit of the chain, a second
-readout circuit that prepares each qubit in 1, and circuits that no fit uses.
+ideal result is one known bit string. The depth of each circuit comes from the profile. The
+first runs on IBM devices gave gate errors about 2 times the stated errors, so `suite` assumes
+that factor. It takes the depths at which the profile with that factor predicts the ideal result
+with a probability of 0.8, 0.6 and 0.4. The set also has such circuits on each pair and each
+qubit of the chain, a second readout circuit that prepares each qubit in 1, and circuits that no
+fit uses.
 
 To run the set, add `--suite` to `scripts/run_on_ibm.py` or to the campaign:
 
