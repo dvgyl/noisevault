@@ -34,7 +34,7 @@
       "vendor": "google"
     },
     {
-      "artifact_hash": "20886a1eb398c7a0163867222df242d1c58fd73bff2b039a755db3d596ef3a7c",
+      "artifact_hash": "7f24759fc08eb89c97fab8def6c65340fe342f319ec99a096daf2a8cfec353b7",
       "calibrated_at": "2026-04-17T10:29:46Z",
       "data_kind": "measured",
       "date": "2026-04-17",
@@ -50,7 +50,7 @@
       "vendor": "ibm"
     },
     {
-      "artifact_hash": "64ff99a180c6ebf2d914f9adba54eb939e592310b849a7f3ae74c8c378012563",
+      "artifact_hash": "9c7d1fada58ab73787e5cc0e086d5c9df96647662862823f3ec157a8a97ed352",
       "calibrated_at": "2026-04-17T05:56:22Z",
       "data_kind": "measured",
       "date": "2026-04-17",
@@ -66,7 +66,7 @@
       "vendor": "ibm"
     },
     {
-      "artifact_hash": "e9dc94f7e86da4a73109eae749b551a36c7c987197869dc385bc075fc80e1d1a",
+      "artifact_hash": "a3f63bbf7385ba47b775c5e48e21bc0957793c1ca9310f64d4a7a9c3cb702c6a",
       "calibrated_at": "2026-04-17T10:19:24Z",
       "data_kind": "measured",
       "date": "2026-04-17",
@@ -82,7 +82,7 @@
       "vendor": "ibm"
     },
     {
-      "artifact_hash": "3eeb7975d868b4d48b3e65f3f317b005a947e368d9a59b947a6a9d4e32a30001",
+      "artifact_hash": "e124078d808a9bbdaac4b5a601874cad29a22e7301b2fa20c05b79c572e7272b",
       "calibrated_at": "2025-02-26T19:33:06Z",
       "data_kind": "measured",
       "date": "2025-02-26",
@@ -98,7 +98,7 @@
       "vendor": "ibm"
     },
     {
-      "artifact_hash": "3926934a20ad167b277468121de34f09360b4297a4f51ced104aa3d0651579ca",
+      "artifact_hash": "56162a9c1605aa8553e3be79d05927c761892b14eec6882d963f13894c885ea3",
       "calibrated_at": "2026-04-17T05:27:08Z",
       "data_kind": "measured",
       "date": "2026-04-17",
@@ -114,7 +114,7 @@
       "vendor": "ibm"
     },
     {
-      "artifact_hash": "e0c8d397cf8b3a00de7bd39eea083a1397848f4d381c67e228aca72a01fc2fcf",
+      "artifact_hash": "a8dc21ee84ba8dda9ae8e3fbf8d3cc878d82ac67cb59fb727bbff8fe76df959b",
       "calibrated_at": "2025-02-26T20:35:12Z",
       "data_kind": "measured",
       "date": "2025-02-26",
@@ -130,7 +130,7 @@
       "vendor": "ibm"
     },
     {
-      "artifact_hash": "6c257516a4cee9740a261307926d359548b0e5ec0a898af256c7ac0d0300bd99",
+      "artifact_hash": "66a7a755da32e58a8aa192818347fed7ddfe735e0f3c2cc92c125f90afe93454",
       "calibrated_at": "2025-02-26T20:16:25Z",
       "data_kind": "measured",
       "date": "2025-02-26",
@@ -146,7 +146,7 @@
       "vendor": "ibm"
     },
     {
-      "artifact_hash": "f2f2a6df8c2014ab222c9ac281d7cf5fcacc995bea505e81bfa1196ecc48255e",
+      "artifact_hash": "6283d2f04a4b21721e6fbe449a4de54637ddc8d8437ee56780fe8c24bcca8c71",
       "calibrated_at": "2025-02-26T18:56:01Z",
       "data_kind": "measured",
       "date": "2025-02-26",
@@ -162,7 +162,7 @@
       "vendor": "ibm"
     },
     {
-      "artifact_hash": "8571a7893d95ec26d5e337638a70b026224890112d8a7fb0a068550f5716da23",
+      "artifact_hash": "c6cac89dfb0db8aa45c3746d41cf16ef64e3587d82b72daafbee9e575cab63fb",
       "calibrated_at": "2026-04-15T07:15:15Z",
       "data_kind": "measured",
       "date": "2026-04-15",
@@ -178,7 +178,7 @@
       "vendor": "ibm"
     },
     {
-      "artifact_hash": "f6872c20f4d9d7f3b1467815873919a976ca52a6f8fd92ab044e0b641544fcb3",
+      "artifact_hash": "f6843542e33b9696825bcf9fbb7a247076d9c0b7da33a7dd404926f1aeeb7afa",
       "calibrated_at": "2025-02-26T16:02:56Z",
       "data_kind": "measured",
       "date": "2025-02-26",
@@ -194,7 +194,7 @@
       "vendor": "ibm"
     },
     {
-      "artifact_hash": "8c8fc0181a5a56592332b501007b7cce799752a984f16758e3a11640bc57fe38",
+      "artifact_hash": "f576ba44f9aa9d1c1aff589c3ef6835c853ae812c7d406c2472886fb195af055",
       "calibrated_at": "2024-05-27T18:27:23Z",
       "data_kind": "measured",
       "date": "2024-05-27",
@@ -210,7 +210,7 @@
       "vendor": "ibm"
     },
     {
-      "artifact_hash": "f93d6034c6631453f92a99919061fd2eaaac8a55fd8c7014c4ae23db5bc78529",
+      "artifact_hash": "e5847a33efeb67453cfb06296719208627518c6ee0fa2ae383fffc898f916fa2",
       "calibrated_at": "2025-02-26T19:52:45Z",
       "data_kind": "measured",
       "date": "2025-02-26",
@@ -226,7 +226,7 @@
       "vendor": "ibm"
     },
     {
-      "artifact_hash": "0eef5820bdd3a2a2c551a48ce955783c18fb20b03202aa64694fdf46d9acf315",
+      "artifact_hash": "b0e6cfaf6a4321054bb082973bc64f39a2d611d0927952734d491b241c4f1d85",
       "calibrated_at": "2026-04-17T08:46:55Z",
       "data_kind": "measured",
       "date": "2026-04-17",
@@ -242,7 +242,7 @@
       "vendor": "ibm"
     },
     {
-      "artifact_hash": "bed8543c5606c589fe7171971510de112001b4e799f040e1466aab32f30d3460",
+      "artifact_hash": "4a92bd5a3ba5398b155f72fb3caeb79afd33f8cd3c8efda676f3ff5246afe179",
       "calibrated_at": "2026-04-17T09:46:32Z",
       "data_kind": "measured",
       "date": "2026-04-17",
@@ -258,7 +258,7 @@
       "vendor": "ibm"
     },
     {
-      "artifact_hash": "80e8ca956c5aac15233441f5583c2c7c3651ec922e8368e098792a306ed8a824",
+      "artifact_hash": "11ec2ea48ca9c1098cac98817c2c801de1834dc2411ba8b98ea90f8c9f56a552",
       "calibrated_at": "2025-02-26T20:40:55Z",
       "data_kind": "measured",
       "date": "2025-02-26",
@@ -274,7 +274,7 @@
       "vendor": "ibm"
     },
     {
-      "artifact_hash": "e9f88de2c0ab2d469270d1c371f9755564589aedb487f692e47099e70145c880",
+      "artifact_hash": "baecb501edc47fa5680f941230acc27f625b871d437e1322d2db82ae5f02636c",
       "calibrated_at": "2025-02-26T19:43:10Z",
       "data_kind": "measured",
       "date": "2025-02-26",
@@ -290,7 +290,7 @@
       "vendor": "ibm"
     },
     {
-      "artifact_hash": "93398fc6428f1ccf775e11a614ae85b7a49cf80f69eed776cd787ccec6560483",
+      "artifact_hash": "c8bb0ea0620717d3c63a3d60d022b895eaff2bd2560a8febd3f568b18ace5036",
       "calibrated_at": "2026-04-17T10:37:46Z",
       "data_kind": "measured",
       "date": "2026-04-17",
@@ -306,7 +306,7 @@
       "vendor": "ibm"
     },
     {
-      "artifact_hash": "311c47c570b2cf7d3240fb68bf10b7be56d727d4ef7f6ce0e43912aaaba4d642",
+      "artifact_hash": "ba17f9f4112533d4b169f6f59ad4b4e5b8dd5013eaeaac37e00f2ad37406eaa8",
       "calibrated_at": "2025-02-26T20:26:08Z",
       "data_kind": "measured",
       "date": "2025-02-26",
