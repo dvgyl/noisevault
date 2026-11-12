@@ -4,7 +4,8 @@
 
 The script reads each ``*.counts.json`` file below the folder, with the profile file beside it
 (``<stem>.profile.json``, which the run scripts write). It fits the factors of ``nv compare`` on
-each file and writes ``fits.json`` and ``fits.md`` to the output folder.
+each file and writes ``fits.json`` and ``fits.md`` to the output folder. For a run of the deep
+circuit set, the fit uses only the ``train`` circuits (see ``PLAN.md``).
 
 The output holds derived numbers only: fitted factors, intervals, distances and tests. A row holds
 no counts, no calibration value, no file name and no job id. The SHA-256 of each counts file and
@@ -22,8 +23,9 @@ from pathlib import Path
 from typing import Any
 
 import noisevault as nv
-from noisevault.counts import load_counts
+from noisevault.counts import MeasuredCounts, load_counts
 from noisevault.errors import NoiseVaultError
+from noisevault.suite import role
 
 FORMAT = "1"
 COUNTS_SUFFIXES = (".counts.json", ".counts.json.gz")
@@ -45,9 +47,18 @@ def profile_beside(path: Path) -> Path:
     return path.with_name(stem + ".profile.json")
 
 
+def fit_counts(counts: MeasuredCounts) -> tuple[MeasuredCounts, str]:
+    """The counts that a fit can use. A run of the deep circuit set gives only its ``train``
+    circuits, so that no fit sees a test circuit."""
+    names = [c.name for c in counts.circuits]
+    if not any(name == "readout_1" or name.startswith("deep_") for name in names):
+        return counts, "all"
+    return counts.select([name for name in names if role(name) == "train"]), "train"
+
+
 def fit(path: Path) -> dict[str, Any]:
     """The derived row of one counts file."""
-    counts = load_counts(path)
+    counts, fit_on = fit_counts(load_counts(path))
     profile = nv.load(str(profile_beside(path)))
     row = profile.compare(counts).to_dict()
     device = profile.device
@@ -55,6 +66,7 @@ def fit(path: Path) -> dict[str, Any]:
         "vendor": device.vendor,
         "technology": device.technology,
         "calibrated_at": None if device.calibrated_at is None else device.calibrated_at.isoformat(),
+        "fit_on": fit_on,
         **row,
     }
 

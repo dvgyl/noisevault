@@ -6,6 +6,7 @@ from pathlib import Path
 
 import noisevault as nv
 from noisevault.counts import plan, simulate
+from noisevault.suite import role, suite
 from study import derive
 
 RUN_AT = datetime(2026, 4, 16, 9, 30, tzinfo=UTC)
@@ -70,3 +71,22 @@ _CIRCUIT_KEYS = {
     "shot_noise_95",
     "impossible",
 }
+
+
+def test_a_run_of_the_deep_circuit_set_is_fitted_on_its_train_circuits_only() -> None:
+    profile = nv.Profile.uniform(
+        "line",
+        technology="superconducting",
+        num_qubits=2,
+        one_qubit_error=1e-3,
+        two_qubit_error=1e-2,
+        readout_error=2e-2,
+    )
+    counts = simulate(profile, suite(profile), shots=100, seed=1, run_at=RUN_AT)
+
+    used, fit_on = derive.fit_counts(counts)
+
+    assert fit_on == "train"
+    assert {role(c.name) for c in counts.circuits} == {"train", "test_near", "test_far"}
+    assert {role(c.name) for c in used.circuits} == {"train"}
+    assert derive.fit_counts(counts.select(["readout", "ghz_chain"]))[1] == "all"
