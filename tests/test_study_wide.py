@@ -268,6 +268,26 @@ def test_a_marginal_or_a_cell_with_few_samples_gives_no_verdict(line_24: Profile
     assert not wide.few_cell_samples(many[0], circuit, many[0], many[1])
 
 
+def test_a_constant_difference_keeps_its_value_and_the_sampling_variance_decides() -> None:
+    times = np.array([3.0, 1.0])
+    a, b = np.array([-1.0, -2.0]), np.array([-1.2, -2.2])
+
+    found = wide._shot_test([(times, a, b)])
+
+    assert found.outcome == "tested"
+    assert found.difference == pytest.approx(0.2) and found.standard_error == 0.0
+    assert found.z is None
+    with_samples, sampling = wide.with_sampling(found, 0.01, 4)
+    assert with_samples.difference == pytest.approx(0.2)
+    assert with_samples.z == pytest.approx(0.8 / 0.1)
+    assert with_samples.better == "neither" and sampling.reason == "sampling_variance"
+    alone, none = wide.with_sampling(found, 0.0, 4)
+    assert alone.difference == pytest.approx(0.2) and alone.z is None
+    assert alone.better == "neither" and none.reason == "no_variance"
+    same = wide._shot_test([(times, a, a)])
+    assert same.outcome == "identical" and same.difference == 0.0
+
+
 def test_a_test_with_more_sampling_variance_than_shot_variance_gives_no_verdict() -> None:
     from noisevault.score import RuleTest
 

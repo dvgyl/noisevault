@@ -103,7 +103,8 @@ class Sampling:
     and their ratio. Both variances are of the sum of the score differences over the shots.
     ``reason`` says why the test gives no verdict for a reason of the samples:
     ``few_samples`` (a marginal or a cell has fewer than ``MIN_SAMPLES`` samples) or
-    ``sampling_variance`` (the ratio is above 1). It is None otherwise."""
+    ``sampling_variance`` (the sampling variance is larger than the shot variance) or
+    ``no_variance`` (both variances are 0, so there is no test). It is None otherwise."""
 
     variance: float
     shot_variance: float
@@ -359,9 +360,14 @@ def with_sampling(
     total = test.difference * shots
     shot_variance = (test.standard_error * shots) ** 2
     error = math.sqrt(shot_variance + variance)
+    if error == 0:
+        # No shot variance and no sampling variance: no test, but the difference stays.
+        reason = "few_samples" if few else "no_variance"
+        found = RuleTest(test.rule, "tested", test.difference, 0.0, None, None, "neither")
+        return found, Sampling(variance, shot_variance, reason)
     z = total / error
     p_value = math.erfc(abs(z) / math.sqrt(2))
-    too_large = shot_variance > 0 and variance / shot_variance > 1
+    too_large = variance > shot_variance
     reason = "few_samples" if few else "sampling_variance" if too_large else None
     sampling = Sampling(variance, shot_variance, reason)
     better: Choice = "neither" if p_value >= LEVEL or reason else "a" if z > 0 else "b"
@@ -529,7 +535,12 @@ def _scores(
 
 def _shot_test(circuits: list[tuple[np.ndarray, np.ndarray, np.ndarray]]) -> RuleTest:
     """The paired z-test of the per-shot score differences. Each circuit gives the shots of
-    each measured row and the score of each row under model a and under model b."""
+    each measured row and the score of each row under model a and under model b.
+
+    The outcome is ``identical`` only when each difference is 0. When each shot has the same
+    difference that is not 0, the shot variance is 0 and the result keeps the difference, with
+    the standard error 0 and no z. :func:`with_sampling` then decides on the test, after it adds
+    the sampling variance."""
     total, variance, shots, scale = 0.0, 0.0, 0.0, 0.0
     for times, score_a, score_b in circuits:
         d = score_a - score_b
@@ -541,8 +552,10 @@ def _shot_test(circuits: list[tuple[np.ndarray, np.ndarray, np.ndarray]]) -> Rul
         shots += n
         scale += n * float(np.abs(d).max())
     error = math.sqrt(variance)
-    if error <= 1e-12 * scale:
+    if scale == 0:
         return RuleTest("log", "identical", 0.0, 0.0, None, None, "neither")
+    if error <= 1e-12 * scale:
+        return RuleTest("log", "tested", total / shots, 0.0, None, None, "neither")
     z = total / error
     p_value = math.erfc(abs(z) / math.sqrt(2))
     better: Choice = "neither" if p_value >= LEVEL else "a" if z > 0 else "b"
