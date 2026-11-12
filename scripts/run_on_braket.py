@@ -370,51 +370,47 @@ def _design(
     """The design with the smallest predicted error of the gate factor that costs at most
     ``budget``, with the task price of the way that the run submits it.
 
-    A design for one program set task can hold more shots than the device limits allow. Then the
-    design is made again with fewer shots per circuit. A design for one task per circuit is also
-    made, and the better design is taken.
+    The total shots of one program set task cost at most the task price and the shot price of
+    ``maximumTotalShots``, so the design for one task spends at most that amount. A design for
+    one task per circuit is also made, and the design with the smaller predicted error is taken.
     """
     low, high = shots_range
     least = max(MIN_SHOTS, int(low))
+    most = None if math.isinf(high) else int(high)
 
-    def make(one_task: bool, most: int | None) -> Design:
+    def make(one_task: bool, spend: Decimal) -> Design:
         task_price = DesignPrice(float(price.task), float(price.shot), one_task)
+        shots = most
         while True:
             found = design(
                 profile,
                 circuits,
-                budget=float(budget),
+                budget=float(spend),
                 price=task_price,
                 min_shots=least,
-                max_shots=most,
+                max_shots=shots,
             )
             exact = estimate(price, len(found.circuits), found.shots, one_task)
-            if exact <= budget:
+            if exact <= spend:
                 return found
             # The design computes in floats, and the exact cost can then be a fraction of a cent
             # above the budget.
-            most = found.shots - 1
+            shots = found.shots - 1
 
-    top = None if math.isinf(high) else int(high)
     designs: list[Design] = []
     failure: NoiseVaultError | None = None
     if limits:
-        most = top
-        while True:
-            try:
-                found = make(True, most)
-            except NoiseVaultError as exc:
-                if most == top:
-                    failure = exc
-                break
+        spend = min(budget, price.task + limits.get("maximumTotalShots", 0) * price.shot)
+        try:
+            found = make(True, spend)
+        except NoiseVaultError as exc:
+            if spend == budget:
+                failure = exc
+        else:
             if _fits(limits, len(found.circuits), found.shots):
                 designs.append(found)
-                break
-            if len(found.circuits) > limits.get("maximumExecutables", 0):
-                break
-            most = limits.get("maximumTotalShots", 0) // len(found.circuits)
     try:
-        designs.append(make(False, top))
+        designs.append(make(False, budget))
     except NoiseVaultError as exc:
         failure = failure or exc
     if not designs:
