@@ -1199,6 +1199,37 @@ def compare(
             raise failure
 
 
+@app.command()
+def score(
+    refs: Annotated[
+        list[str], _argument("REF...", "Profile ids (ibm_fez), id@date, or file paths.")
+    ],
+    counts: Annotated[str, _argument("COUNTS", "Counts file: .json or .json.gz, format 1.0.")],
+    as_json: Annotated[bool, typer.Option("--json", help="Print JSON.")] = False,
+) -> None:
+    """Score profiles as forecasts of counts from a device, with no fit."""
+    from .score import rank
+
+    with _friendly():
+        profiles = [_load(ref, counts_hint=_SCORE_ORDER) for ref in refs]
+        measured = _read_counts(Path(counts))
+        with err.status("Scoring the profiles..."):
+            ranking = rank(
+                [
+                    (ref, profile.score(measured))
+                    for ref, profile in zip(refs, profiles, strict=True)
+                ]
+            )
+        if as_json:
+            _echo_json(ranking.to_dict())
+        else:
+            for line in ranking.summary(counts_file=counts, width=out.width).splitlines():
+                out.print(Text(line), soft_wrap=True)
+
+
+_SCORE_ORDER = "nv score takes the profiles first and the counts file last"
+
+
 _COUNTS_FILE = "give a counts file (.json or .json.gz)"
 
 

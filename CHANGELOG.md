@@ -7,6 +7,13 @@ This file lists all notable changes to NoiseVault. Versions follow
 
 ### Added
 
+- **`nv score` scores profiles as forecasts of a counts file, with no fit.** For each profile,
+  it gives the log score, the quadratic score, the shots that the profile rules out and the
+  excess over the best possible log score, with a shot-noise reference. A paired test says which
+  of two profiles forecasts the counts better. The profile can be of any date or device. In
+  Python, use `Profile.score(counts)`, `noisevault.score.paired(a, b)`, and
+  `MeasuredCounts.select(names)` and `MeasuredCounts.split(fraction, seed)` for held-out data.
+  [docs/scoring.md](docs/scoring.md)
 - **Deep circuit set.** `noisevault.suite.suite(profile)` gives the `nv compare` circuits and
   deep mirror circuits on the same chain. Each deep circuit applies layers of random native
   gates and then undoes them. Its depth comes from the profile, at the predicted probabilities
