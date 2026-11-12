@@ -110,6 +110,13 @@ these two steps gave the wrong verdict in 92% of the runs. In a usual case (6 qu
 error of 0.03, two profiles with the same expected score), the test rejected in 3.2% of 4000
 runs at the 5% level.
 
+These numbers hold for this example and this usual case, not for each pair of profiles. The two
+steps assume that no unseen outcome has a true probability far above the probability that the
+two profiles give it. One can construct a pair of profiles that breaks this: one rare outcome
+with a very large score difference among many other rare outcomes. The first step then hides
+that outcome, and the test can give a false verdict in most runs. No test of a log score is
+safe against each such case.
+
 The two-sided p-value comes from the standard normal distribution. The result gives the mean
 difference per shot, D / N, with its standard error, z and p for each rule. `better` is `"a"` or
 `"b"` when p is below 0.05, and `"neither"` when it is not.
