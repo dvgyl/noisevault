@@ -46,14 +46,26 @@ def holm(p_values: Sequence[float]) -> list[float]:
     return adjusted
 
 
+def unique(rows: Sequence[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
+    """The first row of each ``counts_sha256``, and the number of rows removed.
+
+    One run must count one time in a sign test, also when the analysis comes from another tool.
+    """
+    found: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        found.setdefault(row["counts_sha256"], row)
+    return list(found.values()), len(rows) - len(found)
+
+
 def summarize(analysis: dict[str, Any]) -> dict[str, Any]:
-    rows = analysis["rows"]
+    rows, duplicates = unique(analysis["rows"])
     comparisons = _family(rows)
     unmarked = _family([r for r in rows if r.get("marked") is not True])
     stated = [r["stated"]["ruled_out"].get("all", 0) for r in rows]
     return {
         "nv_study_summary": FORMAT,
         "runs": len(rows),
+        "duplicate_rows_removed": duplicates,
         "devices": sorted({r["device"] for r in rows}),
         "level": LEVEL,
         "stated_calibration": {
@@ -73,6 +85,8 @@ def markdown(summary: dict[str, Any]) -> str:
         f"{summary['runs']} runs on {', '.join(summary['devices']) or 'no device'}.",
         f"The calibration as stated is ruled out in {stated['runs_ruled_out']} runs.",
     ]
+    if summary["duplicate_rows_removed"]:
+        lines.append(f"Duplicate rows removed: {summary['duplicate_rows_removed']}.")
     tables = [("All runs", summary["primary"])]
     if summary["runs_marked"]:
         tables.append(

@@ -288,9 +288,12 @@ def analyze(
     """The analysis of each run of the deep circuit set below ``root``.
 
     ``rows_folder`` keeps the row of each counts file, so that a later call does not analyze the
-    same run again.
+    same run again. A counts file with the same counts as an earlier file, for example the same
+    run saved as ``.counts.json`` and ``.counts.json.gz``, is a duplicate. Only the first file
+    gives a row, and ``duplicates`` gives the number of the other files.
     """
-    rows, failures, skipped = [], [], 0
+    rows, failures, skipped, duplicates = [], [], 0, 0
+    seen: set[str] = set()
     kind = "analysis-offline" if offline else "analysis"
     for path in counts_files(root):
 
@@ -298,6 +301,11 @@ def analyze(
             return analyze_run(path, cache=cache, offline=offline, pull=pull, properties=properties)
 
         try:
+            digest = load_counts(path).sha256
+            if digest in seen:
+                duplicates += 1
+                continue
+            seen.add(digest)
             beside = profile_beside(path)
             row = kept(rows_folder, kind, [path, beside] if beside.exists() else [path], run)
         except NoiseVaultError as exc:
@@ -311,7 +319,13 @@ def analyze(
         else:
             rows.append(row)
     rows.sort(key=lambda r: (r["device"], r["run_at"], r["chain"] or "", r["counts_sha256"]))
-    return {"nv_study_analysis": FORMAT, "rows": rows, "skipped": skipped, "failures": failures}
+    return {
+        "nv_study_analysis": FORMAT,
+        "rows": rows,
+        "skipped": skipped,
+        "duplicates": duplicates,
+        "failures": failures,
+    }
 
 
 def markdown(data: dict[str, Any]) -> str:
@@ -347,6 +361,8 @@ def markdown(data: dict[str, Any]) -> str:
                     f" {_number(log['z'], '.2f')} | {_number(log['p_value'], '.3g')} |"
                 )
         lines.append("")
+    if data.get("duplicates"):
+        lines += [f"Duplicate counts files not analyzed: {data['duplicates']}", ""]
     for failure in data["failures"]:
         lines += [f"Failed: {failure['error']} on the counts file {failure['file'][:19]}", ""]
     return "\n".join(lines)

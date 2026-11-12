@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import itertools
 import json
 from pathlib import Path
 from typing import Any
@@ -8,6 +9,8 @@ import pytest
 
 from study import summarize
 from study.analyze import PRIMARY
+
+_HASHES = itertools.count(1)
 
 
 def _row(device: str, better: dict[tuple[str, str, str], str], **more: Any) -> dict[str, Any]:
@@ -30,6 +33,7 @@ def _row(device: str, better: dict[tuple[str, str, str], str], **more: Any) -> d
     ]
     return {
         "device": device,
+        "counts_sha256": f"{next(_HASHES):064x}",
         "chain": "best",
         "run_at": "2026-11-12T03:00:00Z",
         "stated": {"zero_readouts": 2, "ruled_out": {"all": 7}},
@@ -122,3 +126,16 @@ def test_the_summary_also_gives_the_comparisons_without_the_marked_runs() -> Non
     assert summary["primary"][0]["total"] == {"a": 4, "b": 1, "neither": 0}
     assert summary["primary_without_marked_runs"][0]["total"] == {"a": 4, "b": 0, "neither": 0}
     assert "p_holm" in summary["primary_without_marked_runs"][0]
+
+
+def test_a_run_that_is_in_the_analysis_two_times_counts_one_time() -> None:
+    first = PRIMARY[0]
+    copy = _row("ibm_fez", {first: "a"})
+    rows = [copy] * 8 + [_row("ibm_fez", {first: "b"})]
+
+    summary = summarize.summarize({"rows": rows})
+
+    assert summary["runs"] == 2
+    assert summary["duplicate_rows_removed"] == 7
+    assert summary["primary"][0]["total"] == {"a": 1, "b": 1, "neither": 0}
+    assert "Duplicate rows removed: 7." in summarize.markdown(summary)

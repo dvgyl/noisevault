@@ -81,6 +81,7 @@ def result(tmp_path_factory: pytest.TempPathFactory) -> Iterator[dict[str, Any]]
     week = root / "campaign" / "ibm_line" / "2026-04-13"
     week.mkdir(parents=True)
     counts.save(week / "best-deep.counts.json")
+    counts.save(week / "best-deep.counts.json.gz")
     calibration.save(week / "best-deep.profile.json")
     simulate(calibration, plan(calibration), shots=100, seed=1, run_at=RUN_AT).save(
         week / "best.counts.json"
@@ -127,6 +128,7 @@ def test_only_the_run_of_the_deep_set_is_analyzed(result: dict[str, Any]) -> Non
     data = result["data"]
     assert data["failures"] == []
     assert data["skipped"] == 1
+    assert data["duplicates"] == 1
     row = _row(result)
     assert row["chain"] == "best"
     assert row["shots"] == 1000
