@@ -335,3 +335,37 @@ def test_two_factor_uses_1_for_a_factor_that_the_fit_does_not_identify() -> None
     unmodeled = fitted.unmodeled_error
     assert unmodeled is not None and unmodeled.readout is None
     assert unmodeled.gates is not None and unmodeled.gates.factor == pytest.approx(2.0, rel=0.3)
+
+
+def test_averaged_takes_the_median_of_each_value_over_the_calibrations() -> None:
+    def with_values(t1: float, p10: float, cz: float) -> Profile:
+        data = Profile.uniform(
+            "pair",
+            technology="superconducting",
+            num_qubits=2,
+            one_qubit_error=1e-3,
+            two_qubit_error=1e-2,
+            readout_error=1e-2,
+            t1_us=100.0,
+            t2_us=80.0,
+        ).to_dict()
+        data["gates"] = {k: v for k, v in data["gates"].items() if k in ("sx", "cz")}
+        data["qubits"] = [
+            {"index": 0, "t1_us": t1, "readout": {"p1_given_0": p10, "p0_given_1": 0.03}}
+        ]
+        data["calibrations"] = [{"gate": "cz", "qubits": [0, 1], "avg_infidelity": cz}]
+        return Profile.model_validate(data)
+
+    newest = with_values(50.0, 0.0, 0.004)
+    others = [with_values(200.0, 0.02, 0.010), with_values(120.0, 0.01, 0.020)]
+
+    found = models.averaged(newest, others)
+
+    qubit = found.table.qubit(0)
+    assert qubit.t1_ns == pytest.approx(120_000.0)
+    assert qubit.readout == pytest.approx((0.01, 0.03))
+    assert found.table.gate("cz", (0, 1)).avg_infidelity == pytest.approx(0.010)
+    assert found.table.qubit(1).t1_ns == newest.table.qubit(1).t1_ns
+    assert models.averaged(newest, []).fingerprint == newest.fingerprint
+    twice = models.averaged(newest, [others[0], others[0]])
+    assert twice.table.gate("cz", (0, 1)).avg_infidelity == pytest.approx(0.010)

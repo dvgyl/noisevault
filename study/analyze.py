@@ -46,6 +46,7 @@ from study.derive import counts_files, profile_beside
 
 FORMAT = "1"
 STALE_DAYS = (1, 7, 30, 90, 180, 365)
+AVERAGED_DAYS = 7
 GROUPS = ("test", "test_near", "test_far", "all")
 TEST_GROUPS = ("test_near", "test_far")
 DEEP_PREFIXES = ("deep_", "pair", "qubit", "periodic_")
@@ -58,6 +59,7 @@ MODELS = (
     *STALE,
     "bundled",
     "symmetric",
+    "averaged(7)",
     "calibration",
     "two_factor",
     "readout_measured",
@@ -76,6 +78,7 @@ SECONDARY: tuple[tuple[str, str, str], ...] = (
     *(("calibration", name, "all") for name in (*STALE, "bundled") if name != "stale(30)"),
     ("readout_measured", "two_factor", "test"),
     ("locus", "readout_measured", "test"),
+    ("averaged(7)", "calibration", "all"),
     *((a, b, group) for a, b, _ in PRIMARY for group in TEST_GROUPS),
 )
 _READOUT = ("readout", "readout_1")
@@ -136,6 +139,18 @@ def build(
         }
         return models.floored(fitted)
 
+    def week() -> Profile | None:
+        """The median over the calibrations in effect at the run time and 1 to 6 days before."""
+        if calibration.device.vendor != "ibm":
+            return None
+        device = calibration.device.name
+        earlier = [
+            models.pulled(device, counts.run_at - timedelta(days=days), cache, pull)
+            for days in range(1, AVERAGED_DAYS)
+        ]
+        others = [p for p in earlier if p is not None]
+        return models.floored(models.averaged(calibration, others)) if others else None
+
     def measured() -> Profile:
         rates = models.readout_measured(base, train)
         others = [c.name for c in train.circuits if c.name not in _READOUT]
@@ -170,6 +185,10 @@ def build(
         "NoiseVault bundles no other calibration of this device",
     )
     attempt("symmetric", lambda: models.symmetric(base))
+    if offline:
+        missing["averaged(7)"] = "skipped: --offline"
+    else:
+        attempt("averaged(7)", week, _no_stale(calibration))
     attempt("calibration", lambda: base)
     attempt("two_factor", two)
     attempt("readout_measured", measured)
