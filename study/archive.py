@@ -15,6 +15,10 @@ of a series is a change. A re-stamp is a row that is not a change: IBM gives a g
 time with the same value about each hour, so a new ``calibrated_time`` is not always a new
 measurement.
 
+The change sizes and the regression to the mean exclude the failure-ceiling values: a row with
+``is_failure_ceiling`` true, and a gate error of 0.5 or more. The output gives the number of
+changes that each exclusion removes.
+
 The script excludes ibm_torino, which IBM retired in April 2026, unless ``--include-retired`` is
 given. ``--start`` and ``--end`` set the grid of times for the time since the last change. The
 other statistics use all rows of the file.
@@ -51,6 +55,8 @@ KINDS = {
     "rzz_gate_error": "rzz",
 }
 KIND_ORDER = ("t1", "t2", "readout", "one_qubit", "two_qubit", "rzz")
+GATE_KINDS = ("one_qubit", "two_qubit", "rzz")
+GATE_CEILING = 0.5
 READOUT = ("prob_meas0_prep1", "prob_meas1_prep0")
 RANKED = ("prob_meas1_prep0", "cz_gate_error")
 RETIRED = ("ibm_torino",)
@@ -68,6 +74,7 @@ _COLUMNS = (
     "value",
     "calibrated_time",
     "observed_time",
+    "is_failure_ceiling",
 )
 _US_PER_HOUR = 3_600_000_000
 _US_PER_DAY = 24 * _US_PER_HOUR
@@ -81,6 +88,7 @@ class Rows:
 
     ``device`` and ``prop`` index ``devices`` and ``properties``. ``first`` marks the first row of
     each series. ``time_us`` is ``calibrated_time`` in microseconds since 1970-01-01 UTC.
+    ``flagged`` marks the rows with ``is_failure_ceiling`` true.
     ``duplicates`` counts the rows that the series dropped for a time that another row has, and
     ``conflicts`` counts the dropped rows with a different value.
     """
@@ -92,6 +100,7 @@ class Rows:
     first: np.ndarray
     time_us: np.ndarray
     value: np.ndarray
+    flagged: np.ndarray
     duplicates: int
     conflicts: int
 
@@ -108,6 +117,17 @@ class Rows:
         )
         return codes[self.prop]
 
+    @property
+    def high_gate(self) -> np.ndarray:
+        """The gate errors of ``GATE_CEILING`` or more."""
+        gates = np.isin(self.kind, [KIND_ORDER.index(k) for k in GATE_KINDS])
+        return gates & (self.value >= GATE_CEILING)
+
+    @property
+    def excluded(self) -> np.ndarray:
+        """The failure-ceiling values."""
+        return self.flagged | self.high_gate
+
     def select(self, mask: np.ndarray) -> Rows:
         """The rows of ``mask``. A row is first when no row of its series comes before it."""
         series = np.cumsum(self.first)[mask]
@@ -120,6 +140,7 @@ class Rows:
             first,
             self.time_us[mask],
             self.value[mask],
+            self.flagged[mask],
             self.duplicates,
             self.conflicts,
         )
@@ -147,13 +168,14 @@ def read_rows(path: Path, include_retired: bool = False) -> Rows:
     qubit_a = table["qubit_a"].to_numpy().astype(np.int32)
     qubit_b = pc.fill_null(table["qubit_b"], -1.0).to_numpy().astype(np.int32)
     value = table["value"].to_numpy()
+    flagged = pc.fill_null(table["is_failure_ceiling"], False).to_numpy(zero_copy_only=False)
     time_us = _micros(table["calibrated_time"])
     observed = _micros(table["observed_time"])
     del table
     order = np.lexsort((observed, time_us, qubit_b, qubit_a, prop, device))
     del observed
     device, prop, qubit_a, qubit_b = device[order], prop[order], qubit_a[order], qubit_b[order]
-    time_us, value = time_us[order], value[order]
+    time_us, value, flagged = time_us[order], value[order], flagged[order]
     del order
     new_series = np.ones(device.size, dtype=bool)
     new_series[1:] = (
@@ -174,6 +196,7 @@ def read_rows(path: Path, include_retired: bool = False) -> Rows:
         new_series,
         time_us,
         value,
+        flagged,
         int(np.count_nonzero(repeated)),
         conflicts,
     )
@@ -218,6 +241,7 @@ def analyze(
         "intervals_by_property": _intervals(rows, changes, _property_label),
         "since_change": _since_change(changes, start, end, _kind_label),
         "since_change_by_property": _since_change(changes, start, end, _property_label),
+        "excluded": _excluded(changes),
         "change_size": _change_size(changes),
         "readout_grid": _readout_grid(rows),
         "regression": {p: _regression(changes, p) for p in RANKED},
@@ -302,13 +326,30 @@ def _since_change(
     return found
 
 
+def _excluded(changes: Rows) -> dict[str, dict[str, int]]:
+    """The number of changes of each device that each exclusion removes. A flagged gate error of
+    ``GATE_CEILING`` or more counts only as flagged."""
+    found: dict[str, dict[str, int]] = {}
+    for code in np.unique(changes.device).tolist():
+        here = changes.device == code
+        found[changes.devices[code]] = {
+            "failure_ceiling": int(np.count_nonzero(here & changes.flagged)),
+            "gate_error_0.5_or_more": int(
+                np.count_nonzero(here & changes.high_gate & ~changes.flagged)
+            ),
+        }
+    return found
+
+
 def _change_size(changes: Rows) -> dict[str, dict[str, Any]]:
     """Definition 5: ``abs(ln(value / previous value))`` of each change after a change, by kind
-    and by the hours between the two changes. Both values are above 0."""
+    and by the hours between the two changes. Both values are above 0 and are not failure-ceiling
+    values."""
     later = np.flatnonzero(~changes.first)
     now, before = changes.value[later], changes.value[later - 1]
-    positive = (now > 0) & (before > 0)
-    later, now, before = later[positive], now[positive], before[positive]
+    excluded = changes.excluded
+    kept = (now > 0) & (before > 0) & ~excluded[later] & ~excluded[later - 1]
+    later, now, before = later[kept], now[kept], before[kept]
     gap_h = (changes.time_us[later] - changes.time_us[later - 1]) / _US_PER_HOUR
     bins = np.digitize(gap_h, GAP_EDGES_H)
     labels = changes.kind[later].astype(np.int32) * len(GAP_BINS) + bins
@@ -340,14 +381,20 @@ def _readout_grid(rows: Rows) -> dict[str, dict[str, Any]]:
 
 def _regression(changes: Rows, prop: str) -> dict[str, dict[str, Any]]:
     """Definition 7: the changes of ``prop`` by their percent rank among the changes of ``prop``
-    on the same device and UTC day, with the next change of the same series."""
+    on the same device and UTC day, with the next change of the same series. The ranks and the
+    pairs exclude the failure-ceiling values."""
     if prop not in changes.properties:
         return {}
     picked = changes.select(changes.prop == changes.properties.index(prop))
-    following = np.flatnonzero(~picked.first) - 1
-    rank = _percent_rank(
-        picked.device.astype(np.int64), picked.time_us // _US_PER_DAY, picked.value
+    kept = ~picked.excluded
+    rank = np.full(kept.size, np.nan)
+    rank[kept] = _percent_rank(
+        picked.device[kept].astype(np.int64),
+        picked.time_us[kept] // _US_PER_DAY,
+        picked.value[kept],
     )
+    following = np.flatnonzero(~picked.first) - 1
+    following = following[kept[following] & kept[following + 1]]
     now, rank, device = picked.value[following], rank[following], picked.device[following]
     after = picked.value[following + 1]
     part = np.where(rank < 0.1, 0, np.where(rank > 0.9, 2, 1))
@@ -470,6 +517,15 @@ def markdown(data: Mapping[str, Any]) -> str:
                 f" | {_f(row['p90'], 1)} | {_f(row['p99'], 0)} | {_f(row['above_24h'], 3)}"
                 f" | {_f(row['above_168h'], 3)} |"
             )
+    lines += [
+        "",
+        "## Changes excluded from the change sizes and the regression to the mean",
+        "",
+        "| Device | is_failure_ceiling | Gate error of 0.5 or more |",
+        "|---|---:|---:|",
+    ]
+    for device, row in sorted(data["excluded"].items()):
+        lines.append(f"| {device} | {row['failure_ceiling']} | {row['gate_error_0.5_or_more']} |")
     lines += [
         "",
         "## Size of a change, abs(ln(value / previous value)), by the time since the previous"
