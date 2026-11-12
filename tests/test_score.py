@@ -19,7 +19,7 @@ from noisevault.errors import CountsError
 from noisevault.profile import Profile
 from noisevault.reference import Op, probabilities
 from noisevault.score import LeftOut, _grouped, age_text, paired, probe_report, rank, score
-from noisevault.suite import suite
+from noisevault.suite import role, suite
 
 KINGSTON = "ibm_kingston@2026-04-15"
 RUN_AT = datetime(2026, 4, 16, 9, 30, tzinfo=UTC)
@@ -857,6 +857,68 @@ def test_nv_score_prints_no_probe_section_for_counts_with_no_probe_circuit(tmp_p
     assert text.exit_code == data.exit_code == 0, text.output
     assert "probe circuits" not in text.stdout and "left out" not in text.stdout
     assert json.loads(data.stdout)["probes"] is None
+
+
+def test_only_a_complete_probe_name_of_the_suite_is_a_probe() -> None:
+    profile = two_qubit_device()
+    counts = run_of(
+        profile,
+        [
+            READOUT,
+            ("axis_custom", 2, x_times(4), {"00": 80, "01": 10, "10": 6, "11": 4}),
+            ("periodic_test", 2, x_times(2), {"00": 90, "01": 6, "10": 4}),
+            AXIS_D4,
+        ],
+    )
+
+    result = score(profile, counts)
+
+    assert [c.name for c in result.circuits] == ["readout", "axis_custom", "periodic_test"]
+    assert result.left_out == (LeftOut("axis_d4", "probe"),)
+    assert role("axis_d64") == role("periodic_d48") == "probe"
+    assert role("axis_custom") == role("axis_d") == role("periodic_d8x") == "test_far"
+
+
+def test_nv_score_prints_the_ranking_when_the_profile_cannot_simulate_a_probe(
+    tmp_path: Path,
+) -> None:
+    kingston = nv.load(KINGSTON)
+    not_native = [Op("h", (0,)), Op("h", (0,))]
+    probe = ("axis_d4", 2, not_native, {"00": 80, "01": 10, "10": 6, "11": 4})
+    counts = run_of(kingston, [READOUT, probe]).save(tmp_path / "run.counts.json")
+
+    text = runner.invoke(app, ["score", KINGSTON, str(counts)], env={"COLUMNS": "200"})
+    data = runner.invoke(app, ["score", KINGSTON, str(counts), "--json"])
+
+    assert text.exit_code == data.exit_code == 0, text.output
+    assert "1 probe circuit left out: axis_d4" in text.stdout
+    assert "probe circuits, not in the score" not in text.stdout
+    warning = "warning: no probe report: circuit axis_d4: h on qubit 0: h is not defined"
+    assert warning in text.stderr and warning in data.stderr
+    found = json.loads(data.stdout)
+    assert found["probes"] is None and len(found["models"]) == 1
+
+
+def test_nv_score_says_when_a_profile_has_no_value_for_a_floor(tmp_path: Path) -> None:
+    exact = Profile.uniform(
+        "exact",
+        technology="superconducting",
+        num_qubits=2,
+        one_qubit_error=0.01,
+        two_qubit_error=0.02,
+        readout_error=0.0,
+    )
+    path = exact.save(tmp_path / "exact.json")
+    counts = run_of(exact, [("readout", 2, (), {"00": 100})]).save(tmp_path / "run.counts.json")
+
+    assert exact.floored() is exact
+    for extra in ([], ["--floor"]):
+        result = runner.invoke(app, ["score", str(path), str(counts), *extra])
+        assert result.exit_code == 0, result.output
+        hint = " ".join(result.stderr.split())
+        assert f"hint: {path} states no readout error above 0." in hint
+        assert "--floor has no value to replace a 0" in hint
+        assert "Add --floor" not in hint
 
 
 def test_nv_score_floor_gives_the_probe_forecast_of_the_floored_profile(tmp_path: Path) -> None:

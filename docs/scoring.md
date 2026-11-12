@@ -65,6 +65,9 @@ half of the smallest value that such a count can show. The floored profile has a
 fingerprint, and a provenance note records the change. With the first choice you learn if the
 calibration as stated holds. With the second you learn how good the rest of the calibration is.
 
+A profile that states no readout probability above 0 has no value for a floor. `floored()` then
+returns the profile as it is, and `nv score` says so in a hint, with and without `--floor`.
+
 ## The excess and its shot-noise reference
 
 The saturated log score of a circuit is `sum_x f(x) ln f(x)`. No model gets a higher log score on
@@ -249,7 +252,9 @@ that a score cannot use:
 
 With no `circuits=`, `score` leaves out both kinds. `Forecast.left_out` names each circuit with
 its reason, `probe` or `too_wide`. A call that names `circuits=` scores a named probe circuit,
-and it refuses a named circuit on more than 10 qubits.
+and it refuses a named circuit on more than 10 qubits. The name decides if a circuit is a probe
+circuit: `axis_d` or `periodic_d` and a number, such as `axis_d64`. A circuit of your own with
+another name, such as `axis_test`, is scored.
 
 `probe_report(profile, counts)` (or `Profile.probe_report(counts)`) shows the probe circuits.
 For each probe circuit, it gives the probability of the ideal result, measured and forecast. For
@@ -259,6 +264,8 @@ the qubit in the `readout` circuit, which has no gate. The growth divides the wr
 the readout value in `axis_d256` by the same in `axis_d64`. With 4 times the gates, a systematic
 error gives about 16, and an error with no direction gives about 4, when the fractions are
 small. `nv score` prints the report after the ranking, with the forecast of the best profile.
+When that profile cannot simulate a probe circuit, `nv score` prints the ranking and a warning,
+and no report.
 
 These commands simulate a run of the deep circuit set of the bundled `ibm_kingston` profile and
 score the profile on it:

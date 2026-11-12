@@ -118,7 +118,7 @@ the job ids.
 
 | Field | Content |
 | --- | --- |
-| `name` | The circuit's name. Names are unique within a file. |
+| `name` | The circuit's name. Names are unique within a file. The names `axis_d` and `periodic_d` with a number, such as `axis_d64`, are the names of the [probe circuits](scoring.md#probe-circuits-and-what-a-score-leaves-out) of the deep circuit set. A default score leaves out a circuit with such a name. |
 | `qubits` | The physical qubits, 1 to 256 and distinct. Circuit qubit i is `qubits[i]`. |
 | `ops` | The ops the device ran, in order, on circuit qubits. Can be empty. |
 | `shots` | The number of shots, at least 1 and at most 10^10 (10000000000). |

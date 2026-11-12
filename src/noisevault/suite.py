@@ -72,6 +72,7 @@ shorter than its time grid allows.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from functools import reduce
@@ -134,6 +135,8 @@ AXIS_REPEATS = (64, 256)
 _STATE_QUBITS = 10
 _CHAIN, _PAIR, _QUBIT, _MIDDLE, _WIDE, _CLIFFORD, _FRESH = 1, 2, 3, 4, 5, 6, 7
 _TRAIN_PREFIXES = ("readout", "pair", "qubit")
+# The names of the probe circuits that ``suite`` makes.
+_PROBE_NAME = re.compile(r"(axis|periodic)_d\d+")
 _ONLY_IN_SUITE = (
     "readout_1",
     "deep_",
@@ -247,9 +250,10 @@ def role(name: str) -> Role:
     """The role of the suite circuit ``name``. A name that ``suite`` does not make is a test.
 
     A ``probe`` circuit is not in a fit and not in a comparison of models. Its result is given
-    alone.
+    alone. Only a complete probe name of ``suite`` is a probe: ``axis_d`` or ``periodic_d`` and a
+    number, such as ``axis_d64``. Thus a circuit of a user with the name ``axis_test`` is a test.
     """
-    if name.startswith(("axis_", "periodic_")):
+    if _PROBE_NAME.fullmatch(name):
         return "probe"
     if name.startswith("deep_"):
         train = name.endswith(tuple(f"_s{s}" for s in TRAIN_SEEDS))

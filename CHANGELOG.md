@@ -8,8 +8,9 @@ This file lists all notable changes to NoiseVault. Versions follow
 ### Added
 
 - **`nv score` works on a run of the deep circuit set and shows its probe circuits.** By
-  default, `score` and `nv score` leave out the probe circuits (`axis_d*`, `periodic_d*`) and
-  each circuit on more than 10 qubits, and `Forecast.left_out` names them. A call with
+  default, `score` and `nv score` leave out the probe circuits and each circuit on more than 10
+  qubits, and `Forecast.left_out` names them. A probe circuit has the name `axis_d` or
+  `periodic_d` and a number, such as `axis_d64`. A call with
   `circuits=` keeps the earlier behaviour. `noisevault.score.probe_report(profile, counts)` and
   `Profile.probe_report(counts)` give the measured and the forecast result of each probe
   circuit, the wrong bits of each qubit against the `readout` circuit, and the growth of the

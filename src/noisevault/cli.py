@@ -1247,8 +1247,15 @@ def score(
             ref: sorted(read.intersection(profile.zero_readouts()))
             for ref, profile in zip(refs, profiles, strict=True)
         }
+        floored = [profile.floored() for profile in profiles]
+        # A profile with no stated readout probability above 0 has no floor.
+        no_floor = [
+            ref
+            for ref, profile, changed in zip(refs, profiles, floored, strict=True)
+            if zeros[ref] and changed is profile
+        ]
         if floor:
-            profiles = [profile.floored() for profile in profiles]
+            profiles = floored
         with err.status("Scoring the profiles..."):
             ranking = rank(
                 [
@@ -1257,7 +1264,13 @@ def score(
                 ]
             )
             best, forecast = ranking.models[0]
-            probes = forecast.profile.probe_report(measured)
+            # The ranking is the result. A probe circuit that the best profile cannot simulate
+            # must not hide it.
+            try:
+                probes = forecast.profile.probe_report(measured)
+            except NoiseVaultError as exc:
+                probes = None
+                err.print(f"warning: no probe report: {_cli_terms(exc.message)}", markup=False)
         if as_json:
             _echo_json(
                 ranking.to_dict()
@@ -1274,7 +1287,7 @@ def score(
                 out.print()
                 for line in probes.summary(best, width=out.width).splitlines():
                     out.print(Text(line), soft_wrap=True)
-            stated = [ref for ref in refs if zeros[ref]]
+            stated = [ref for ref in refs if zeros[ref] and ref not in no_floor]
             if stated and not floor:
                 where = "; ".join(
                     f"{ref} on {plural(len(zeros[ref]), 'qubit')} {', '.join(map(str, zeros[ref]))}"
@@ -1285,6 +1298,15 @@ def score(
                         f"hint: a readout error of exactly 0 is stated by {where}. A device"
                         " can give results that such a profile calls impossible. Add --floor"
                         " to replace these values"
+                    ),
+                    soft_wrap=True,
+                )
+            if no_floor:
+                err.print(
+                    Text(
+                        f"hint: {joined(no_floor)} {'states' if len(no_floor) == 1 else 'state'}"
+                        " no readout error above 0. A device can give results that such a"
+                        " profile calls impossible, and --floor has no value to replace a 0"
                     ),
                     soft_wrap=True,
                 )

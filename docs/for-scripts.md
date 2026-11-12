@@ -54,7 +54,10 @@ of a profile that is ruled out is `null`, and its `ruled_out` is above 0.
 `nv score` does not score each circuit of a counts file. Each entry of `models` has `left_out`,
 a list of the circuits that the score did not use, each with `name` and `reason`. `probes` holds
 the [probe report](scoring.md#probe-circuits-and-what-a-score-leaves-out) with the forecast of
-the best profile. It is `null` when the counts hold no probe circuit.
+the best profile. It is `null` when the counts hold no probe circuit, and when the best profile
+cannot simulate a probe circuit. In the second case, a `warning:` line on standard error gives
+the reason. The top-level `qubits` names each qubit that the counts measure. The qubits of the
+scored circuits are in `circuits` of each entry of `models`.
 
 ## A check in a script
 
