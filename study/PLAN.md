@@ -470,3 +470,7 @@ To be written before the first run that counts.
   mirror circuit with random layers. A comparison of models must use circuits in which such an
   error does not add up, so the periodic circuit is in no comparison. Its name now gives its
   true number of cycles.
+- 2026-11-12: library versions. The weekly campaign and the study workflow install fixed
+  versions of the libraries that decide the circuits and the forecasts
+  (`.github/study-constraints.txt`), and each campaign run records its versions. The counts file
+  of a run holds the circuits that ran, so the analysis never builds a circuit again.

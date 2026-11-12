@@ -39,7 +39,8 @@ jobs:
         with:
           python-version: "3.13"
       - uses: astral-sh/setup-uv@v6
-      - run: uv pip install -e '.[stim]'
+      # The constraints fix the library versions for the weeks of the study.
+      - run: uv pip install -e '.[stim]' --constraint .github/study-constraints.txt
 
       - name: Restore the campaign folder
         id: restore

@@ -1,0 +1,12 @@
+# The versions of the libraries that decide the circuits and the forecasts of the realism study.
+# The weekly campaign and the study workflow install with these versions. A new release of a
+# library then cannot change a circuit or a result in the weeks of the study. To change a
+# version, change it here and record the change in study/PLAN.md.
+numpy==2.5.4
+stim==1.16.0
+scipy==1.18.1
+qiskit==2.6.2
+qiskit-ibm-runtime==0.52.0
+rustworkx==0.18.1
+pydantic==2.14.3
+pydantic-core==2.50.4

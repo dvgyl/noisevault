@@ -88,7 +88,8 @@ jobs:
         with:
           python-version: "3.13"
       - uses: astral-sh/setup-uv@v6
-      - run: uv pip install -e '.[ibm,stim]'
+      # The constraints fix the library versions for the weeks of the study.
+      - run: uv pip install -e '.[ibm,stim]' --constraint .github/study-constraints.txt
 
       - name: Restore the campaign folder of the last run
         env:
@@ -120,6 +121,8 @@ jobs:
         run: |
           mkdir -p campaign/logs
           log="campaign/logs/$(date -u +%Y-%m-%dT%H%MZ).log"
+          # The record of the library versions of this run.
+          uv pip freeze > "${log%.log}.packages.txt"
           echo "The full output goes to $log in the encrypted archive."
           status=0
           # 1500 shots for each of the 37 circuits of a deep job use about 16 s of QPU time. Five
