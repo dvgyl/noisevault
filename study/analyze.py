@@ -100,8 +100,8 @@ def build(
     offline: bool,
     pull: models.Pull | None = None,
 ) -> tuple[dict[str, Profile], dict[str, str], dict[str, Any]]:
-    """Each model of the plan in the form that the comparisons score, the reason of each model
-    that the run has not, and the fitted values."""
+    """Each model of the plan in the form that the comparisons score, the reason for each model
+    that is not built, and the fitted values."""
     train = counts.select([c.name for c in counts.circuits if role(c.name) == "train"])
     base = models.floored(calibration)
     built: dict[str, Profile] = {}
