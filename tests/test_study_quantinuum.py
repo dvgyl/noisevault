@@ -11,7 +11,8 @@ import pytest
 
 from noisevault import gates
 from noisevault.counts import load_counts
-from noisevault.reference import Op
+from noisevault.profile import Profile
+from noisevault.reference import Op, probabilities
 from study import quantinuum as qt
 
 # The vendor definitions, from the OpenQASM 2.0 U and CX and from hqslib1_dev.inc and
@@ -363,3 +364,65 @@ def test_the_command_writes_counts_and_profiles_with_no_local_path(tmp_path: Pat
             text = path.read_text(encoding="utf-8")
             assert str(tmp_path) not in text
             assert str(Path.home()) not in text
+
+
+# the variant without 1-qubit gate error -------------------------------------------------------
+
+
+def tiny_profile() -> Profile:
+    return Profile.from_dict(
+        {
+            "noisevault": "1.0",
+            "device": {
+                "name": "demo",
+                "vendor": "example",
+                "technology": "trapped_ion",
+                "num_qubits": 2,
+            },
+            "connectivity": "all_to_all",
+            "gates": {
+                "rz": {"virtual": True},
+                "r": {"avg_infidelity": 3e-5, "stderr": 1e-6, "duration_ns": 10000},
+                "sx": {"depolarizing_param": 2e-4},
+                "glow": {"qubits": 1, "pauli": [1e-4, 0, 2e-4]},
+                "zz": {"avg_infidelity": 1e-3, "includes": ["1q_dressing"]},
+            },
+            "calibrations": [
+                {"gate": "r", "qubits": [1], "avg_infidelity": 5e-5},
+                {"gate": "zz", "qubits": [0, 1], "avg_infidelity": 2e-3},
+            ],
+            "readout": {"p1_given_0": 0.001, "p0_given_1": 0.003},
+        }
+    )
+
+
+def test_the_variant_sets_every_one_qubit_gate_error_to_zero() -> None:
+    stated = tiny_profile()
+    variant = qt.without_one_qubit_gate_error(stated)
+    specs = variant.to_dict()["gates"]
+    assert specs["r"] == {"avg_infidelity": 0.0, "duration_ns": 10000.0}
+    assert specs["sx"] == {"avg_infidelity": 0.0}
+    assert specs["glow"] == {"qubits": 1, "avg_infidelity": 0.0}
+    assert specs["rz"] == {"virtual": True}
+    assert specs["zz"] == stated.to_dict()["gates"]["zz"]
+    records = {r["gate"]: r for r in variant.to_dict()["calibrations"]}
+    assert records["r"]["avg_infidelity"] == 0.0
+    assert records["zz"]["avg_infidelity"] == 2e-3
+
+
+def test_the_variant_keeps_readout_and_the_device() -> None:
+    stated, variant = tiny_profile(), qt.without_one_qubit_gate_error(tiny_profile())
+    for key in ("device", "readout", "connectivity"):
+        assert variant.to_dict()[key] == stated.to_dict()[key]
+    assert variant.calibration_fingerprint != stated.calibration_fingerprint
+    assert "every 1-qubit gate error is set to 0" in variant.to_dict()["provenance"]["notes"][-1]
+
+
+def test_the_variant_gives_a_one_qubit_circuit_only_readout_error() -> None:
+    stated = tiny_profile()
+    variant = qt.without_one_qubit_gate_error(stated)
+    ops = [Op("r", (0,), (math.pi, 0.0))] * 51
+    probs = probabilities(variant, ops, 1, layout=(1,), readout=True, unknown_gates="error")
+    assert np.allclose(probs, [0.003, 0.997])
+    noisy = probabilities(stated, ops, 1, layout=(1,), readout=True, unknown_gates="error")
+    assert noisy[0] > 0.003

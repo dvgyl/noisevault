@@ -50,7 +50,7 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any, Literal
 
-from noisevault import catalog
+from noisevault import catalog, gates
 from noisevault.counts import COUNTS_FORMAT, MeasuredCounts
 from noisevault.profile import Profile
 from noisevault.reference import Op
@@ -587,6 +587,43 @@ def counts_files(
 
 
 # the profiles ---------------------------------------------------------------------------------
+
+
+_ERROR_METRICS = ("avg_infidelity", "process_infidelity", "depolarizing_param", "pauli")
+
+
+def without_one_qubit_gate_error(profile: Profile) -> Profile:
+    """``profile`` with the error of every 1-qubit gate set to 0.
+
+    A 2-qubit error from 2-qubit randomized benchmarking already holds the error of the 1-qubit
+    gates in each Clifford (``includes`` has ``1q_dressing``). The reference simulator also
+    charges each 1-qubit gate of a circuit, so that part of the error counts two times. This
+    variant charges it one time, in the 2-qubit gate. Relaxation, readout, preparation and the
+    2-qubit gates do not change. A virtual or disabled gate does not change.
+    """
+    data = profile.to_dict()
+    specs = data["gates"]
+
+    def one_qubit(name: str) -> bool:
+        info = gates.lookup(name)
+        arity = specs.get(name, {}).get("qubits") or (info.arity if info else None)
+        return arity == 1
+
+    def cleared(entry: dict[str, Any]) -> dict[str, Any]:
+        if not any(key in entry for key in _ERROR_METRICS):
+            return entry
+        kept = {k: v for k, v in entry.items() if k not in (*_ERROR_METRICS, "stderr")}
+        return {**kept, "avg_infidelity": 0.0}
+
+    data["gates"] = {n: cleared(g) if one_qubit(n) else g for n, g in specs.items()}
+    if "calibrations" in data:
+        data["calibrations"] = [
+            cleared(r) if len(r["qubits"]) == 1 else r for r in data["calibrations"]
+        ]
+    provenance = data["provenance"]
+    note = "every 1-qubit gate error is set to 0 (study.quantinuum.without_one_qubit_gate_error)"
+    provenance["notes"] = [*provenance.get("notes", []), note]
+    return Profile.from_dict(data)
 
 
 def profile_id(machine: str) -> str:
