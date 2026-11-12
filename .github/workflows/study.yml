@@ -32,7 +32,7 @@ env:
 jobs:
   results:
     runs-on: ubuntu-latest
-    timeout-minutes: 240
+    timeout-minutes: 350
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -69,15 +69,18 @@ jobs:
 
       # The rows hold the same derived numbers that the workflow publishes. A row is used again
       # only for the same counts, the same calibration and the same source files.
-      - uses: actions/cache@v4
+      - uses: actions/cache/restore@v4
         if: steps.restore.outputs.found == 'true'
         with:
           path: rows
-          key: study-rows-${{ hashFiles('src/noisevault/**/*.py', 'study/*.py') }}-${{ github.run_id }}
-          restore-keys: study-rows-${{ hashFiles('src/noisevault/**/*.py', 'study/*.py') }}-
+          key: study-rows-${{ hashFiles('src/noisevault/**/*.py', 'study/*.py', '.github/study-constraints.txt') }}-${{ github.run_id }}
+          restore-keys: study-rows-${{ hashFiles('src/noisevault/**/*.py', 'study/*.py', '.github/study-constraints.txt') }}-
 
+      # The programs analyze the runs in one process for each CPU. The step stops before the
+      # job does, so that the next step can keep the rows that are complete.
       - name: Build the derived results
         if: steps.restore.outputs.found == 'true'
+        timeout-minutes: 320
         run: |
           status=0
           python -m study.derive campaign --out results --rows rows || status=$?
@@ -87,6 +90,13 @@ jobs:
           python -m study.summarize results/analysis.json --out results || status=$?
           cat results/summary.md results/analysis.md >> "$GITHUB_STEP_SUMMARY"
           exit "$status"
+
+      # A run that stops early keeps its complete rows, and the next run continues from them.
+      - uses: actions/cache/save@v4
+        if: always() && steps.restore.outputs.found == 'true' && hashFiles('rows/**') != ''
+        with:
+          path: rows
+          key: study-rows-${{ hashFiles('src/noisevault/**/*.py', 'study/*.py', '.github/study-constraints.txt') }}-${{ github.run_id }}
 
       - name: Remove the campaign folder
         if: always()

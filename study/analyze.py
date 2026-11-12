@@ -36,8 +36,10 @@ import argparse
 import hashlib
 import json
 import math
+import os
 import sys
 from collections.abc import Callable, Mapping, Sequence
+from concurrent.futures import ProcessPoolExecutor
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -445,8 +447,14 @@ def analyze(
     properties: ages.Properties | None = None,
     rows_folder: Path | None = None,
     samples: int = wide.SAMPLES,
+    jobs: int = 1,
 ) -> dict[str, Any]:
     """The analysis of each run of the deep circuit set below ``root``.
+
+    With ``jobs`` above 1, that many processes analyze the runs at the same time. The rows do
+    not depend on ``jobs``. Each process keeps its pulled calibrations in a folder of its own
+    below ``cache``, so that two processes never write one file. ``pull`` and ``properties``
+    are for tests, and a call with one of them uses one process.
 
     ``rows_folder`` keeps the row of each counts file, so that a later call does not analyze the
     same run again. A counts file with the same counts as an earlier file, for example the same
@@ -462,42 +470,31 @@ def analyze(
     kind = "analysis-offline" if offline else "analysis"
     if samples != wide.SAMPLES:
         kind += f"-{samples}"
+    todo: list[Path] = []
     for path in counts_files(root):
-
-        def run(path: Path = path) -> dict[str, Any] | None:
-            return analyze_run(
-                path,
-                cache=cache,
-                offline=offline,
-                pull=pull,
-                properties=properties,
-                samples=samples,
-            )
-
         try:
             digest = load_counts(path).sha256
-            if digest in seen:
-                duplicates += 1
-                continue
-            seen.add(digest)
-            beside = profile_beside(path)
-            # The row takes the chain kind and the trial status from the file name, so they are
-            # in the key. A row that waits for a source is computed again in the next run.
-            row = kept(
-                rows_folder,
-                kind,
-                [path, beside] if beside.exists() else [path],
-                run,
-                names=f"chain={chain_kind(path)} trial={is_trial(path)}",
-                keep=lambda found: found is None or not found.get("pending"),
-            )
         except NoiseVaultError as exc:
-            # A message can hold the path of the file, and a file name can hold an id of the
-            # account. So a failure gives only the error type and the hash of the file.
-            digest = hashlib.sha256(path.read_bytes()).hexdigest()
-            failures.append({"error": type(exc).__name__, "file": f"sha256:{digest}"})
+            failures.append(_failure(path, exc))
             continue
-        if row is None:
+        if digest in seen:
+            duplicates += 1
+            continue
+        seen.add(digest)
+        todo.append(path)
+    if jobs > 1 and pull is None and properties is None and len(todo) > 1:
+        tasks = [(path, cache, offline, samples, rows_folder, kind) for path in todo]
+        with ProcessPoolExecutor(max_workers=min(jobs, len(todo))) as pool:
+            found = list(pool.map(_one_in_a_process, tasks))
+    else:
+        found = [
+            _one(path, cache, offline, samples, rows_folder, kind, pull, properties)
+            for path in todo
+        ]
+    for path, (row, failure) in zip(todo, found, strict=True):
+        if failure is not None:
+            failures.append(failure)
+        elif row is None:
             skipped += 1
         else:
             rows.append(row)
@@ -513,6 +510,61 @@ def analyze(
         "failures": failures,
         "shot_checks": _shot_checks(rows, paths),
     }
+
+
+def _failure(path: Path, exc: NoiseVaultError) -> dict[str, str]:
+    """A message can hold the path of the file, and a file name can hold an id of the account.
+    So a failure gives only the error type and the hash of the file."""
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    return {"error": type(exc).__name__, "file": f"sha256:{digest}"}
+
+
+def _one(
+    path: Path,
+    cache: Path | None,
+    offline: bool,
+    samples: int,
+    rows_folder: Path | None,
+    kind: str,
+    pull: models.Pull | None = None,
+    properties: ages.Properties | None = None,
+) -> tuple[dict[str, Any] | None, dict[str, str] | None]:
+    """The kept or new row of one counts file, or its failure."""
+
+    def run() -> dict[str, Any] | None:
+        return analyze_run(
+            path,
+            cache=cache,
+            offline=offline,
+            pull=pull,
+            properties=properties,
+            samples=samples,
+        )
+
+    try:
+        beside = profile_beside(path)
+        # The row takes the chain kind and the trial status from the file name, so they are in
+        # the key. A row that waits for a source is computed again in the next run.
+        row = kept(
+            rows_folder,
+            kind,
+            [path, beside] if beside.exists() else [path],
+            run,
+            names=f"chain={chain_kind(path)} trial={is_trial(path)}",
+            keep=lambda found: found is None or not found.get("pending"),
+        )
+    except NoiseVaultError as exc:
+        return None, _failure(path, exc)
+    return row, None
+
+
+def _one_in_a_process(
+    task: tuple[Path, Path | None, bool, int, Path | None, str],
+) -> tuple[dict[str, Any] | None, dict[str, str] | None]:
+    """``_one`` for a process of its own, with a folder of its own for pulled calibrations."""
+    path, cache, offline, samples, rows_folder, kind = task
+    own = None if cache is None else cache / f"process-{os.getpid()}"
+    return _one(path, own, offline, samples, rows_folder, kind)
 
 
 def device_week(row: Mapping[str, Any]) -> tuple[str, date]:
@@ -745,6 +797,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         default=wide.SAMPLES,
         help="the stabilizer samples of each Clifford forecast",
     )
+    parser.add_argument(
+        "--jobs",
+        type=int,
+        default=os.cpu_count() or 1,
+        help="the number of processes that analyze runs at the same time (default: each CPU)",
+    )
     args = parser.parse_args(argv)
     if not args.root.is_dir():
         print(f"error: {args.root} is not a folder", file=sys.stderr)
@@ -755,6 +813,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         offline=args.offline,
         rows_folder=args.rows,
         samples=args.samples,
+        jobs=args.jobs,
     )
     write(data, args.out)
     print(f"wrote {len(data['rows'])} runs and {len(data['failures'])} failures to {args.out}")

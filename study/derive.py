@@ -26,8 +26,10 @@ import argparse
 import hashlib
 import importlib.util
 import json
+import os
 import sys
 from collections.abc import Iterator, Sequence
+from concurrent.futures import ProcessPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -101,24 +103,41 @@ def fit(path: Path) -> tuple[dict[str, Any], dict[str, Any]]:
     return row, table_row
 
 
-def derive(root: Path, rows_folder: Path | None = None) -> tuple[dict[str, Any], dict[str, Any]]:
+def _kept_fit(task: tuple[Path, Path | None]) -> tuple[Any, dict[str, str] | None]:
+    """The kept or new fit of one counts file, or its failure."""
+    path, rows_folder = task
+    try:
+        beside = profile_beside(path)
+        inputs = [path, beside] if beside.exists() else [path]
+        return kept(rows_folder, "fit", inputs, lambda: fit(path)), None
+    except NoiseVaultError as exc:
+        # A message can hold the path of the file, and a file name can hold an id of the
+        # account. So a failure gives only the error type and the hash of the file.
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        return None, {"error": type(exc).__name__, "file": f"sha256:{digest}"}
+
+
+def derive(
+    root: Path, rows_folder: Path | None = None, jobs: int = 1
+) -> tuple[dict[str, Any], dict[str, Any]]:
     """The fits of each counts file below ``root``, and the realism table of the same fits.
 
     ``rows_folder`` keeps the fit of each counts file, so that a later call does not fit the
-    same file again.
+    same file again. With ``jobs`` above 1, that many processes fit files at the same time. The
+    result does not depend on ``jobs``.
     """
     rows, table_rows, failures = [], [], []
-    for path in counts_files(root):
-        try:
-            beside = profile_beside(path)
-            inputs = [path, beside] if beside.exists() else [path]
-            row, table_row = kept(rows_folder, "fit", inputs, lambda path=path: fit(path))
-        except NoiseVaultError as exc:
-            # A message can hold the path of the file, and a file name can hold an id of the
-            # account. So a failure gives only the error type and the hash of the file.
-            digest = hashlib.sha256(path.read_bytes()).hexdigest()
-            failures.append({"error": type(exc).__name__, "file": f"sha256:{digest}"})
+    tasks = [(path, rows_folder) for path in counts_files(root)]
+    if jobs > 1 and len(tasks) > 1:
+        with ProcessPoolExecutor(max_workers=min(jobs, len(tasks))) as pool:
+            found = list(pool.map(_kept_fit, tasks))
+    else:
+        found = [_kept_fit(task) for task in tasks]
+    for pair, failure in found:
+        if failure is not None:
+            failures.append(failure)
             continue
+        row, table_row = pair
         rows.append(row)
         if row["circuit_set"] != 1:
             table_rows.append(table_row)
@@ -193,11 +212,17 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--rows", type=Path, default=None, help="a folder that keeps the fit of each counts file"
     )
+    parser.add_argument(
+        "--jobs",
+        type=int,
+        default=os.cpu_count() or 1,
+        help="the number of processes that fit files at the same time (default: each CPU)",
+    )
     args = parser.parse_args(argv)
     if not args.root.is_dir():
         print(f"error: {args.root} is not a folder", file=sys.stderr)
         return 2
-    data, table = derive(args.root, args.rows)
+    data, table = derive(args.root, args.rows, args.jobs)
     args.out.mkdir(parents=True, exist_ok=True)
     (args.out / "fits.json").write_text(json.dumps(data, indent=1) + "\n", encoding="utf-8")
     (args.out / "fits.md").write_text(markdown(data), encoding="utf-8")
