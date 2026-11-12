@@ -233,7 +233,7 @@ class _State:
                 continue
             before = [self.waiting.pop(w, None) for w in wires]
             if any(b is not None for b in before):
-                matrix = matrix @ _kron_all([_I4 if b is None else b for b in before])
+                matrix = matrix @ _kron_all(_I4 if b is None else b for b in before)
             self.rho = _contract(self.rho, matrix, wires, self.n)
 
     def flush(self) -> np.ndarray:
@@ -291,9 +291,13 @@ def _superop(
 
 
 def _kron_all(matrices: Iterable[np.ndarray]) -> np.ndarray:
-    result = np.ones((1, 1), dtype=complex)
-    for matrix in matrices:
-        result = np.kron(result, matrix)
+    # np.kron has a large fixed cost, and a deep circuit needs this product for most gates.
+    result, *rest = matrices
+    for matrix in rest:
+        rows, cols = result.shape
+        result = (result[:, None, :, None] * matrix[None, :, None, :]).reshape(
+            rows * len(matrix), cols * len(matrix)
+        )
     return result
 
 
