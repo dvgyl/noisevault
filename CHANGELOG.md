@@ -8,9 +8,10 @@ This file lists all notable changes to NoiseVault. Versions follow
 ### Added
 
 - **Checks of the paired test and of a chain from a history.** `python -m study.score_checks`
-  gives three checks of the paired test of two models. `hidden` hides a rare result among
-  other rare results. `safe` gives the smallest difference of a test from the Hoeffding bound.
-  `chain` gives the level and the power on the circuits of a chain.
+  gives four checks of the paired test of two models. `unseen` has a result that no shot
+  showed. `hidden` hides a rare result among other rare results. `safe` gives the smallest
+  difference of a test from the Hoeffding bound. `chain` gives the level and the power on the
+  circuits of a chain.
   `python -m study.layout_history PARQUET --device ibm_kingston` compares the chain of the day
   with the chain from a history of 7 days. `noisevault.score.rule_test`, the paired test of one
   rule, is now public.

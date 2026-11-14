@@ -1,11 +1,20 @@
-"""Three checks of the paired test of two models in ``noisevault.score``.
+"""Four checks of the paired test of two models in ``noisevault.score``.
 
+    python -m study.score_checks unseen [--jobs 4000] [--shots 2000] [--seed 42]
     python -m study.score_checks hidden [--jobs 4000] [--shots 2000] [--seed 11]
     python -m study.score_checks safe
     python -m study.score_checks chain PROFILE --chain 142,143,144,145 [--fresh 202646]
         [--shots 1250] [--jobs 2000]
 
 Each check writes text to standard output.
+
+``unseen``: a constructed case for step 2 of the test. Two circuits read one qubit. On the first
+circuit, model a gives a wrong readout the probability ``UNSEEN_A[0]``, and model b gives it
+``UNSEEN_B[0]``. The second circuit is a usual one: the two models are almost the same. On each
+circuit, the device has the probability for which the two models have the same expected log
+score, so each verdict of the test is false. On the first circuit, most jobs show no wrong
+readout. The natural test then sees no spread and gives a verdict for model b. Step 2 adds
+variance for the result that no shot showed.
 
 ``hidden``: a constructed case for the weak point of step 1 of the test. Step 1 takes the rare
 results of a circuit together as one result. A result is rare when no shot showed it and each
@@ -64,6 +73,10 @@ from noisevault.reference import probabilities
 from noisevault.score import LEVEL, Choice, paired, rule_test, score
 from noisevault.suite import role, suite
 
+UNSEEN_SHOTS, UNSEEN_JOBS, UNSEEN_SEED = 2000, 4000, 42
+UNSEEN_A, UNSEEN_B = (0.001, 0.1), (1e-12, 0.10001)
+UNSEEN_FORMS = ("steps 1 and 2", "no step")
+
 HIDDEN_SHOTS, HIDDEN_JOBS, HIDDEN_SEED, HIDDEN_OTHERS = 2000, 4000, 11, 50
 A_RARE, B_RARE, EACH = 0.0004, 1e-12, 0.0002
 HIDDEN_FORMS = ("steps 1 and 2", "step 2 only", "no step")
@@ -102,18 +115,71 @@ def hidden_truth() -> np.ndarray:
 def natural_verdict(counts: np.ndarray, difference: np.ndarray) -> Choice:
     """The verdict of the test with no step: the variance comes from the measured frequencies
     only, with no part for the results that no shot showed."""
-    shots = int(counts.sum())
-    seen = counts > 0
-    frequency = counts[seen] / shots
-    d = difference[seen]
-    mean = float(frequency @ d)
-    variance = shots * float(frequency @ (d - mean) ** 2)
+    return natural_verdict_of([(counts, difference)])
+
+
+def natural_verdict_of(circuits: Sequence[tuple[np.ndarray, np.ndarray]]) -> Choice:
+    """``natural_verdict`` for the counts and the score differences of one or more circuits."""
+    total = variance = 0.0
+    for counts, difference in circuits:
+        shots = int(counts.sum())
+        seen = counts > 0
+        frequency = counts[seen] / shots
+        d = difference[seen]
+        mean = float(frequency @ d)
+        total += float(counts[seen] @ d)
+        variance += shots * float(frequency @ (d - mean) ** 2)
     if variance == 0:
         return "neither"
-    z = float(counts[seen] @ d) / math.sqrt(variance)
+    z = total / math.sqrt(variance)
     if math.erfc(abs(z) / math.sqrt(2)) >= LEVEL:
         return "neither"
     return "a" if z > 0 else "b"
+
+
+def matched_wrong(a: float, b: float) -> float:
+    """The probability of a wrong readout for which models with the probabilities ``a`` and
+    ``b`` have the same expected log score."""
+    right = math.log((1 - a) / (1 - b))
+    return -right / (math.log(a / b) - right)
+
+
+def unseen_check(
+    jobs: int = UNSEEN_JOBS, shots: int = UNSEEN_SHOTS, seed: int = UNSEEN_SEED
+) -> dict[str, Any]:
+    """The verdicts of the test and of the natural test on ``jobs`` simulated jobs of the
+    unseen case.
+
+    ``verdicts`` gives, for each form, the fraction of jobs with a verdict for a and for b.
+    """
+    models = [
+        (np.array([1 - a, a]), np.array([1 - b, b]))
+        for a, b in zip(UNSEEN_A, UNSEEN_B, strict=True)
+    ]
+    truth = [matched_wrong(a, b) for a, b in zip(UNSEEN_A, UNSEEN_B, strict=True)]
+    found: dict[str, list[Choice]] = {form: [] for form in UNSEEN_FORMS}
+    occurred = 0
+    rng = np.random.default_rng(seed)
+    for _ in range(jobs):
+        wrong = [int(rng.binomial(shots, t)) for t in truth]
+        counts = [np.array([shots - k, k]) for k in wrong]
+        occurred += int(wrong[0] > 0)
+        pairs = [(n, a, b) for n, (a, b) in zip(counts, models, strict=True)]
+        found["steps 1 and 2"].append(rule_test("log", pairs, np.log, group_rare=True).better)
+        found["no step"].append(
+            natural_verdict_of([(n, np.log(a) - np.log(b)) for n, a, b in pairs])
+        )
+    return {
+        "jobs": jobs,
+        "shots": shots,
+        "seed": seed,
+        "truth": truth,
+        "occurred": occurred / jobs,
+        "verdicts": {
+            form: {"a": choices.count("a") / jobs, "b": choices.count("b") / jobs}
+            for form, choices in found.items()
+        },
+    }
 
 
 def hidden_check(
@@ -280,6 +346,24 @@ def chain_check(
     }
 
 
+def unseen_report(jobs: int, shots: int, seed: int) -> str:
+    found = unseen_check(jobs, shots, seed)
+    lines = [
+        f"noisevault {nv.__version__}; {shots} shots for each circuit, {jobs} jobs, seed {seed}"
+    ]
+    for a, b, truth in zip(UNSEEN_A, UNSEEN_B, found["truth"], strict=True):
+        lines.append(
+            f"probability of a wrong readout: device {truth:.4e}, model a {a}, model b {b}"
+        )
+    lines.append(f"jobs with a wrong readout on the first circuit: {found['occurred']:.4f}")
+    for form, shares in found["verdicts"].items():
+        lines.append(
+            f"{form}: verdict for a {shares['a']:.4f}, verdict for b {shares['b']:.4f},"
+            f" all verdicts {shares['a'] + shares['b']:.4f}"
+        )
+    return "\n".join(lines)
+
+
 def hidden_report(jobs: int, shots: int, seed: int) -> str:
     found = hidden_check(jobs, shots, seed)
     lines = [
@@ -333,6 +417,8 @@ def chain_report(
 
 def report(args: argparse.Namespace) -> str:
     """The text of the check that ``args.check`` names."""
+    if args.check == "unseen":
+        return unseen_report(args.jobs, args.shots, args.seed)
     if args.check == "hidden":
         return hidden_report(args.jobs, args.shots, args.seed)
     if args.check == "safe":
@@ -346,6 +432,10 @@ def report(args: argparse.Namespace) -> str:
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
     checks = parser.add_subparsers(dest="check", required=True)
+    unseen = checks.add_parser("unseen", help="a result that no shot showed")
+    unseen.add_argument("--jobs", type=int, default=UNSEEN_JOBS)
+    unseen.add_argument("--shots", type=int, default=UNSEEN_SHOTS)
+    unseen.add_argument("--seed", type=int, default=UNSEEN_SEED)
     hidden = checks.add_parser("hidden", help="a rare result that hides among rare results")
     hidden.add_argument("--jobs", type=int, default=HIDDEN_JOBS)
     hidden.add_argument("--shots", type=int, default=HIDDEN_SHOTS)

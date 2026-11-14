@@ -34,6 +34,27 @@ def test_step_2_holds_the_level_and_step_1_takes_it_away(hidden: dict) -> None:
     assert hidden["difference_rare"] == pytest.approx(math.log(0.0004 / 1e-12))
 
 
+def test_a_result_that_no_shot_showed_misleads_only_the_natural_test() -> None:
+    a, b = 0.001, 1e-12
+    wrong = score_checks.matched_wrong(a, b)
+    expected = wrong * math.log(a / b) + (1 - wrong) * math.log((1 - a) / (1 - b))
+    assert wrong == pytest.approx(4.8276755196e-5, rel=1e-9)
+    assert expected == pytest.approx(0.0, abs=1e-15)
+    found = score_checks.unseen_check(jobs=200, shots=2000, seed=42)
+    assert found["truth"][1] == pytest.approx(0.100004999926, rel=1e-9)
+    assert found["verdicts"]["steps 1 and 2"] == {"a": 0.0, "b": 0.0}
+    assert found["verdicts"]["no step"]["a"] == 0.0
+    assert found["verdicts"]["no step"]["b"] > 0.85
+    assert found["verdicts"]["no step"]["b"] == pytest.approx(1 - found["occurred"], abs=0.02)
+
+
+def test_the_natural_test_adds_the_circuits() -> None:
+    one = (np.array([900, 100]), np.array([1.0, -1.0]))
+    flat = (np.array([10, 0]), np.array([0.5, 9.0]))
+    assert score_checks.natural_verdict_of([flat, flat]) == "neither"
+    assert score_checks.natural_verdict_of([one, flat]) == "a"
+
+
 def test_the_natural_test_has_no_verdict_with_no_variance() -> None:
     assert score_checks.natural_verdict(np.array([10, 0]), np.array([0.5, 9.0])) == "neither"
     assert score_checks.natural_verdict(np.array([900, 100]), np.array([1.0, -1.0])) == "a"
