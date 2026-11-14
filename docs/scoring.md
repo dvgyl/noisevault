@@ -210,7 +210,7 @@ calibration and the ibm_fez calibration as forecasts of these counts:
 
 ```text
 $ nv score ibm_kingston@2026-04-15 ibm_fez kingston-simulated.counts.json
-counts kingston-simulated.counts.json, simulated, sha256:efeaf3d1f923
+counts kingston-simulated.counts.json, simulated, sha256:b1b70f902611
 run 2026-04-16 09:30Z on ibm_kingston, qubits 148-149-150-151
 
 model                             age  log score   excess  quadratic  ruled out
@@ -299,11 +299,11 @@ run.model_copy(update={"circuits": run.to_dict()["circuits"] + wider}).save("dee
 
 ```text
 $ nv score ibm_kingston deep.counts.json
-counts deep.counts.json, simulated, sha256:ab79d315cf37
+counts deep.counts.json, simulated, sha256:1a19462459e6
 run 2026-04-16 09:30Z on ibm_kingston, qubits 148-149-150-151-147-152-153-154
 
 model             fingerprint   age  log score   excess  noise 95%  quadratic
-ibm_kingston  nv:609c845ed934  26 h   -1.30817  0.01135    0.01220    0.53290
+ibm_kingston  nv:609c845ed934  26 h   -1.30817  0.01135    0.01236    0.53290
 
 3 probe circuits left out: periodic_d48, axis_d64, axis_d256
 3 circuits on more than 10 qubits left out: clifford_n20_d15, clifford_n40_d15,

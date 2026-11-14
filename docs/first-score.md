@@ -38,11 +38,11 @@ Two lines tell you what the calibration cannot know:
 
 ```text
 $ nv score ibm_kingston@2026-04-15 kingston-simulated.counts.json
-counts kingston-simulated.counts.json, simulated, sha256:efeaf3d1f923
+counts kingston-simulated.counts.json, simulated, sha256:b1b70f902611
 run 2026-04-16 09:30Z on ibm_kingston, qubits 148-149-150-151
 
 model                        fingerprint   age  log score   excess  noise 95%  quadratic
-ibm_kingston@2026-04-15  nv:609c845ed934  26 h   -0.85501  0.00362    0.00140    0.70980
+ibm_kingston@2026-04-15  nv:609c845ed934  26 h   -0.85501  0.00362    0.00138    0.70980
 ```
 
 Read two columns first:
@@ -52,7 +52,7 @@ Read two columns first:
 - **`noise 95%`** is the excess that shot noise alone gives in 95% of the cases, if the profile
   is right.
 
-Here the excess is 0.00362 and shot noise explains only 0.00140. So the profile does not
+Here the excess is 0.00362 and shot noise explains only 0.00138. So the profile does not
 describe these counts, and the counts have enough shots to show it. A third column, `ruled out`,
 appears when the profile gives a measured result the probability 0.
 
@@ -64,11 +64,11 @@ the profile with these factors:
 ```text
 $ nv compare ibm_kingston@2026-04-15 kingston-simulated.counts.json -o fitted.json
 ...
-gate errors     x2.16 (95% interval 1.77 to 2.59)
-readout errors  x1.34 (95% interval 1.16 to 1.53)
-fit             within shot noise on every circuit (p = 0.69)
+gate errors     x2.16 (95% interval 1.74 to 2.58)
+readout errors  x1.34 (95% interval 1.16 to 1.54)
+fit             within shot noise on every circuit (p = 0.7)
 
-saved: fitted.json, ibm_kingston nv:e378e0aa8065 with the fitted factors
+saved: fitted.json, ibm_kingston nv:646a8066f2b5 with the fitted factors
 ```
 
 Then score the two profiles together. `nv score` takes any number of profiles and tests the best
@@ -77,8 +77,8 @@ one against each other one:
 ```text
 $ nv score ibm_kingston@2026-04-15 fitted.json kingston-simulated.counts.json
 model                        fingerprint   age  log score   excess  noise 95%  quadratic
-fitted.json              nv:e378e0aa8065  26 h   -0.85221  0.00083    0.00150    0.71001
-ibm_kingston@2026-04-15  nv:609c845ed934  26 h   -0.85501  0.00362    0.00140    0.70980
+fitted.json              nv:646a8066f2b5  26 h   -0.85221  0.00083    0.00142    0.71001
+ibm_kingston@2026-04-15  nv:609c845ed934  26 h   -0.85501  0.00362    0.00138    0.70980
 
 ibm_kingston@2026-04-15 against fitted.json:
   log score: fitted.json is better by 0.00280 per shot than
@@ -96,7 +96,7 @@ the profile of another device against the same counts.
 A score holds for circuits like the ones in the counts file. Two limits matter in practice:
 
 - **Circuits with few gates say little.** The interval of the gate factor above reaches from
-  1.77 to 2.59. By a computation with the profile, the
+  1.74 to 2.58. By a computation with the profile, the
   [deep circuit set](recipes.md#run-the-deep-circuit-set) measures the same factor about 8 times
   more exactly for the same number of shots.
 - **A circuit that repeats one gate many times is outside each such model.** A profile states
