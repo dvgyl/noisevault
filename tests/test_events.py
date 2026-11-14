@@ -437,6 +437,33 @@ def test_nv_score_scores_the_wide_circuits_only_with_the_option(
     assert data["wide"]["models"][0]["name"] == str(files["truth"])
 
 
+def test_nv_score_with_the_option_scores_a_file_of_only_wide_circuits(
+    line_14: Profile, tmp_path: Path
+) -> None:
+    from typer.testing import CliRunner
+
+    from noisevault.cli import app
+
+    counts = events.simulate_wide(line_14, [_mirror(12, 3)], shots=500, seed=6, run_at=RUN_AT)
+    profile, path = tmp_path / "stated.json", tmp_path / "counts.json"
+    line_14.save(profile)
+    counts.save(path)
+    args = ["score", str(profile), str(path)]
+    runner = CliRunner()
+
+    plain = runner.invoke(app, args, env={"COLUMNS": "200"})
+    assert plain.exit_code == 1
+    assert "circuit clifford_n12_d3 has 12 qubits, more than the 10" in plain.stderr
+    assert "--wide" in plain.stderr
+
+    wide = runner.invoke(app, [*args, "--wide", "--samples", "20000"], env={"COLUMNS": "200"})
+    assert wide.exit_code == 0, wide.output
+    assert "wide circuits: clifford_n12_d3, 500 shots" in wide.stdout
+    data = json.loads(runner.invoke(app, [*args, "--wide", "--samples", "20000", "--json"]).stdout)
+    assert data["wide"]["circuits"] == ["clifford_n12_d3"]
+    assert data["models"] == [] and data["counts"] == counts.sha256
+
+
 def test_nv_score_says_when_the_option_for_wide_circuits_has_no_effect(
     line_14: Profile, tmp_path: Path
 ) -> None:

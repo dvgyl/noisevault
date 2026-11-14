@@ -1367,6 +1367,7 @@ def score(
     as_json: Annotated[bool, typer.Option("--json", help="Print JSON.")] = False,
 ) -> None:
     """Score profiles as forecasts of counts from a device, with no fit."""
+    from .counts import refuse_wide
     from .reference import MAX_QUBITS
     from .score import rank
 
@@ -1393,22 +1394,32 @@ def score(
         ]
         if floor:
             profiles = floored
-        with err.status("Scoring the profiles..."):
-            ranking = rank(
-                [
-                    (ref, profile.score(measured))
-                    for ref, profile in zip(refs, profiles, strict=True)
-                ]
-            )
-            best, forecast = ranking.models[0]
-            # The ranking is the result. A probe circuit that the best profile cannot simulate
-            # must not hide it.
-            try:
-                probes = forecast.profile.probe_report(measured)
-            except NoiseVaultError as exc:
-                probes = None
-                err.print(f"warning: no probe report: {_cli_terms(exc.message)}", markup=False)
         too_wide = [c.name for c in measured.circuits if len(c.qubits) > MAX_QUBITS]
+        ranking, probes = None, None
+        if len(too_wide) == len(measured.circuits) and not wide:
+            try:
+                refuse_wide(measured.circuits, "score can simulate")
+            except NoiseVaultError as exc:
+                _fail(
+                    exc.message,
+                    f"add --wide to score the circuits on more than {MAX_QUBITS}"
+                    " qubits from Stim samples",
+                )
+        if len(too_wide) < len(measured.circuits):
+            with err.status("Scoring the profiles..."):
+                ranking = rank(
+                    [
+                        (ref, profile.score(measured))
+                        for ref, profile in zip(refs, profiles, strict=True)
+                    ]
+                )
+                best, forecast = ranking.models[0]
+                # The ranking is the result. A probe circuit that the best profile cannot
+                # simulate must not hide it.
+                try:
+                    probes = forecast.profile.probe_report(measured)
+                except NoiseVaultError as exc:
+                    err.print(f"warning: no probe report: {_cli_terms(exc.message)}", markup=False)
         wide_report = None
         if wide and too_wide:
             from . import events
@@ -1433,7 +1444,7 @@ def score(
             )
         if as_json:
             _echo_json(
-                ranking.to_dict()
+                (_no_ranking(measured) if ranking is None else ranking.to_dict())
                 | {
                     "floor": floor,
                     "zero_readout_qubits": {ref: zeros[ref] for ref in refs},
@@ -1442,8 +1453,9 @@ def score(
                 }
             )
         else:
-            for line in ranking.summary(counts_file=counts, width=out.width).splitlines():
-                out.print(Text(line), soft_wrap=True)
+            if ranking is not None:
+                for line in ranking.summary(counts_file=counts, width=out.width).splitlines():
+                    out.print(Text(line), soft_wrap=True)
             if probes is not None:
                 out.print()
                 for line in probes.summary(best, width=out.width).splitlines():
@@ -1742,6 +1754,19 @@ def _cli_terms(message: str) -> str:
     for pattern, replacement in _CLI_TERMS:
         message = pattern.sub(replacement, message)
     return message
+
+
+def _no_ranking(counts: MeasuredCounts) -> dict[str, Any]:
+    """The keys of ``Ranking.to_dict`` for counts with no circuit that the score simulates."""
+    return {
+        "counts": counts.sha256,
+        "source": counts.source,
+        "backend": counts.backend,
+        "run_at": iso_z(counts.run_at),
+        "qubits": list(counts.qubits),
+        "models": [],
+        "paired": [],
+    }
 
 
 def _fail(message: str, hint: str | None = None, *, code: int = 1) -> NoReturn:
