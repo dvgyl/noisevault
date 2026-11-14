@@ -248,8 +248,8 @@ that a score cannot use:
   model from a calibration holds no such error, so it cannot forecast these circuits, and they
   would decide the score.
 - **Circuits on more than 10 qubits.** The `clifford_n*` circuits run on 20, 40 and 80 qubits.
-  The reference simulator holds 10 qubits at most. `noisevault.events.score_wide` scores them from
-  samples of a stabilizer simulator. Read
+  The reference simulator holds 10 qubits at most. `nv score --wide` scores them from samples of a
+  stabilizer simulator, after the ranking. Read
   [Wide circuits and detection events](wide-and-detectors.md).
 
 With no `circuits=`, `score` leaves out both kinds. `Forecast.left_out` names each circuit with

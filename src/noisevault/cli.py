@@ -184,6 +184,7 @@ _VALUE_HINTS = {
     "--from": "a date or time, for example --from 2026-11-01",
     "--to": "a date or time, for example --to 2026-11-07",
     "--step": "a step, for example --step 1d or --step 12h",
+    "--samples": "a number of samples, for example --samples 200000",
     "--archive": "a file name, for example --archive train-00000-of-00001.parquet",
     "--source": "ibm, ibm-account or ionq, for example --source ionq",
     "--output": "a file name, for example --output fez.json",
@@ -1341,6 +1342,22 @@ def score(
             help="Replace each stated readout error of exactly 0 before the score.",
         ),
     ] = False,
+    wide: Annotated[
+        bool,
+        typer.Option(
+            "--wide",
+            help="Also score the circuits on more than 10 qubits, from Stim samples. This can"
+            " take a minute for each profile.",
+        ),
+    ] = False,
+    samples: Annotated[
+        int | None,
+        typer.Option(
+            "--samples",
+            help="With --wide: the Stim samples of each profile for each circuit.",
+            metavar="N",
+        ),
+    ] = None,
     as_json: Annotated[bool, typer.Option("--json", help="Print JSON.")] = False,
 ) -> None:
     """Score profiles as forecasts of counts from a device, with no fit."""
@@ -1385,6 +1402,29 @@ def score(
             except NoiseVaultError as exc:
                 probes = None
                 err.print(f"warning: no probe report: {_cli_terms(exc.message)}", markup=False)
+        too_wide = [c.name for c in measured.circuits if len(c.qubits) > MAX_QUBITS]
+        wide_report = None
+        if wide and too_wide:
+            from . import events
+            from .wide import has_stim
+
+            if not has_stim():
+                _fail(
+                    "--wide needs Stim to score the circuits on more than 10 qubits",
+                    install_hint("stim"),
+                )
+            unique = len(set(refs)) == len(refs)
+            models = dict(zip(refs, profiles, strict=True)) if unique else profiles
+            with err.status("Scoring the wide circuits with Stim..."):
+                wide_report = events.score_wide(
+                    models, measured, samples=events.SAMPLES if samples is None else samples
+                )
+        elif wide:
+            err.print(
+                "warning: --wide has no effect, because the counts hold no circuit on more than"
+                f" {MAX_QUBITS} qubits",
+                markup=False,
+            )
         if as_json:
             _echo_json(
                 ranking.to_dict()
@@ -1392,6 +1432,7 @@ def score(
                     "floor": floor,
                     "zero_readout_qubits": {ref: zeros[ref] for ref in refs},
                     "probes": None if probes is None else {"ref": best, **probes.to_dict()},
+                    "wide": None if wide_report is None else wide_report.to_dict(),
                 }
             )
         else:
@@ -1401,6 +1442,18 @@ def score(
                 out.print()
                 for line in probes.summary(best, width=out.width).splitlines():
                     out.print(Text(line), soft_wrap=True)
+            if wide_report is not None:
+                out.print()
+                for line in wide_report.summary(width=out.width).splitlines():
+                    out.print(Text(line), soft_wrap=True)
+            elif too_wide and not wide:
+                err.print(
+                    Text(
+                        f"hint: add --wide to score the {plural(len(too_wide), 'circuit')} on more"
+                        f" than {MAX_QUBITS} qubits from Stim samples"
+                    ),
+                    soft_wrap=True,
+                )
             stated = [ref for ref in refs if zeros[ref] and ref not in no_floor]
             if stated and not floor:
                 where = "; ".join(

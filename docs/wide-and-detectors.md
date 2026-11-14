@@ -98,6 +98,16 @@ For a real run, load the counts with `noisevault.counts.load_counts` and give th
 the circuits to score. `samples` is the number of Stim samples of each profile for each circuit,
 1,000,000 by default.
 
+On the command line, `nv score` gives the same report with `--wide`, after its ranking:
+
+```bash
+nv score ibm_fez@2026-11-12 ibm_fez@2026-10-13 run.counts.json --wide
+```
+
+Without `--wide`, `nv score` leaves these circuits out and names them, because the samples take
+about a minute for each profile. `--samples N` sets the number of samples, and `--json` gives the
+report under the key `wide`.
+
 ## Score the detection events of an experiment
 
 `score_detectors` takes three inputs:

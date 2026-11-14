@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sys
 import time
 from datetime import UTC, datetime
@@ -396,3 +397,58 @@ def test_one_80_qubit_circuit_of_the_circuit_set_scores_two_models_in_under_a_mi
     assert report.tests[0].better == "device"
     # A shared machine stretches the wall time, so the budget is on the CPU time of the process.
     assert used < 60
+
+
+def test_nv_score_scores_the_wide_circuits_only_with_the_option(
+    line_14: Profile, tmp_path: Path
+) -> None:
+    from typer.testing import CliRunner
+
+    from noisevault.cli import app
+
+    truth = _factor(line_14, 2.0)
+    narrow = PlannedCircuit(
+        name="narrow", qubits=(0, 1, 2, 3), ops=(Op("x", (1,)), Op("cz", (0, 1)), Op("sx", (2,)))
+    )
+    counts = events.simulate_wide(
+        truth, [narrow, _mirror(12, 3)], shots=3000, seed=6, run_at=RUN_AT
+    )
+    files = {name: tmp_path / f"{name}.json" for name in ("stated", "truth", "counts")}
+    line_14.save(files["stated"])
+    truth.save(files["truth"])
+    counts.save(files["counts"])
+    args = ["score", str(files["stated"]), str(files["truth"]), str(files["counts"])]
+    runner = CliRunner()
+
+    plain = runner.invoke(app, args, env={"COLUMNS": "200"})
+    assert plain.exit_code == 0, plain.output
+    assert "wide circuits:" not in plain.stdout
+    assert "hint: add --wide to score the 1 circuit on more than 10 qubits" in plain.stderr
+    assert json.loads(runner.invoke(app, [*args, "--json"]).stdout)["wide"] is None
+
+    wide = runner.invoke(app, [*args, "--wide", "--samples", "100000"], env={"COLUMNS": "200"})
+    assert wide.exit_code == 0, wide.output
+    assert (
+        "wide circuits: clifford_n12_d3, 3000 shots, forecasts from 100000 samples" in wide.stdout
+    )
+    assert "hint: add --wide" not in wide.stderr
+    data = json.loads(runner.invoke(app, [*args, "--wide", "--samples", "100000", "--json"]).stdout)
+    assert data["wide"]["circuits"] == ["clifford_n12_d3"]
+    assert data["wide"]["models"][0]["name"] == str(files["truth"])
+
+
+def test_nv_score_says_when_the_option_for_wide_circuits_has_no_effect(
+    line_14: Profile, tmp_path: Path
+) -> None:
+    from typer.testing import CliRunner
+
+    from noisevault.cli import app
+
+    narrow = events.simulate_wide(line_14, [_mirror(8, 1)], shots=200, seed=7, run_at=RUN_AT)
+    profile, counts = tmp_path / "stated.json", tmp_path / "counts.json"
+    line_14.save(profile)
+    narrow.save(counts)
+
+    result = CliRunner().invoke(app, ["score", str(profile), str(counts), "--wide"])
+    assert result.exit_code == 0, result.output
+    assert "warning: --wide has no effect" in result.stderr

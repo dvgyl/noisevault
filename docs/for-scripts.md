@@ -43,7 +43,7 @@ $ echo $?
 | `nv history DEVICE --from DATE --to DATE --json` | Gives the calibration values of a device over a range of dates as one table | `device`, `source`, `from`, `to`, `step_seconds`, `calibrations`, `columns`, `rows` |
 | `nv check REF --json` | Checks each framework export against the reference | `profile_id`, `fingerprint`, `passed`, `layout`, `shots`, `seed`, `circuits`, `frameworks`, `skipped`, `failed`, `note` |
 | `nv compare REF COUNTS --json` | Fits a gate factor and a readout factor to counts | `profile_id`, `fingerprint`, `calibration`, `counts`, `source`, `backend`, `run_at`, `calibration_age_hours`, `qubits`, `circuits`, `gates`, `readout`, `deviance`, `dof`, `dispersion`, `p_value`, `resamples`, `impossible_shots`, `ruled_out`, `notes`, `note` |
-| `nv score REF... COUNTS --json` | Scores profiles as forecasts of counts, with no fit | `counts`, `source`, `backend`, `run_at`, `qubits`, `models`, `paired`, `floor`, `zero_readout_qubits`, `probes` |
+| `nv score REF... COUNTS --json` | Scores profiles as forecasts of counts, with no fit | `counts`, `source`, `backend`, `run_at`, `qubits`, `models`, `paired`, `floor`, `zero_readout_qubits`, `probes`, `wide` |
 | `nv schema` | Prints the JSON Schema of the profile format | The schema itself |
 
 `nv pull`, `nv cite`, `nv validate` and `nv doctor` print text. Without `--json`, `nv history`
@@ -59,7 +59,9 @@ a list of the circuits that the score did not use, each with `name` and `reason`
 the [probe report](scoring.md#probe-circuits-and-what-a-score-leaves-out) with the forecast of
 the best profile. It is `null` when the counts hold no probe circuit, and when the best profile
 cannot simulate a probe circuit. In the second case, a `warning:` line on standard error gives
-the reason. The top-level `qubits` names each qubit that the counts measure. The qubits of the
+the reason. `wide` holds the [score of the circuits on more than 10 qubits](wide-and-detectors.md) when you
+give `--wide`. In each other case it is `null`. The top-level `qubits` names each qubit that the
+counts measure. The qubits of the
 scored circuits are in `circuits` of each entry of `models`.
 
 ## A check in a script
