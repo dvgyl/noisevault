@@ -48,7 +48,6 @@ from noisevault._jobfile import create as _create  # noqa: E402
 from noisevault._jobfile import line as _line  # noqa: E402
 from noisevault.compare import _bind  # noqa: E402
 from noisevault.counts import (  # noqa: E402
-    _RUN_RULES,
     COUNTS_FORMAT,
     SAMPLER_V2_OPTIONS,
     MeasuredCounts,
@@ -70,6 +69,7 @@ from noisevault.profile import (  # noqa: E402
     ref_on_day,
 )
 from noisevault.sources import ibm_account  # noqa: E402
+from noisevault.sources.ibm_job import PROGRAM, execution, started_at  # noqa: E402
 from noisevault.suite import suite  # noqa: E402
 
 DEFAULT_SHOTS = 4000
@@ -80,7 +80,6 @@ ACCOUNT_SETUP = (
     " QiskitRuntimeService.save_account(token=...)"
 )
 LABEL = 16
-PROGRAM = "sampler"  # the program id of the server-side SamplerV2
 SUB_JOB_OVERHEAD_S = 2.0
 
 Calibration = Callable[[datetime | None], Profile]
@@ -294,18 +293,6 @@ def collect(job: Any, submitted: Submitted) -> Ran:
     )
 
 
-def started_at(metrics: dict[str, Any]) -> datetime:
-    """When the job started running, in UTC. IBM sends an ISO 8601 string, which the runtime
-    reads as UTC when it has no offset. Local testing mode gives a naive datetime in local time,
-    which ``astimezone`` reads as local time."""
-    stamp = metrics["timestamps"]["running"]
-    if isinstance(stamp, str):
-        stamp = datetime.fromisoformat(stamp)
-        if stamp.tzinfo is None:
-            stamp = stamp.replace(tzinfo=UTC)
-    return stamp.astimezone(UTC)
-
-
 def bind(submitted: Submitted, ran: Ran, calibration: Calibration) -> Binding:
     planned = submitted.profile
     try:
@@ -366,7 +353,7 @@ def counts_file(profile: Profile, submitted: Submitted, ran: Ran) -> MeasuredCou
             "backend": profile.device.name,
             "run_at": ran.run_at,
             "bit_order": "qiskit",
-            "execution": _execution(submitted.options, ran.job_id),
+            "execution": execution(submitted.options, [] if ran.job_id is None else [ran.job_id]),
             "circuits": [
                 {
                     "name": circuit.name,
@@ -379,19 +366,6 @@ def counts_file(profile: Profile, submitted: Submitted, ran: Ran) -> MeasuredCou
             ],
         }
     )
-
-
-def _execution(options: Any, job_id: Any) -> dict[str, Any]:
-    import qiskit
-    import qiskit_ibm_runtime
-
-    runtime, framework = qiskit_ibm_runtime.__version__, qiskit.__version__
-    return {
-        "client": f"qiskit-ibm-runtime {runtime} SamplerV2, qiskit {framework}",
-        **{rule.flag: rule.required for rule in _RUN_RULES if rule.flag},
-        "job_ids": [] if job_id is None else [job_id],
-        "options": options,
-    }
 
 
 def catalog_ref(profile: Profile) -> str | None:
