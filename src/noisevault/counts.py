@@ -810,6 +810,7 @@ def outcome_probabilities(
         readout=readout,
         unknown_gates=unknown_gates,
         report=report,
+        measured=circuit.measured,
     )
     if circuit.measured is None:
         return probs

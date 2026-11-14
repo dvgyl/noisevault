@@ -50,8 +50,12 @@ def probabilities(
     unknown_gates: UnknownGates = "typical",
     readout: bool = True,
     report: Report | None = None,
+    measured: Iterable[int] | None = None,
 ) -> np.ndarray:
     """Outcome probabilities of the noisy circuit, all qubits measured at the end.
+
+    ``measured`` gives the circuit qubits whose measure the profile must allow. The default is
+    all circuit qubits.
 
     Raises TooWideError for more than ``MAX_QUBITS`` qubits, because the density matrix has
     4**n entries.
@@ -131,7 +135,7 @@ def probabilities(
             steps[step][1].replay(report)
         state.apply(steps[step][0])
     rho = state.flush()
-    for c in range(num_qubits):
+    for c in range(num_qubits) if measured is None else measured:
         refuse_disabled(table.gate("measure", (physical[c],)))
 
     dim = 2**num_qubits

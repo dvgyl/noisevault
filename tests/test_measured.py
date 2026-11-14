@@ -237,3 +237,17 @@ def test_the_probe_report_reads_the_bits_in_the_order_of_measured() -> None:
     assert circuit.ideal_result == "01"
     assert [(q.qubit, q.ideal_bit) for q in circuit.wrong_bits] == [(149, "0"), (148, "1")]
     assert circuit.measured == pytest.approx(circuit.forecast, abs=0.05)
+
+
+def test_a_disabled_measure_on_a_qubit_that_the_circuit_does_not_measure_is_no_refusal() -> None:
+    data = kingston().to_dict()
+    data["gates"]["measure"] = {}
+    off = {"gate": "measure", "qubits": [150], "disabled": True}
+    data["calibrations"] = [*data.get("calibrations", []), off]
+    profile = Profile.model_validate(data)
+    circuits = [_bell(measured=(0,)), _bell(measured=(1, 0), name="b")]
+    counts = simulate(profile, circuits, shots=4000, seed=2, run_at=RUN_AT)
+    assert profile.score(counts).ruled_out == 0
+    assert profile.compare(counts).gates.factor > 0
+    with pytest.raises(NoiseVaultError, match="measure on qubit 150 is disabled"):
+        outcome_probabilities(profile, _bell(measured=(2,)))

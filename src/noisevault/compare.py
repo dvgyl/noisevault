@@ -1266,6 +1266,7 @@ def _bind(profile: Profile, counts: MeasuredCounts) -> Profile:
                 raise CountsError(
                     f"circuit {c.name} measures qubit {q}, which {profile.id} marks disabled"
                 )
+        for q in c.measured_qubits:
             try:
                 refuse_disabled(table.gate("measure", (q,)))
             except DisabledGateError as exc:
