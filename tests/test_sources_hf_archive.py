@@ -86,6 +86,30 @@ def test_legacy_rows_give_t1_and_t2_in_seconds() -> None:
     assert profile.device.calibrated_at == datetime(2026, 1, 31, 13, 38, 30, tzinfo=UTC)
 
 
+def test_a_t1_in_seconds_with_the_unit_us_is_read_as_seconds(tmp_path: Path) -> None:
+    # A later revision of the dataset gives the unit "us" to its old T1 and T2 rows. Their values
+    # are still in seconds.
+    rows = pq.read_table(FIXTURE).to_pylist()
+    old = [r for r in rows if r["property"] in ("T1", "T2") and r["unit"] is None]
+    assert old
+    relabelled = [{**r, "unit": "us"} if r in old else r for r in rows]
+    profile = _fez(at="2026-03-01", path=_rewritten(tmp_path, relabelled))
+    assert _qubit(profile, 0).t1_us == pytest.approx(48.54)
+    assert _qubit(profile, 1).t2_us == pytest.approx(31.0)
+    assert profile.idle.t1_us == pytest.approx(50.04)
+    [note] = [n for n in profile.provenance.notes if "in seconds" in n]
+    assert note.startswith("The archive gives the unit us to ")
+    assert note.endswith(
+        " T1 or T2 values in seconds. NoiseVault reads each such value as seconds."
+    )
+
+
+def test_a_t1_in_microseconds_keeps_its_value() -> None:
+    profile = _fez()
+    assert not [n for n in profile.provenance.notes if "in seconds" in n]
+    assert all(q.t1_us is None or q.t1_us > 1 for q in profile.qubits)
+
+
 def test_a_legacy_profile_mixes_in_backfill_rows_and_names_the_gates_it_lacks() -> None:
     profile = _fez(at="2026-03-01")
     assert profile.gates["cz"].avg_infidelity == 0.0439

@@ -215,6 +215,10 @@ The archive has these limits:
   seconds. The importer converts these values to microseconds. Those rows hold only T1, T2, the
   readout errors and the `sx` and `cz` errors. Rows from a backfill of IBM calibrations,
   calibrated from late January 2026, add the durations and most other gates.
+- A newer revision of the dataset gives the unit `us` to these old T1 and T2 rows, but their
+  values are still in seconds. The importer reads a T1 or T2 below 0.01 with the unit `us` as
+  seconds, and `provenance.notes` gives the number of these values. A T1 or T2 of these devices
+  is above 0.5 microseconds and below 0.001 seconds, so the rule cannot change a correct value.
 - If the device's newest calibration has a gate that the time you ask for lacks, the profile
   leaves the gate out and `provenance.notes` names it. For example, `ibm_fez` at its `first`
   time has no `xslow`.

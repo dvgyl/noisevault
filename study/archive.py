@@ -22,6 +22,11 @@ changes that each exclusion removes.
 The script excludes ibm_torino, which IBM retired in April 2026, unless ``--include-retired`` is
 given.
 
+The archive gives its T1 and T2 values from before May 2026 in seconds, and its later values in
+microseconds. Both have the unit ``us`` in the file. The script reads a T1 or T2 below
+``SECONDS_BELOW`` as seconds and changes it to microseconds. The output gives the number of
+these values.
+
 ``--start`` and ``--end`` set one window for all statistics. A row or a change counts only when
 its ``calibrated_time`` is in the window. A statistic of two changes, such as an interval, a change
 size or a next value, needs both changes in the window. The script finds the changes and the
@@ -52,7 +57,7 @@ if TYPE_CHECKING:
 
 DATASET = "phanerozoic/qiskit-calibration-drift"
 LICENSE = "CC-BY-4.0"
-FORMAT = "1"
+FORMAT = "2"
 KINDS = {
     "T1": "t1",
     "T2": "t2",
@@ -65,6 +70,9 @@ KINDS = {
 KIND_ORDER = ("t1", "t2", "readout", "one_qubit", "two_qubit", "rzz")
 GATE_KINDS = ("one_qubit", "two_qubit", "rzz")
 GATE_CEILING = 0.5
+COHERENCE = ("T1", "T2")
+# A T1 or T2 of these devices is above 0.5 microseconds and below 0.001 seconds.
+SECONDS_BELOW = 0.01
 READOUT = ("prob_meas0_prep1", "prob_meas1_prep0")
 RANKED = ("prob_meas1_prep0", "cz_gate_error")
 RETIRED = ("ibm_torino",)
@@ -106,6 +114,8 @@ class Rows:
     ``flagged`` marks the rows with ``is_failure_ceiling`` true.
     ``duplicates`` counts the rows that the series dropped for a time that another row has, and
     ``conflicts`` counts the dropped rows with a different value.
+    ``value`` gives T1 and T2 in microseconds. ``seconds`` counts the T1 and T2 values that the
+    file gives in seconds.
     """
 
     devices: list[str]
@@ -118,6 +128,7 @@ class Rows:
     flagged: np.ndarray
     duplicates: int
     conflicts: int
+    seconds: int = 0
 
     @property
     def change(self) -> np.ndarray:
@@ -158,6 +169,7 @@ class Rows:
             self.flagged[mask],
             self.duplicates,
             self.conflicts,
+            self.seconds,
         )
 
 
@@ -183,6 +195,11 @@ def read_rows(path: Path, include_retired: bool = False) -> Rows:
     qubit_a = table["qubit_a"].to_numpy().astype(np.int32)
     qubit_b = pc.fill_null(table["qubit_b"], -1.0).to_numpy().astype(np.int32)
     value = table["value"].to_numpy()
+    coherence = np.isin(prop, [i for i, p in enumerate(properties) if p in COHERENCE])
+    in_seconds = coherence & (value < SECONDS_BELOW)
+    value = np.where(in_seconds, value * 1e6, value)
+    seconds = int(np.count_nonzero(in_seconds))
+    del coherence, in_seconds
     flagged = pc.fill_null(table["is_failure_ceiling"], False).to_numpy(zero_copy_only=False)
     time_us = _micros(table["calibrated_time"])
     observed = _micros(table["observed_time"])
@@ -214,6 +231,7 @@ def read_rows(path: Path, include_retired: bool = False) -> Rows:
         flagged,
         int(np.count_nonzero(repeated)),
         conflicts,
+        seconds,
     )
     return rows.select(~repeated)
 
@@ -257,6 +275,7 @@ def analyze(
         "file_rows": int(rows.value.size),
         "file_changes": int(changes.value.size),
         "duplicate_times": {"rows": rows.duplicates, "different_value": rows.conflicts},
+        "seconds_values": rows.seconds,
         "grid_step_h": int(GRID_STEP.total_seconds() // 3600),
         "intervals": _intervals(window, restamps, window_changes, _kind_label),
         "intervals_by_property": _intervals(window, restamps, window_changes, _property_label),
@@ -574,6 +593,8 @@ def markdown(data: Mapping[str, Any]) -> str:
         f"- Window: calibrated from {window['start']} to {window['end']}, {data['rows']} rows,"
         f" {data['changes']} changes. The grid of times has a time each {data['grid_step_h']}"
         " hours in the window.",
+        f"- T1 and T2 values in seconds: {data['seconds_values']}. The file gives these values"
+        " with the unit us. Each statistic uses them in microseconds.",
         "",
         "## Hours between two changes and between two times",
         "",

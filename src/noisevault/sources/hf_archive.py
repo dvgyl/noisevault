@@ -56,6 +56,9 @@ _COLUMN_TYPES = {
 }
 _GATE_PARAMETERS = ("gate_error", "gate_length", "threshold")
 _IN_SECONDS_WITHOUT_UNIT = {"T1", "T2"}
+# The dataset gives the unit "us" to its T1 and T2 rows from before May 2026, but their values are
+# in seconds. A T1 or T2 of these devices is above 0.5 microseconds and below 0.001 seconds.
+_SECONDS_BELOW = 0.01
 _PROCESSORS = {
     "ibm_fez": "Heron r2",
     "ibm_kingston": "Heron r2",
@@ -160,6 +163,12 @@ def from_calibration_archive(
         notes.append(
             f"This profile does not use {plural(unplaced, 'row')} of {name} with no property or"
             " no calibrated_time."
+        )
+    relabelled = sum(1 for row in picked if _seconds_with_the_unit_us(row))
+    if relabelled:
+        notes.append(
+            f"The archive gives the unit us to {plural(relabelled, 'T1 or T2 value')} in seconds."
+            " NoiseVault reads each such value as seconds."
         )
     if all(row["unit"] is None for row in picked):
         notes.append(
@@ -339,7 +348,7 @@ def _backend_properties(device: str, rows: list[dict[str, Any]]) -> dict[str, An
     top = -1
     for row in rows:
         name, unit = row["property"], row["unit"]
-        if unit is None and name in _IN_SECONDS_WITHOUT_UNIT:
+        if (unit is None and name in _IN_SECONDS_WITHOUT_UNIT) or _seconds_with_the_unit_us(row):
             unit = "s"
         locus = row["qubits"]
         top = max(top, *locus)
@@ -362,6 +371,17 @@ def _backend_properties(device: str, rows: list[dict[str, Any]]) -> dict[str, An
             for (gate, locus), params in gates.items()
         ],
     }
+
+
+def _seconds_with_the_unit_us(row: dict[str, Any]) -> bool:
+    """True for a T1 or T2 row with the unit ``us`` whose value is in seconds."""
+    value = row["value"]
+    return (
+        row["property"] in _IN_SECONDS_WITHOUT_UNIT
+        and row["unit"] == "us"
+        and value is not None
+        and value < _SECONDS_BELOW
+    )
 
 
 def _locus(row: dict[str, Any], origin: Origin) -> tuple[int, ...]:

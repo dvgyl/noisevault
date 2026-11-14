@@ -116,6 +116,14 @@ This file lists all notable changes to NoiseVault. Versions follow
 
 ### Fixed
 
+- **A T1 or T2 from the IBM calibration archive was a million times too small for a calibration
+  before June 2026.** A newer revision of the dataset `phanerozoic/qiskit-calibration-drift`
+  gives the unit `us` to its old T1 and T2 rows, but their values are in seconds.
+  `from_calibration_archive` read such a value as microseconds. The importer now reads a T1 or
+  T2 below 0.01 with the unit `us` as seconds, and `provenance.notes` gives the number of these
+  values. `python -m study.archive` does the same and gives the number in its output. Its rank
+  correlations of T1 and T2 were too high before this correction.
+  [docs/data-sources.md](docs/data-sources.md#ibm-calibration-archive-on-hugging-face)
 - `scripts/run_on_braket.py` shows the cost rounded up to the cent. Before, a cost such as
   $0.4717 showed as $0.47, and `--confirm-cost 0.47` then refused the run.
 - `scripts/run_on_ibm.py` refuses to save the counts of a hardware job that ran an IBM program

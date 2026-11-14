@@ -116,6 +116,30 @@ def test_reads_only_the_kinds_and_excludes_the_retired_device(
     assert retired == ["ibm_fez", "ibm_kingston", "ibm_torino"]
 
 
+def test_reads_a_t1_or_t2_in_seconds_as_microseconds(tmp_path: Path) -> None:
+    # The archive holds its old T1 and T2 values in seconds and its new values in microseconds.
+    rows = [
+        _row("T1", 100e-6, 0),
+        _row("T1", 50.0, 24),
+        _row("T2", 80e-6, 0),
+        _row("sx_gate_error", 1e-4, 0),
+        _row("cz_gate_error", 0.004, 0, qubit_a=0, qubit_b=1),
+    ]
+    path = tmp_path / "train.parquet"
+    pq.write_table(pa.Table.from_pylist(rows), path)
+
+    found = archive.read_rows(path)
+    by_property = {name: found.value[found.prop == i] for i, name in enumerate(found.properties)}
+    assert by_property["T1"].tolist() == pytest.approx([100.0, 50.0])
+    assert by_property["T2"].tolist() == pytest.approx([80.0])
+    assert by_property["sx_gate_error"].tolist() == [1e-4]
+
+    data = archive.analyze(path, T0, END)
+    assert data["seconds_values"] == 2
+    assert data["change_size"]["t1"]["12-36 h"]["median"] == pytest.approx(LN2)
+    assert "- T1 and T2 values in seconds: 2." in archive.markdown(data)
+
+
 def test_counts_a_change_only_when_the_value_changes(data: dict[str, Any]) -> None:
     sx = data["intervals"]["ibm_fez"]["one_qubit"]
     assert sx["between_changes_h"] == {"count": 3, "median": 24.0, "p90": 24.0}
