@@ -82,3 +82,20 @@ def test_pull_takes_at_or_job_but_not_both(monkeypatch, pulls) -> None:
     assert result.exit_code == 1
     assert "error: give --at or --job, not both" in result.stderr
     assert pulls == []
+
+
+def test_pull_job_refuses_a_job_with_no_start_time(monkeypatch, pulls) -> None:
+    from noisevault.sources import ibm_account
+
+    class NotStarted(FakeService):
+        def job(self, job_id: str) -> FakeJob:
+            job = super().job(job_id)
+            job.metrics = lambda: {"timestamps": {"running": None}}
+            return job
+
+    monkeypatch.setattr(ibm_account, "_service", lambda: NotStarted("ibm_kingston"))
+    result = runner.invoke(app, ["pull", "ibm_kingston", "--job", "d1job"])
+    assert result.exit_code == 1, result.output
+    assert "error: job d1job has no start time, so it did not run yet" in result.stderr
+    assert "hint: wait until the job ran, then pull again" in result.stderr
+    assert pulls == []

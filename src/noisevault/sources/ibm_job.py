@@ -27,6 +27,8 @@ def started_at(metrics: Mapping[str, Any]) -> datetime:
     reads as UTC when it has no offset. Local testing mode gives a naive datetime in local time,
     which ``astimezone`` reads as local time."""
     stamp = metrics["timestamps"]["running"]
+    if stamp is None:
+        raise ValueError("the job has no start time")
     if isinstance(stamp, str):
         stamp = datetime.fromisoformat(stamp)
         if stamp.tzinfo is None:
