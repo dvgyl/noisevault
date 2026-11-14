@@ -170,6 +170,9 @@ class Forecast:
                 f" at 95% (p = {self.p_value:.2g})"
             )
         lines += ["", f"quadratic score {_number(self.quadratic_score)}", f"fit {fit}"]
+        if len(self.circuits) > 1:
+            top = max(self.circuits, key=lambda c: (c.ruled_out, c.excess))
+            lines.append(f"largest excess {top.name} ({_number(top.excess)})")
         lines += _left_out_lines(self.left_out, min(width, _WIDTH))
         return "\n".join(lines)
 

@@ -684,6 +684,24 @@ def test_named_circuits_keep_a_probe_circuit_and_refuse_a_wide_one() -> None:
     assert info.value.hint == "name the circuits to score with circuits="
 
 
+def test_the_summary_names_the_circuit_with_the_largest_excess() -> None:
+    result = score(nv.load(KINGSTON), kingston_counts())
+    top = max(result.circuits, key=lambda c: c.excess)
+    assert result.summary().splitlines()[-1] == f"largest excess {top.name} ({top.excess:.5f})"
+    one = result.select([top.name])
+    assert "largest excess" not in one.summary()
+
+
+def test_counts_of_only_wide_circuits_give_the_wide_circuit_error() -> None:
+    profile = two_qubit_device()
+    counts = run_of(profile, [READOUT, WIDE]).select(["clifford_n12_d1"])
+    with pytest.raises(CountsError) as info:
+        score(profile, counts)
+    assert info.value.message == (
+        "circuit clifford_n12_d1 has 12 qubits, more than the 10 that score can simulate"
+    )
+
+
 def test_a_long_list_of_left_out_circuits_is_cut() -> None:
     profile = two_qubit_device()
     wide = [(f"w{i}", 12, (), {"0" * 12: 1}) for i in range(6)]
