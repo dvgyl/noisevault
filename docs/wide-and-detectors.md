@@ -105,7 +105,8 @@ nv score ibm_fez@2026-11-12 ibm_fez@2026-10-13 run.counts.json --wide
 ```
 
 Without `--wide`, `nv score` leaves these circuits out and names them, because the samples take
-about a minute for each profile. `--samples N` sets the number of samples, and `--json` gives the
+about a minute for each profile. A counts file with only wide circuits gives no ranking, so it
+needs `--wide`. Then `nv score` prints only this report, and `--json` has no `models`. `--samples N` sets the number of samples, and `--json` gives the
 report under the key `wide`.
 
 ## Score the detection events of an experiment
