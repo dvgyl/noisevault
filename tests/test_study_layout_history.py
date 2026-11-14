@@ -47,6 +47,25 @@ def test_the_ratios_compare_the_next_day_with_the_stated_value(two_qubits: dict)
     assert two_qubits["unchanged"]["day"] == 4
 
 
+def test_a_next_day_value_of_0_gives_the_ratio_0_and_a_stated_0_gives_none() -> None:
+    def with_readout(day: datetime) -> nv.Profile:
+        data = _profile_on(DAY).to_dict()
+        for qubit in data["qubits"]:
+            error = 0.0 if (day > DAY) == (qubit["index"] != 0) else 0.03
+            qubit["readout"] = {"error": error}
+        return nv.Profile.model_validate(data)
+
+    # Up to the day, qubit 0 states a readout error of 0 and each other qubit states 0.03. On
+    # the next day, qubit 0 states 0.03 and each other qubit states 0.
+    found = layout_history.evaluate(with_readout, [DAY], week=1, n=2)
+    chain = found["rows"][0]["chains"]["day"]
+    assert 0 in chain
+    assert sorted(found["ratios"]["day"]["readout"]) == [0.0]
+    assert found["no_ratio"]["day"] == 1
+    assert layout_history.geometric_mean([0.0, 2.0]) == 0.0
+    assert layout_history.geometric_mean([0.5, 2.0]) == pytest.approx(1.0)
+
+
 def test_a_chain_with_a_qubit_that_the_next_day_disables_has_no_sum() -> None:
     (row,) = layout_history.evaluate(_profile_on, [DAY], week=2, n=4)["rows"]
     assert sorted(row["chains"]["day"]) == [0, 1, 2, 3]

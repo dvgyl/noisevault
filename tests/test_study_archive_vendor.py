@@ -49,10 +49,10 @@ def test_reports_the_share_that_agrees() -> None:
     text = archive_vendor.report(FIXTURE, ("ibm_fez",), times_for_each=1, pull=_other_readout)
     lines = text.splitlines()
     # With one time for each device, seed 3 gives 2026-09-20T14:44Z first. The fixture ends on
-    # 2026-06-02, so the time is drawn again: 2026-03-14T10:33Z. The archive then gives a
-    # calibration with 27 values. One of them differs.
+    # 2026-06-02, so the time is drawn again inside the span: 2026-02-28T18:26Z. The archive
+    # then gives a calibration with 27 values. One of them differs.
     assert lines[2] == (
-        "ibm_fez, 2026-03-14T10:33Z, 27, 0.9630, 0, 0; one-qubit gate 1.00, readout 0.88,"
+        "ibm_fez, 2026-02-28T18:26Z, 27, 0.9630, 0, 0; one-qubit gate 1.00, readout 0.88,"
         " t1 1.00, t2 1.00, two-qubit gate 1.00"
     )
     assert lines[3] == (
@@ -89,6 +89,18 @@ def test_draws_a_time_again_when_the_archive_has_no_calibration_of_the_device_th
             datetime(2026, 6, 2, 9, 0, tzinfo=UTC),
         )
     }
+    # A window of two minutes: 00:00 and 00:01 can be drawn. A span between two whole minutes
+    # holds none of them, and a span that holds only 00:01 gives that minute.
+    start = datetime(2026, 3, 1, tzinfo=UTC)
+    window = (start, datetime(2026, 3, 1, 0, 2, tzinfo=UTC))
+    between = {"ibm_fez": (start.replace(second=10), start.replace(second=20))}
+    with pytest.raises(ValueError, match="the archive holds no calibration of ibm_fez"):
+        archive_vendor.sample_times(("ibm_fez",), 1, 3, *window, between)
+    one = {"ibm_fez": (start.replace(second=30), start.replace(minute=1, second=30))}
+    assert (
+        archive_vendor.sample_times(("ibm_fez",), 3, 3, *window, one)
+        == [("ibm_fez", start.replace(minute=1))] * 3
+    )
     outside = {"ibm_fez": (datetime(2025, 1, 1, tzinfo=UTC), datetime(2025, 2, 1, tzinfo=UTC))}
     with pytest.raises(ValueError, match="the archive holds no calibration of ibm_fez between"):
         archive_vendor.sample_times(

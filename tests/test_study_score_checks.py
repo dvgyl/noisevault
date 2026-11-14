@@ -86,6 +86,57 @@ def test_the_matched_factor_gives_the_same_expected_loss(chain: dict) -> None:
         assert chain[name] in (0.0, 0.5, 1.0)
 
 
+def test_a_result_that_the_truth_cannot_give_adds_no_loss() -> None:
+    truth, model = [np.array([0.5, 0.5, 0.0])], [np.array([0.25, 0.75, 0.0])]
+    by_hand = 0.5 * math.log(0.5 / 0.25) + 0.5 * math.log(0.5 / 0.75)
+    assert score_checks.divergence(truth, model) == pytest.approx(by_hand)
+    assert score_checks.divergence(truth, [np.array([0.5, 0.0, 0.5])]) == math.inf
+
+
+def test_a_readout_error_of_0_still_gives_two_models_with_the_same_loss() -> None:
+    profile = Profile.uniform(
+        "exact_readout",
+        technology="superconducting",
+        num_qubits=2,
+        one_qubit_error=0.01,
+        two_qubit_error=0.02,
+        readout_error=0.0,
+        connectivity=[(0, 1)],
+    )
+    circuits = score_checks.chain_circuits(profile, (0, 1), fresh=5)
+    above, target = score_checks.matched_factor(profile, circuits)
+    exact = score_checks.outcome_probabilities(
+        score_checks.gate_factor(profile, score_checks.TRUTH), circuits
+    )
+    found = score_checks.outcome_probabilities(score_checks.gate_factor(profile, above), circuits)
+    assert target > 0 and above > score_checks.TRUTH
+    assert score_checks.divergence(exact, found) == pytest.approx(target, rel=1e-6)
+
+
+def test_the_check_refuses_when_no_factor_has_the_same_loss(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # With errors near full depolarization, no factor up to the limit loses as much as 1.2.
+    profile = Profile.uniform(
+        "noisy",
+        technology="superconducting",
+        num_qubits=2,
+        one_qubit_error=0.49,
+        two_qubit_error=0.74,
+        readout_error=0.03,
+        connectivity=[(0, 1)],
+    )
+    circuits = score_checks.chain_circuits(profile, (0, 1), fresh=5)
+    with pytest.raises(ValueError, match="no gate factor from 1.5 to 20.0 has the expected"):
+        score_checks.matched_factor(profile, circuits)
+
+
+def test_the_plain_model_has_no_correction_of_the_profile(chain: dict) -> None:
+    corrected = score_checks.gate_factor(_device(), score_checks.TRUTH)
+    again = score_checks.chain_check(corrected, (0, 1), fresh=5, shots=200, jobs=2)
+    assert again == chain
+
+
 def test_main_runs_one_check(capsys: pytest.CaptureFixture[str]) -> None:
     assert score_checks.main(["hidden", "--jobs", "20", "--shots", "500"]) == 0
     out = capsys.readouterr().out

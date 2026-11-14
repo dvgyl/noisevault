@@ -300,13 +300,14 @@ def test_no_measured_event_does_not_contradict_a_forecast_of_a_rare_event() -> N
     # 100 shots show no event with a probability of 0.82 when each bit has the rate 0.001.
     measured, samples = _rare(100, 0)
     text = events.score_events(measured, {"model": samples}).summary()
-    assert "model: no test of the number of events, the forecast has too few that vary" in text
+    assert "model: the number of events agrees with the measured number, within chance" in text
     assert "largest differences" not in text
 
 
 def test_many_measured_events_contradict_a_forecast_of_a_rare_event() -> None:
     measured, samples = _rare(1000, 30)
     text = events.score_events(measured, {"model": samples}).summary()
+    assert "model: too few events, 0.07 times the measured number (z = -19.6)" in text
     assert "largest differences, forecast against measured: b0 0.001 against 0.030" in text
     assert "b1" not in text.split("largest differences")[1].splitlines()[0]
 
@@ -319,16 +320,16 @@ def test_one_measured_event_gives_no_statement_on_the_number_of_events() -> None
     samples[:100, 0] = True
     text = events.score_events(measured, {"model": samples}).summary()
     assert "too few events" not in text and "largest differences" not in text
-    assert "model: no test of the number of events" in text
+    assert "model: no verdict on the number of events" in text and "(z = -2.8)" in text
 
 
-def test_a_forecast_with_an_event_in_almost_each_sample_gets_no_test_of_the_number() -> None:
+def test_a_forecast_with_an_event_in_almost_each_sample_gets_no_verdict_on_the_number() -> None:
     measured = np.ones((100, 1), dtype=bool)
     measured[0, 0] = False
     samples = np.ones((100_000, 1), dtype=bool)
     samples[:100, 0] = False
     text = events.score_events(measured, {"model": samples}).summary()
-    assert "model: no test of the number of events" in text
+    assert "model: no verdict on the number of events" in text
     assert "largest differences" not in text
 
 
@@ -342,21 +343,61 @@ def test_a_bit_with_an_event_in_each_shot_does_not_hide_that_the_other_events_ar
     samples[:, 0] = True
     samples[:400, 1] = True
     score = events.score_events(measured, {"model": samples})
-    assert score.models[0].events_skew > 3
-    assert "model: no test of the number of events" in score.summary()
+    assert score.models[0].events_bound > 3
+    assert "model: no verdict on the number of events" in score.summary()
 
 
-def test_many_events_that_vary_keep_the_test_of_the_number_of_events() -> None:
+def test_rare_events_on_two_sides_give_no_verdict_on_the_number_of_events() -> None:
+    # One bit has an event in almost each shot, and one bit has a rare event. The number of
+    # events is then 1 in almost each shot, with 0 and 2 at equal small chances: no skewness.
+    # One shot with no event gives z = 2.0, and it occurs in 21% of the experiments.
+    measured = np.zeros((100, 2), dtype=bool)
+    measured[1:, 0] = True
+    samples = np.zeros((400_000, 2), dtype=bool)
+    samples[500:, 0] = True
+    samples[500:1000, 1] = True
+    score = events.score_events(measured, {"model": samples})
+    assert score.models[0].events_bound == pytest.approx(2.0, abs=0.01)
+    assert "model: no verdict on the number of events" in score.summary()
+    assert "(z = 2.0)" in score.summary()
+
+
+def test_many_events_that_vary_keep_the_verdict_on_the_number_of_events() -> None:
     rng = np.random.default_rng(0)
     measured, samples = rng.random((2000, 8)) < 0.2, rng.random((200_000, 8)) < 0.1
     score = events.score_events(measured, {"model": samples})
-    assert score.models[0].events_skew < events.SKEW_LIMIT
+    assert score.models[0].events_bound == pytest.approx(0.0366, abs=0.001)
     assert "model: too few events, 0.50 times the measured number" in score.summary()
+
+
+def test_the_verdict_on_the_number_of_events_adds_the_largest_error_of_the_normal_test() -> None:
+    # z = -2.8 has the normal p-value 0.005. With a bound L of 0.037, the largest error is
+    # 2 * 0.037 * 0.56 = 0.041, so the sum is below 0.05 and the verdict stays. With one tenth
+    # of the shots, L is 0.117, and the same z gives no verdict.
+    score = events.score_events(*_dense(2000))
+    lines = score.summary()
+    assert score.models[0].events_bound == pytest.approx(0.037, abs=0.002)
+    assert "model: too few events" in lines or "model: too many events" in lines
+    few = events.score_events(*_dense(200))
+    assert few.models[0].events_bound == pytest.approx(0.117, abs=0.006)
+    assert "model: no verdict on the number of events" in few.summary()
+
+
+def _dense(shots: int) -> tuple[np.ndarray, dict[str, np.ndarray]]:
+    """Measured bits and samples of 8 bits with a rate of 0.1. The measured number of events
+    is 2.8 standard errors above the forecast number."""
+    rng = np.random.default_rng(3)
+    samples = rng.random((400_000, 8)) < 0.1
+    spread = math.sqrt(8 * 0.1 * 0.9 * shots)
+    events_ = round(0.8 * shots + 2.8 * spread)
+    measured = np.zeros((shots, 8), dtype=bool)
+    measured.reshape(-1)[:events_] = True
+    return measured, {"model": samples}
 
 
 def test_one_shot_and_one_sample_that_disagree_give_a_summary() -> None:
     text = events.score_events([[1]], {"model": np.array([[0]])}).summary()
-    assert "model: no test of the number of events" in text
+    assert "model: " in text
 
 
 def _tail_p_value(events_: int, shots: int, sampled: int, samples: int) -> float:

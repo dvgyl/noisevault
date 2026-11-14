@@ -111,10 +111,13 @@ def evaluate(
     ``profile_on(day)`` gives the profile of a day. ``rows`` gives, for each date, the number
     of distinct calibrations in the history and the day, the two chains, and the stated and
     next-day sums of each chain. ``ratios`` gives the next-day / stated ratios of each method
-    and part, and ``unchanged`` the number of next-day values equal to the stated value.
+    and part, and ``unchanged`` the number of next-day values equal to the stated value. A
+    next-day value of 0 gives the ratio 0. A stated value of 0 has no ratio, and ``no_ratio``
+    gives the number of these values for each method.
     """
     ratios: dict[str, dict[str, list[float]]] = {m: {key: [] for key in KEYS} for m in METHODS}
     unchanged = dict.fromkeys(METHODS, 0)
+    no_ratio = dict.fromkeys(METHODS, 0)
     rows = []
     for d in on:
         today, after = profile_on(d), profile_on(d + timedelta(days=1))
@@ -135,15 +138,22 @@ def evaluate(
             later = next_day["day" if m == "day" else "history"]
             for key in KEYS:
                 for s, x in zip(stated[m][key], later[key], strict=True):
-                    if s and x:
-                        ratios[m][key].append(x / s)
-                        unchanged[m] += x == s
+                    if s is None or x is None:
+                        continue
+                    if s == 0:
+                        no_ratio[m] += 1
+                        continue
+                    ratios[m][key].append(x / s)
+                    unchanged[m] += x == s
         sums = {m: (chain_sums(stated[m]), chain_sums(next_day[m])) for m in chains}
         rows.append({"date": d, "distinct": distinct, "chains": chains, "sums": sums})
-    return {"rows": rows, "ratios": ratios, "unchanged": unchanged}
+    return {"rows": rows, "ratios": ratios, "unchanged": unchanged, "no_ratio": no_ratio}
 
 
 def geometric_mean(values: Sequence[float]) -> float:
+    """The geometric mean, which is 0 when one value is 0."""
+    if any(x == 0 for x in values):
+        return 0.0
     return math.exp(statistics.fmean(math.log(x) for x in values))
 
 
@@ -214,6 +224,8 @@ def report(
             f"  {LABELS[m]}: {found['unchanged'][m]} of {count} next-day values equal the stated"
             " value"
         )
+        if found["no_ratio"][m]:
+            lines.append(f"  {LABELS[m]}: {found['no_ratio'][m]} stated values of 0 have no ratio")
     lines += [
         "",
         f"(b) next-day errors of the chosen chain (sums over {n} qubits and {n - 1} pairs)",

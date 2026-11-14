@@ -39,7 +39,8 @@ the stated gate errors, through the gate factor of ``unmodeled_error``. Four wro
 - ``below``: ``BELOW`` times the stated gate errors.
 - ``above``: the factor above ``TRUTH`` that gives ``below`` and ``above`` the same expected log
   score on this device. A test between them has no right verdict.
-- ``near``: ``NEAR`` times, and ``plain``: the profile as stated.
+- ``near``: ``NEAR`` times, and ``plain``: the profile as stated. The check takes the profile
+  with no ``unmodeled_error``.
 
 The level is the fraction of simulated jobs with a verdict between ``below`` and ``above``. The
 power is the fraction with a verdict for the truth against ``near``, and against ``plain``. Job
@@ -50,6 +51,7 @@ from __future__ import annotations
 
 import argparse
 import math
+import sys
 from collections.abc import Sequence
 from typing import Any
 
@@ -190,13 +192,27 @@ def outcome_probabilities(profile: Profile, circuits: Sequence[PlannedCircuit]) 
 
 
 def divergence(truth: Sequence[np.ndarray], model: Sequence[np.ndarray]) -> float:
-    """The expected loss of log score of ``model`` against ``truth``, summed over the circuits."""
-    return sum(float(t @ np.log(t / m)) for t, m in zip(truth, model, strict=True))
+    """The expected loss of log score of ``model`` against ``truth``, summed over the circuits.
+
+    A result that the truth gives the probability 0 adds nothing. The loss is infinite when the
+    model gives the probability 0 to a result that the truth can give.
+    """
+    total = 0.0
+    for t, m in zip(truth, model, strict=True):
+        possible = t > 0
+        if np.any(m[possible] <= 0):
+            return math.inf
+        total += float(t[possible] @ np.log(t[possible] / m[possible]))
+    return total
 
 
 def matched_factor(profile: Profile, circuits: Sequence[PlannedCircuit]) -> tuple[float, float]:
     """The gate factor above ``TRUTH`` with the expected loss of log score of the factor
-    ``BELOW``, found by bisection, and that loss."""
+    ``BELOW``, found by bisection, and that loss.
+
+    Raises ValueError when no factor from ``TRUTH`` to ``FACTOR_LIMIT`` has that loss. The
+    check has no level then.
+    """
     exact = outcome_probabilities(gate_factor(profile, TRUTH), circuits)
 
     def loss(factor: float) -> float:
@@ -204,6 +220,11 @@ def matched_factor(profile: Profile, circuits: Sequence[PlannedCircuit]) -> tupl
 
     target = loss(BELOW)
     low, high = TRUTH, FACTOR_LIMIT
+    if not (math.isfinite(target) and 0 < target <= loss(high)):
+        raise ValueError(
+            f"no gate factor from {TRUTH} to {FACTOR_LIMIT} has the expected log score of the"
+            f" factor {BELOW} on these circuits"
+        )
     while high - low > FACTOR_TOLERANCE:
         middle = (low + high) / 2
         if loss(middle) < target:
@@ -222,6 +243,7 @@ def chain_check(
     jobs: int = CHAIN_JOBS,
 ) -> dict[str, Any]:
     """The level and the power of the paired test on ``jobs`` simulated jobs of the chain."""
+    profile = profile.uncorrected()
     circuits = chain_circuits(profile, chain, fresh)
     above, target = matched_factor(profile, circuits)
     models = {
@@ -335,7 +357,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     chain.add_argument("--fresh", type=int, default=None, help="the random stream of the week")
     chain.add_argument("--shots", type=int, default=CHAIN_SHOTS)
     chain.add_argument("--jobs", type=int, default=CHAIN_JOBS)
-    print(report(parser.parse_args(argv)))
+    try:
+        print(report(parser.parse_args(argv)))
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
     return 0
 
 

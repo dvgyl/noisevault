@@ -210,10 +210,11 @@ The table has one row for each profile, best bit score first:
 One line for each profile answers the question "too few or too many events?". It compares the
 forecast and the measured number of events, with the shot error and the sampling error of both.
 The line says "agrees ... within chance" when the difference is not significant at the 5% level.
-Otherwise it gives the direction, the ratio and the z value. The line gives no test when the
-forecast has too few events that vary. An example is a forecast of fewer than 25 rare events in
-all shots. A normal test is not valid then. The measure is the skewness of the number of events
-if the model is right, with a limit of 0.2.
+Otherwise it gives the direction, the ratio and the z value. The test is a normal test, and a
+normal test has an error when few shots or samples vary. The Berry-Esseen theorem gives the
+largest size of this error, and the report adds it to the p-value. When the sum is 5% or more,
+the line says "no verdict" and gives the z value. Thus a few rare events give no verdict, and a
+large difference in many shots gives one.
 
 The next line names the bits whose rate differs most from the measured rate, at most three. A
 bit is on the line only when its difference is significant at the 5% level divided by the number

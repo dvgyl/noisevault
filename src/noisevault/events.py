@@ -66,10 +66,12 @@ MIN_EXPECTED = 5
 # The fewest samples on each side of a marginal, and in a cell with a measured shot, for which
 # the delta method of the sampling variance is valid.
 MIN_SAMPLES = 100
-# The report gives a normal test of the number of events only when that number is near a normal
-# distribution if the model is right. The measure is the skewness of the number, for the shots
-# and for the samples. 0.2 is the skewness of a count of 25 rare events.
-SKEW_LIMIT = 0.2
+# The Berry-Esseen theorem limits the error of a normal probability for a sum of independent
+# values: at most UNIFORM_BOUND * L, and at most TAIL_BOUND * L / (1 + abs(z)**3). L is the sum
+# of the third absolute central moments, divided by the variance to the power 1.5. The numbers
+# are from Shevtsova (2010) and Paditz (1989), for values with different distributions.
+UNIFORM_BOUND = 0.56
+TAIL_BOUND = 31.935
 # The largest chunk of samples, in bits. A chunk of 2^25 bits takes 128 MiB as float32.
 _CHUNK_BITS = 2**25
 _SHOWN_BITS = 3
@@ -449,10 +451,10 @@ class ModelScore:
     exact test of the samples with an event against the measured shots with an event.
     ``events`` is the forecast mean number of events in a shot, and
     ``events_error`` its sampling standard error. ``events_shot_error`` is the standard error
-    that the measured mean number of events has when the model is right. ``events_skew`` is
-    the larger skewness of the two numbers of events, measured and sampled, when the model is
-    right. It is infinite when the forecast gives the same number of events to each shot.
-    ``none`` is the
+    that the measured mean number of events has when the model is right. ``events_bound`` is
+    the number L of the Berry-Esseen theorem for the difference of the measured and the sampled
+    number of events when the model is right. It is infinite when the forecast gives the same
+    number of events to each shot. ``none`` is the
     forecast share of shots with
     no event. ``few_samples`` is True when a bit or a measured count cell has fewer than
     ``MIN_SAMPLES`` samples. Then a test with this model can give no verdict.
@@ -467,7 +469,7 @@ class ModelScore:
     events: float
     events_error: float
     events_shot_error: float
-    events_skew: float
+    events_bound: float
     none: float
     scores: Scores
     few_samples: bool
@@ -630,14 +632,22 @@ class EventScore:
         return f"{what}, {plural(self.shots, 'shot')}, {drawn}"
 
     def _events_phrase(self, m: ModelScore) -> str:
-        if m.events_skew > SKEW_LIMIT:
-            return "no test of the number of events, the forecast has too few that vary"
         # The spread of the shots comes from the forecast. The measured spread is 0 when no shot
         # shows an event, and a test with it calls each forecast above 0 too high.
         error = math.hypot(m.events_shot_error, m.events_error)
-        z = 0.0 if error == 0 else (m.events - self.events) / error
-        if math.erfc(abs(z) / math.sqrt(2)) >= LEVEL:
+        if error == 0:
+            return "no verdict on the number of events, the forecast gives each shot the same"
+        z = (m.events - self.events) / error
+        normal = math.erfc(abs(z) / math.sqrt(2))
+        if normal >= LEVEL:
             return "the number of events agrees with the measured number, within chance"
+        # The normal p-value plus its largest error, so the verdict holds for each distribution.
+        largest = 2 * m.events_bound * min(UNIFORM_BOUND, TAIL_BOUND / (1 + abs(z) ** 3))
+        if normal + largest >= LEVEL:
+            return (
+                "no verdict on the number of events, too few shots or samples vary for a safe"
+                f" test (z = {z:.1f})"
+            )
         side = "too many" if z > 0 else "too few"
         ratio = _ratio(m.events, self.events)
         return f"{side} events, {ratio} times the measured number (z = {z:.1f})"
@@ -910,12 +920,12 @@ def _report(
         shot_spread = sum(
             m.shots * _variance(f.count) for m, f in zip(measured, found, strict=True)
         )
-        thirds = [
-            (m.shots, f.samples, _third_moment(f.count))
+        # A shot adds its number of events, and a sample adds shots / samples times its number.
+        third = sum(
+            (m.shots + m.shots**3 / f.samples**2) * _absolute_third(f.count)
             for m, f in zip(measured, found, strict=True)
-        ]
-        shot_third = sum(n * third for n, _, third in thirds)
-        forecast_third = sum(n**3 * third / size**2 for n, size, third in thirds)
+        )
+        difference_spread = shot_spread + forecast_spread
         few = any(few_rate_samples(f) for f in found) or any(
             few_count_samples(f, m, f, f) for m, f in zip(measured, found, strict=True)
         )
@@ -933,8 +943,8 @@ def _report(
                 events=forecast_events / shots,
                 events_error=math.sqrt(forecast_spread) / shots,
                 events_shot_error=math.sqrt(shot_spread) / shots,
-                events_skew=max(
-                    _skewness(shot_third, shot_spread), _skewness(forecast_third, forecast_spread)
+                events_bound=(
+                    third / difference_spread**1.5 if difference_spread > 0 else math.inf
                 ),
                 none=sum(m.shots * f.none for m, f in zip(measured, found, strict=True)) / shots,
                 scores=scores(measured, found),
@@ -1070,15 +1080,11 @@ def _variance(probs: np.ndarray) -> float:
     return max(0.0, float(probs @ k**2) - mean**2)
 
 
-def _third_moment(probs: np.ndarray) -> float:
-    """The third central moment of a number of events with the probabilities ``probs``."""
+def _absolute_third(probs: np.ndarray) -> float:
+    """The third absolute central moment of a number of events with the probabilities
+    ``probs``."""
     k = np.arange(len(probs))
-    return float(probs @ (k - float(probs @ k)) ** 3)
-
-
-def _skewness(third: float, variance: float) -> float:
-    """The size of the skewness of a sum with this third central moment and this variance."""
-    return abs(third) / variance**1.5 if variance > 0 else math.inf
+    return float(probs @ np.abs(k - float(probs @ k)) ** 3)
 
 
 def _test_dict(test: RuleTest, sampling: Sampling) -> dict[str, Any]:

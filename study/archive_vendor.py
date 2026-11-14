@@ -82,26 +82,25 @@ def sample_times(
     ``end``. The times of one device are in order.
 
     ``spans`` gives the first and the last observation time of each device in the archive. A
-    time outside the span of its device is drawn again, because the archive holds no complete
-    calibration before the span, and no new calibration after it.
+    time outside the span of its device is drawn again inside the span, because the archive
+    holds no complete calibration before the span, and no new calibration after it.
     """
     rng = np.random.default_rng(seed)
     minutes = int((end - start).total_seconds() // 60)
     found = []
     for device in devices:
         first, last = (spans or {}).get(device, (start, end))
-        if max(first, start) >= min(last, end):
+        # The whole minutes from ``start`` that are in the window and in the span.
+        low = max(0, math.ceil((first - start).total_seconds() / 60))
+        high = min(minutes - 1, math.floor((last - start).total_seconds() / 60))
+        if low > high:
             raise ValueError(
-                f"the archive holds no calibration of {device} between {start:%Y-%m-%d} and"
-                f" {end:%Y-%m-%d}"
+                f"the archive holds no calibration of {device} between {start:%Y-%m-%d %H:%M}"
+                f" and {end:%Y-%m-%d %H:%M}"
             )
         drawn = rng.integers(0, minutes, times_for_each).tolist()
-        times = [start + timedelta(minutes=m) for m in drawn]
-        for i, at in enumerate(times):
-            while not first <= at <= last:
-                at = start + timedelta(minutes=int(rng.integers(0, minutes)))
-            times[i] = at
-        found += [(device, at) for at in sorted(times)]
+        again = [m if low <= m <= high else int(rng.integers(low, high + 1)) for m in drawn]
+        found += [(device, start + timedelta(minutes=m)) for m in sorted(again)]
     return found
 
 
