@@ -37,7 +37,7 @@ if TYPE_CHECKING:
 
     from .sources.hf_archive import ArchiveSpan
 
-_LAZY_MODULES = {"stim": "noisevault.frameworks.stim"}
+_LAZY_MODULES = {"stim": "noisevault.frameworks.stim", "events": "noisevault.events"}
 
 
 def from_qiskit_backend(backend: Any) -> Profile:

@@ -32,25 +32,30 @@ the sampling variance of both forecasts to the shot variance (see :func:`compare
 no verdict when its sampling variance is larger than its shot variance. A test also gives no
 verdict when a forecast has fewer than ``MIN_SAMPLES`` samples where the variance needs them.
 
-This module needs Stim (the ``stim`` extra) for :func:`circuit_forecast` and
-:func:`detector_forecast`.
+This module needs Stim (the ``stim`` extra) for :func:`score_wide` and :func:`score_detectors`.
 """
 
 from __future__ import annotations
 
 import hashlib
 import math
-from collections.abc import Iterable, Iterator, Sequence
-from dataclasses import dataclass
+import os
+from collections.abc import Iterable, Iterator, Mapping, Sequence
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 
 from . import __version__, wide
+from .compare import _wrap
+from .conversion import UnknownGates
 from .counts import COUNTS_FORMAT, Execution, MeasuredCounts, ProfileBinding
-from .profile import Profile
-from .score import LEVEL, Choice, RuleTest, _log, _test
+from .errors import CountsError, NoiseVaultError, joined, plural
+from .profile import Profile, ref_on_day
+from .reference import MAX_QUBITS
+from .score import LEVEL, Choice, RuleTest, _columns, _log, _number, _test
 
 if TYPE_CHECKING:
     from .counts import MeasuredCircuit, PlannedCircuit
@@ -63,8 +68,21 @@ MIN_EXPECTED = 5
 MIN_SAMPLES = 100
 # The largest chunk of samples, in bits. A chunk of 2^25 bits takes 128 MiB as float32.
 _CHUNK_BITS = 2**25
+_SHOWN_BITS = 3
+_WIDTH = 80
+_DETECTOR_HINT = "give the detection events of this circuit, with no observable"
 
+Kind = Literal["wide", "detectors", "bits"]
 NoVerdict = Literal["few_samples", "sampling_variance", "no_variance"]
+Models = Profile | Sequence[Profile] | Mapping[str, Profile]
+DATA_FORMATS = {
+    ".01": "01",
+    ".b8": "b8",
+    ".r8": "r8",
+    ".ptb64": "ptb64",
+    ".hits": "hits",
+    ".dets": "dets",
+}
 
 
 @dataclass(frozen=True)
@@ -399,6 +417,375 @@ def seed_of(digest: str, model: str, circuit: str) -> int:
     return int(hashlib.sha256(f"{digest}\n{model}\n{circuit}".encode()).hexdigest()[:16], 16)
 
 
+# reports ---------------------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class Bit:
+    """One scored bit: a qubit of a wide circuit, or a detector.
+
+    ``name`` is ``q`` and the physical qubit, or ``D`` and the detector index. ``circuit`` is the
+    name of the wide circuit, or None. ``coords`` holds the detector coordinates of the circuit.
+    ``measured`` is the measured event rate.
+    """
+
+    name: str
+    circuit: str | None
+    coords: tuple[float, ...]
+    shots: int
+    measured: float
+
+
+@dataclass(frozen=True)
+class ModelScore:
+    """The forecast of one model, over all scored bits.
+
+    ``rates`` and ``errors`` hold the forecast event rate of each bit of the report and its
+    sampling standard error. ``events`` is the forecast mean number of events in a shot, and
+    ``events_error`` its sampling standard error. ``none`` is the forecast share of shots with
+    no event. ``few_samples`` is True when a bit or a measured count cell has fewer than
+    ``MIN_SAMPLES`` samples. Then a test with this model can give no verdict.
+    """
+
+    name: str
+    profile: Profile | None = field(repr=False)
+    samples: int
+    rates: tuple[float, ...] = field(repr=False)
+    errors: tuple[float, ...] = field(repr=False)
+    events: float
+    events_error: float
+    none: float
+    scores: Scores
+    few_samples: bool
+
+
+@dataclass(frozen=True)
+class EventTest:
+    """The paired test of model ``a`` (the best) against model ``b`` on the bit score and on
+    the count score. The bit score decides ``better``."""
+
+    a: str
+    b: str
+    bit: RuleTest
+    count: RuleTest
+    bit_sampling: Sampling
+    count_sampling: Sampling
+
+    @property
+    def better(self) -> str | None:
+        return {"a": self.a, "b": self.b, "neither": None}[self.bit.better]
+
+
+@dataclass(frozen=True)
+class EventScore:
+    """The score of one or more models on measured event bits.
+
+    ``models`` is in the order of the bit score, best first. ``tests`` holds the paired test of
+    the best model against each other model. ``events`` is the measured mean number of events
+    in a shot, ``events_error`` its standard error, and ``none`` the measured share of shots
+    with no event. A wide score sums over its circuits: each circuit has its own bits and shots.
+    """
+
+    kind: Kind
+    counts: str | None
+    circuits: tuple[str, ...]
+    shots: int
+    bits: tuple[Bit, ...] = field(repr=False)
+    events: float
+    events_error: float
+    none: float
+    models: tuple[ModelScore, ...]
+    tests: tuple[EventTest, ...]
+
+    def summary(self, *, width: int = _WIDTH) -> str:
+        """The report as text: the measured events, the forecast of each model, the bits with
+        the largest differences, and the paired tests."""
+        prose = min(width, _WIDTH)
+        lines = _wrap(self._head(), prose, "  ")
+        measured = (
+            f"measured: {_count(self.events)} events per shot,"
+            f" no event in {_share(self.none)} of the shots"
+        )
+        lines += _wrap(measured, prose, "  ")
+        rows = [
+            [
+                m.name,
+                _count(m.events),
+                _ratio(m.events, self.events),
+                _share(m.none),
+                _number(m.scores.bit_log),
+                _number(m.scores.count_log),
+            ]
+            for m in self.models
+        ]
+        titles = ["model", "events", "ratio", "no event", "bit score", "count score"]
+        lines += ["", *_columns(titles, rows), ""]
+        for m in self.models:
+            lines += _wrap(f"{m.name}: {self._events_phrase(m)}", prose, "  ")
+            shown = self._different_bits(m)
+            if shown:
+                text = f"largest differences, forecast against measured: {shown}"
+                lines += ["  " + part for part in _wrap(text, prose - 2, "  ")]
+        for test in self.tests:
+            lines += ["", f"{test.b} against {test.a}:"]
+            for name, rule, sampling, few in (
+                ("bit score", test.bit, test.bit_sampling, "of 0 or of 1 on a bit"),
+                (
+                    "count score",
+                    test.count,
+                    test.count_sampling,
+                    "of a number of events that the measured shots show",
+                ),
+            ):
+                text = f"{name}: {_test_phrase(rule, sampling, test.a, test.b, few)}"
+                lines += ["  " + part for part in _wrap(text, prose - 2, "  ")]
+        return "\n".join(lines)
+
+    __str__ = summary
+
+    def to_dict(self) -> dict[str, Any]:
+        names = [m.name for m in self.models]
+        return {
+            "kind": self.kind,
+            "counts": self.counts,
+            "circuits": list(self.circuits),
+            "shots": self.shots,
+            "level": LEVEL,
+            "measured": {
+                "events_per_shot": self.events,
+                "events_error": self.events_error,
+                "no_event": self.none,
+            },
+            "models": [
+                {
+                    "name": m.name,
+                    "profile_id": None if m.profile is None else m.profile.id,
+                    "fingerprint": None if m.profile is None else m.profile.fingerprint,
+                    "samples": m.samples,
+                    "events_per_shot": m.events,
+                    "events_error": m.events_error,
+                    "ratio": m.events / self.events if self.events > 0 else None,
+                    "no_event": m.none,
+                    "few_samples": m.few_samples,
+                    "scores": {
+                        "bit": m.scores.bit_log,
+                        "count": m.scores.count_log,
+                        "count_quadratic": m.scores.count_quadratic,
+                        "no_event_log": m.scores.none_log,
+                        "no_event_quadratic": m.scores.none_quadratic,
+                    },
+                }
+                for m in self.models
+            ],
+            "paired": [
+                {
+                    "best": t.a,
+                    "other": t.b,
+                    "bit": _test_dict(t.bit, t.bit_sampling),
+                    "count": _test_dict(t.count, t.count_sampling),
+                    "better": t.better,
+                }
+                for t in self.tests
+            ],
+            "bits": [
+                {
+                    "name": bit.name,
+                    "circuit": bit.circuit,
+                    "coords": list(bit.coords),
+                    "shots": bit.shots,
+                    "measured": bit.measured,
+                    "forecast": {n: m.rates[i] for n, m in zip(names, self.models, strict=True)},
+                    "error": {n: m.errors[i] for n, m in zip(names, self.models, strict=True)},
+                }
+                for i, bit in enumerate(self.bits)
+            ],
+        }
+
+    def _head(self) -> str:
+        samples = sorted({m.samples for m in self.models})
+        drawn = f"forecasts from {' or '.join(map(str, samples))} samples"
+        if self.kind == "detectors":
+            what = f"detection events: {plural(len(self.bits), 'detector')}"
+        elif self.kind == "wide":
+            what = f"wide circuits: {joined(list(self.circuits))}"
+        else:
+            what = f"event bits: {plural(len(self.bits), 'bit')}"
+        return f"{what}, {plural(self.shots, 'shot')}, {drawn}"
+
+    def _events_phrase(self, m: ModelScore) -> str:
+        error = math.hypot(self.events_error, m.events_error)
+        z = 0.0 if error == 0 else (m.events - self.events) / error
+        if math.erfc(abs(z) / math.sqrt(2)) >= LEVEL:
+            return "the number of events agrees with the measured number, within chance"
+        side = "too many" if z > 0 else "too few"
+        ratio = _ratio(m.events, self.events)
+        return f"{side} events, {ratio} times the measured number (z = {z:.1f})"
+
+    def _different_bits(self, m: ModelScore) -> str:
+        """The bits whose forecast rate differs most from the measured rate. Each difference
+        must be more than chance after a Bonferroni correction for the number of bits."""
+        f = np.array([b.measured for b in self.bits])
+        n = np.array([b.shots for b in self.bits], dtype=float)
+        q, e = np.array(m.rates), np.array(m.errors)
+        error = np.sqrt(f * (1 - f) / n + e**2)
+        z = np.divide(q - f, error, out=np.zeros_like(q), where=error > 0)
+        p = np.array([math.erfc(abs(v) / math.sqrt(2)) for v in z])
+        chosen = [i for i in np.argsort(-np.abs(z)) if p[i] < LEVEL / len(self.bits)]
+        many = len(self.circuits) > 1
+        shown = []
+        for i in chosen[:_SHOWN_BITS]:
+            bit = self.bits[i]
+            name = f"{bit.name} of {bit.circuit}" if many else bit.name
+            shown.append(f"{name} {_share(q[i])} against {_share(f[i])}")
+        return ", ".join(shown)
+
+
+def score_events(measured: Any, sampled: Mapping[str, Any | Iterable[Any]]) -> EventScore:
+    """Score the sampled bits of each model as a forecast of the ``measured`` bits.
+
+    ``measured`` is an array of shots by bits, with 1 for an event. ``sampled`` maps a model name
+    to its samples of the same bits: an array of samples by bits, or an iterable of such chunks.
+    Use this function for samples from a simulator of your own. :func:`score_wide` and
+    :func:`score_detectors` make the samples with Stim.
+    """
+    if not sampled:
+        raise NoiseVaultError("give the samples of at least one model")
+    events = _event_array(measured, None)
+    width = events.rows.shape[1]
+    forecasts: dict[str, tuple[Profile | None, list[Sampled]]] = {}
+    for name, found in sampled.items():
+        chunks = [found] if isinstance(found, np.ndarray) else found
+        expected = f"the measured events have {plural(width, 'bit')}"
+        arrays = (_event_array(chunk, width, expected).rows for chunk in chunks)
+        forecasts[name] = (None, [accumulate(arrays, width)])
+    bits = [Bit(f"b{j}", None, (), events.shots, float(r)) for j, r in enumerate(events.rates)]
+    return _report("bits", None, [(None, events, bits)], forecasts)
+
+
+def score_wide(
+    models: Models,
+    counts: MeasuredCounts,
+    *,
+    circuits: Iterable[str] | None = None,
+    samples: int = SAMPLES,
+    seed: int = 0,
+) -> EventScore:
+    """Score each model on the wide Clifford circuits of ``counts``, from Stim samples.
+
+    Without ``circuits``, the score takes each circuit on more qubits than the reference
+    simulator holds (``noisevault.reference.MAX_QUBITS``). An event is a wrong bit: a measured
+    bit that differs from the one ideal result of the circuit. ``models`` is one profile, a
+    list of profiles, or a dict of name to profile. ``samples`` is the number of Stim samples of
+    each model for each circuit. The same counts, models, ``samples`` and ``seed`` give the same
+    report.
+
+    Raises ImportError with the install command when Stim is missing. Raises CountsError for an
+    unknown circuit name or for no wide circuit. Raises NoiseVaultError for a gate outside
+    ``noisevault.wide.CLIFFORD`` and for a circuit with no certain result.
+    """
+    wide.stim_module()
+    _check_samples(samples)
+    named = _named(models)
+    chosen = _wide_circuits(counts, circuits)
+    groups = []
+    for c in chosen:
+        ideal = wide.ideal_bits(c)
+        events = circuit_events(c, ideal)
+        rates = events.rates
+        bits = [
+            Bit(f"q{q}", c.name, (), c.shots, float(r))
+            for q, r in zip(c.qubits, rates, strict=True)
+        ]
+        groups.append((c.name, events, bits))
+    digest = f"{counts.sha256}\n{seed}"
+    forecasts: dict[str, tuple[Profile | None, list[Sampled]]] = {}
+    for name, profile in named.items():
+        found = []
+        for c in chosen:
+            try:
+                found.append(
+                    circuit_forecast(
+                        profile, c, samples=samples, seed=seed_of(digest, name, c.name)
+                    )
+                )
+            except NoiseVaultError as exc:
+                raise type(exc)(f"model {name}: {exc.message}", hint=exc.hint) from None
+        forecasts[name] = (profile, found)
+    return _report("wide", counts.sha256, groups, forecasts)
+
+
+def score_detectors(
+    models: Models,
+    circuit: Any,
+    detection_events: Any,
+    *,
+    layout: Any = None,
+    tick_ns: float | None = None,
+    unknown_gates: UnknownGates = "error",
+    data_format: str | None = None,
+    samples: int = SAMPLES,
+    seed: int = 0,
+) -> EventScore:
+    """Score each model as a forecast of the measured detection events of an experiment.
+
+    ``circuit`` is the Stim circuit of the experiment, with its DETECTOR instructions and with no
+    noise. Give a ``stim.Circuit``, Stim program text or the path of a ``.stim`` file. For each
+    model, ``profile.to_stim`` adds the noise of the profile on the physical qubits of
+    ``layout``, with ``tick_ns`` and ``unknown_gates`` as in ``to_stim``. By default, a gate
+    that the profile does not define is an error. Each measured result flips with the mean of
+    P(1|0) and P(0|1).
+
+    ``detection_events`` is an array of shots by detectors, with 1 for a detector that fired, or
+    the path of a file that Stim can read. ``data_format`` names the Stim format of the file
+    ("01", "b8", "r8", "ptb64", "hits" or "dets"); by default the file suffix names it. The
+    report has one bit for each detector, ``D`` and its index.
+
+    Raises ImportError with the install command when Stim is missing. Raises NoiseVaultError for
+    a circuit with no detector or with noise, and for data with another number of detectors.
+    Raises MissingCalibrationError for a gate that a profile cannot give noise to.
+    """
+    stim = wide.stim_module()
+    from .frameworks.stim import ExistingNoiseError
+
+    _check_samples(samples)
+    named = _named(models)
+    if isinstance(circuit, os.PathLike):
+        circuit = Path(circuit).read_text(encoding="utf-8")
+    if isinstance(circuit, str):
+        circuit = stim.Circuit(circuit)
+    if circuit.num_detectors == 0:
+        raise NoiseVaultError(
+            "the circuit has no DETECTOR instruction, so it gives no detection events",
+            hint="give the circuit of the experiment with its DETECTOR instructions",
+        )
+    width = circuit.num_detectors
+    events = _detection_data(stim, detection_events, width, data_format)
+    coords = circuit.get_detector_coordinates()
+    bits = [
+        Bit(f"D{j}", None, tuple(map(float, coords.get(j, ()))), events.shots, float(r))
+        for j, r in enumerate(events.rates)
+    ]
+    forecasts: dict[str, tuple[Profile | None, list[Sampled]]] = {}
+    for name, profile in named.items():
+        try:
+            noisy = profile.to_stim(
+                circuit, layout=layout, tick_ns=tick_ns, unknown_gates=unknown_gates
+            )
+        except ExistingNoiseError as exc:
+            raise NoiseVaultError(
+                exc.message,
+                hint="give the circuit with no noise, for example circuit.without_noise();"
+                " score_detectors adds the noise of each profile",
+            ) from None
+        except NoiseVaultError as exc:
+            raise type(exc)(f"model {name}: {exc.message}", hint=exc.hint) from None
+        found = detector_forecast(
+            noisy, samples=samples, seed=seed_of(str(seed), name, "detectors")
+        )
+        forecasts[name] = (profile, [found])
+    return _report("detectors", None, [(None, events, bits)], forecasts)
+
+
 def simulate_wide(
     truth: Profile,
     circuits: Sequence[PlannedCircuit],
@@ -445,8 +832,219 @@ def simulate_wide(
 # helpers ---------------------------------------------------------------------------------------
 
 
+def _report(
+    kind: Kind,
+    counts: str | None,
+    groups: Sequence[tuple[str | None, Events, list[Bit]]],
+    forecasts: Mapping[str, tuple[Profile | None, list[Sampled]]],
+) -> EventScore:
+    measured = [events for _, events, _ in groups]
+    shots = sum(m.shots for m in measured)
+    hist = [_histogram(m) for m in measured]
+    events = sum(h @ np.arange(len(h)) for h in hist) / shots
+    spread = sum(m.shots * _variance(h / m.shots) for m, h in zip(measured, hist, strict=True))
+    models = []
+    for name, (profile, found) in forecasts.items():
+        rates = np.concatenate([f.rate for f in found])
+        samples = np.concatenate([np.full(len(f.rate), f.samples) for f in found])
+        forecast_events = sum(
+            m.shots * float(f.rate.sum()) for m, f in zip(measured, found, strict=True)
+        )
+        forecast_spread = sum(
+            m.shots**2 * _variance(f.count) / f.samples
+            for m, f in zip(measured, found, strict=True)
+        )
+        few = any(few_rate_samples(f) for f in found) or any(
+            few_count_samples(f, m, f, f) for m, f in zip(measured, found, strict=True)
+        )
+        models.append(
+            ModelScore(
+                name=name,
+                profile=profile,
+                samples=max(f.samples for f in found),
+                rates=tuple(map(float, rates)),
+                errors=tuple(map(float, np.sqrt(rates * (1 - rates) / samples))),
+                events=forecast_events / shots,
+                events_error=math.sqrt(forecast_spread) / shots,
+                none=sum(m.shots * f.none for m, f in zip(measured, found, strict=True)) / shots,
+                scores=scores(measured, found),
+                few_samples=few,
+            )
+        )
+    models.sort(key=lambda m: -m.scores.bit_log)
+    by_name = {name: found for name, (_, found) in forecasts.items()}
+    best = models[0].name
+    tests = []
+    for other in models[1:]:
+        result = compare(measured, by_name[best], by_name[other.name])
+        tests.append(
+            EventTest(
+                best,
+                other.name,
+                result.bit_log,
+                result.count_log,
+                result.bit_sampling,
+                result.count_sampling,
+            )
+        )
+    return EventScore(
+        kind=kind,
+        counts=counts,
+        circuits=tuple(name for name, _, _ in groups if name is not None),
+        shots=shots,
+        bits=tuple(bit for _, _, bits in groups for bit in bits),
+        events=float(events),
+        events_error=math.sqrt(spread) / shots,
+        none=sum(float(h[0]) for h in hist) / shots,
+        models=tuple(models),
+        tests=tuple(tests),
+    )
+
+
+def _named(models: Models) -> dict[str, Profile]:
+    """Each model by name. A list names each profile by its ref on its calibration day, with
+    the short fingerprint when two refs are the same."""
+    if isinstance(models, Profile):
+        models = [models]
+    if isinstance(models, Mapping):
+        named = dict(models)
+    else:
+        refs = [ref_on_day(p.id, p.device.calibrated_at) for p in models]
+        names = [
+            f"{ref} {p.short_fingerprint}" if refs.count(ref) > 1 else ref
+            for ref, p in zip(refs, models, strict=True)
+        ]
+        if len(set(names)) < len(names):
+            raise NoiseVaultError(
+                "two of the profiles are the same, so their names are the same",
+                hint="give a dict of name to profile",
+            )
+        named = dict(zip(names, models, strict=True))
+    if not named:
+        raise NoiseVaultError("give at least one profile")
+    return named
+
+
+def _wide_circuits(counts: MeasuredCounts, names: Iterable[str] | None) -> list[MeasuredCircuit]:
+    if names is None:
+        chosen = [c for c in counts.circuits if len(c.qubits) > MAX_QUBITS]
+        if not chosen:
+            raise CountsError(
+                f"the counts hold no circuit on more than {MAX_QUBITS} qubits",
+                hint="score the counts with nv score, or name the circuits with circuits=",
+            )
+        return chosen
+    by_name = {c.name: c for c in counts.circuits}
+    names = list(dict.fromkeys(names))
+    unknown = next((name for name in names if name not in by_name), None)
+    if unknown is not None:
+        raise CountsError(f"the counts have no circuit {unknown!r}")
+    if not names:
+        raise CountsError("give at least one circuit name in circuits=")
+    return [by_name[name] for name in names]
+
+
+def _detection_data(stim: Any, data: Any, width: int, data_format: str | None) -> Events:
+    if isinstance(data, str | os.PathLike):
+        path = Path(data)
+        fmt = data_format or DATA_FORMATS.get(path.suffix)
+        if fmt is None:
+            raise NoiseVaultError(
+                f"the suffix of {path.name} names no Stim data format",
+                hint=f"give data_format=, one of {joined(list(DATA_FORMATS.values()), 'or')}",
+            )
+        try:
+            data = stim.read_shot_data_file(path=str(path), format=fmt, num_detectors=width)
+        except (ValueError, RuntimeError) as exc:
+            raise NoiseVaultError(
+                f"Stim cannot read {path.name} as {fmt} data of {plural(width, 'detector')}: {exc}",
+                hint=_DETECTOR_HINT,
+            ) from None
+    return _event_array(data, width, f"the circuit has {plural(width, 'detector')}", _DETECTOR_HINT)
+
+
+def _event_array(
+    data: Any, width: int | None, expected: str = "", hint: str | None = None
+) -> Events:
+    """The events of an array of shots by bits. ``expected`` says what has ``width`` bits."""
+    rows = np.asarray(data)
+    if rows.ndim != 2:
+        raise NoiseVaultError(f"the events have shape {rows.shape}; give an array of shots by bits")
+    if width is not None and rows.shape[1] != width:
+        raise NoiseVaultError(
+            f"the data has {plural(rows.shape[1], 'bit')} in each shot, and {expected}", hint=hint
+        )
+    if len(rows) == 0:
+        raise NoiseVaultError("the events hold no shot")
+    if rows.dtype != bool:
+        wrong = rows[~np.isin(rows, (0, 1))]
+        if wrong.size:
+            raise NoiseVaultError(
+                f"the events hold the value {wrong[0].item()!r}; give 0 or 1 for each bit"
+            )
+    return Events.of(rows)
+
+
+def _check_samples(samples: int) -> None:
+    if isinstance(samples, bool) or not isinstance(samples, int) or samples < 1:
+        raise ValueError(f"samples={samples!r}: give a number of samples of 1 or more")
+
+
 def _histogram(m: Events) -> np.ndarray:
     return np.bincount(m.rows.sum(axis=1), weights=m.times, minlength=m.rows.shape[1] + 1)
+
+
+def _variance(probs: np.ndarray) -> float:
+    k = np.arange(len(probs))
+    mean = float(probs @ k)
+    return max(0.0, float(probs @ k**2) - mean**2)
+
+
+def _test_dict(test: RuleTest, sampling: Sampling) -> dict[str, Any]:
+    return {
+        **test.to_dict(),
+        "sampling_ratio": sampling.ratio,
+        "no_verdict": sampling.reason,
+    }
+
+
+def _test_phrase(test: RuleTest, sampling: Sampling, a: str, b: str, few: str) -> str:
+    """One test in words. ``few`` says where a forecast can have too few samples."""
+    if test.outcome == "identical":
+        return "no difference (the forecasts give the same scores)"
+    stats = (
+        ""
+        if test.z is None or test.p_value is None
+        else f" (z = {test.z:.2f}, p = {test.p_value:.2g})"
+    )
+    if sampling.reason == "few_samples":
+        return (
+            f"no verdict, because a forecast has fewer than {MIN_SAMPLES} samples {few};"
+            f" use more samples{stats}"
+        )
+    if sampling.reason == "sampling_variance":
+        return (
+            "no verdict, because the sampling error of the forecasts is larger than the shot"
+            f" error; use more samples{stats}"
+        )
+    if test.difference is None or test.z is None:
+        return "no test, because the score difference is the same in each shot"
+    if test.better == "neither":
+        return f"no difference at the 5% level{stats}"
+    winner, loser = (a, b) if test.better == "a" else (b, a)
+    return f"{winner} is better by {_number(abs(test.difference))} per shot than {loser}{stats}"
+
+
+def _count(value: float) -> str:
+    return f"{value:.3f}" if value >= 0.1 else f"{value:.3g}"
+
+
+def _share(value: float) -> str:
+    return f"{value:.3f}" if value >= 0.001 or value == 0 else f"{value:.2g}"
+
+
+def _ratio(value: float, measured: float) -> str:
+    return "-" if measured <= 0 else f"{value / measured:.2f}"
 
 
 def _chunk(chunk: int, width: int) -> int:
