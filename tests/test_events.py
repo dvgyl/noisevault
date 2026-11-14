@@ -369,7 +369,13 @@ def test_a_large_difference_in_the_number_of_events_gets_a_verdict() -> None:
     assert model.events_margin == pytest.approx(0.132, abs=0.001)
     assert model.events_sampled == pytest.approx(samples.sum() / 200_000, rel=1e-12)
     assert "model: too few events, 0.50 times the measured number (z = -41.8)" in score.summary()
+    assert score.events_verdict(model) == "too few"
+    entry = score.to_dict()["models"][0]
+    assert entry["events_verdict"] == "too few"
+    assert entry["events_sampled"] == model.events_sampled
+    assert entry["events_margin"] == model.events_margin
     near = events.score_events(rng.random((2000, 8)) < 0.108, {"model": samples})
+    assert near.to_dict()["models"][0]["events_verdict"] is None
     assert "times the measured number of events, no proved difference" in near.summary()
 
 
@@ -398,8 +404,12 @@ def test_the_bound_is_wider_when_a_wide_score_has_two_circuits(line_14: Profile)
 
 
 def test_one_shot_and_one_sample_that_disagree_give_a_summary() -> None:
-    text = events.score_events([[1]], {"model": np.array([[0]])}).summary()
+    score = events.score_events([[1]], {"model": np.array([[0]])})
+    text = score.summary()
     assert "model: 0.00 times the measured number of events, no proved difference" in text
+    # One shot gives no sample variance, so the margin is infinite and the JSON gives null.
+    assert score.to_dict()["models"][0]["events_margin"] is None
+    assert json.dumps(score.to_dict())
 
 
 def _tail_p_value(events_: int, shots: int, sampled: int, samples: int) -> float:

@@ -580,6 +580,9 @@ class EventScore:
                     "events_per_shot": m.events,
                     "events_error": m.events_error,
                     "ratio": m.events / self.events if self.events > 0 else None,
+                    "events_sampled": m.events_sampled,
+                    "events_margin": m.events_margin if math.isfinite(m.events_margin) else None,
+                    "events_verdict": self.events_verdict(m),
                     "no_event": m.none,
                     "few_samples": m.few_samples,
                     "scores": {
@@ -627,19 +630,30 @@ class EventScore:
             what = f"event bits: {plural(len(self.bits), 'bit')}"
         return f"{what}, {plural(self.shots, 'shot')}, {drawn}"
 
-    def _events_phrase(self, m: ModelScore) -> str:
-        # The empirical Bernstein bound holds for each distribution of the number of events. A
-        # normal test does not: it gives false verdicts when few shots or samples have an event.
-        ratio = _ratio(m.events_sampled, self.events)
-        times = "" if ratio == "-" else f", {ratio} times the measured number"
+    def events_verdict(self, m: ModelScore) -> Literal["too few", "too many"] | None:
+        """``too few`` or ``too many`` when the number of events of the samples of ``m`` differs
+        from the measured number by more than ``m.events_margin``. Else None: no proved
+        difference.
+
+        The empirical Bernstein bound holds for each distribution of the number of events. A
+        normal test does not: it gives false verdicts when few shots or samples have an event.
+        """
         difference = m.events_sampled - self.events
         if abs(difference) <= m.events_margin:
+            return None
+        return "too many" if difference > 0 else "too few"
+
+    def _events_phrase(self, m: ModelScore) -> str:
+        ratio = _ratio(m.events_sampled, self.events)
+        times = "" if ratio == "-" else f", {ratio} times the measured number"
+        side = self.events_verdict(m)
+        if side is None:
             if ratio == "-":
                 return "no proved difference in the number of events"
             return f"{ratio} times the measured number of events, no proved difference"
-        side = "too many" if difference > 0 else "too few"
         error = math.hypot(m.events_shot_error, m.events_error)
-        size = "" if error == 0 else f" (z = {difference / error:.1f})"
+        z = (m.events_sampled - self.events) / error if error > 0 else None
+        size = "" if z is None else f" (z = {z:.1f})"
         return f"{side} events{times}{size}"
 
     def _different_bits(self, m: ModelScore) -> str:

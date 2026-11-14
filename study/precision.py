@@ -97,12 +97,14 @@ def relative_errors(info: np.ndarray, shots: int) -> tuple[float, float]:
     held = [i for i in range(len(matrix)) if matrix[i, i] > 0]
     errors = [math.inf] * len(matrix)
     if held:
-        try:
-            covariance = np.linalg.inv(matrix[np.ix_(held, held)])
-        except np.linalg.LinAlgError:
+        part = matrix[np.ix_(held, held)]
+        if np.linalg.matrix_rank(part) < len(held):
+            return math.inf, math.inf
+        variances = np.diag(np.linalg.inv(part))
+        if np.any(variances <= 0):
             return math.inf, math.inf
         for position, i in enumerate(held):
-            errors[i] = math.sqrt(covariance[position, position])
+            errors[i] = math.sqrt(variances[position])
     return errors[0], errors[1]
 
 

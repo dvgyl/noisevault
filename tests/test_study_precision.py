@@ -48,6 +48,9 @@ def test_a_factor_with_no_information_has_an_infinite_error() -> None:
     assert gate == pytest.approx(0.01227278, abs=1e-8)
     assert precision.relative_errors(np.zeros((2, 2)), 100) == (math.inf, math.inf)
     assert precision.relative_errors(np.ones((2, 2)), 100) == (math.inf, math.inf)
+    # Information of rank one cannot separate the two factors.
+    one_direction = np.outer([0.1, 0.3], [0.1, 0.3])
+    assert precision.relative_errors(one_direction, 3000) == (math.inf, math.inf)
 
 
 @pytest.mark.parametrize(

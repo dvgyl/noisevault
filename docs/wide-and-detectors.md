@@ -212,8 +212,8 @@ number of events in the samples of the forecast with the measured number. The li
 few events" or "too many events" only when the difference is proved at the 5% level. The proof
 is the empirical Bernstein bound of Maurer and Pontil (2009). It holds for each distribution of
 the number of events. Thus it needs a larger difference than a normal test: more than about 3
-standard errors of each of the two numbers. In each other case, the line gives the ratio of the
-two numbers and says "no proved difference".
+standard errors of each of the two numbers. In each other case, the line says "no proved
+difference". It also gives the ratio of the two numbers when the measured number is above 0.
 
 The next line names the bits whose rate differs most from the measured rate, at most three. A
 bit is on the line only when its difference is significant at the 5% level divided by the number
@@ -236,8 +236,11 @@ A profile that forecasts far too few events has few samples with many events. Th
 score often gives no verdict, as in both examples. The bit score still decides.
 
 `report.to_dict()` gives the same numbers for programs. Its keys are `kind`, `counts`,
-`circuits`, `shots`, `level`, `measured`, `models`, `paired` and `bits`. Each entry of `bits`
-gives the measured rate, and the forecast rate and its sampling error for each profile.
+`circuits`, `shots`, `level`, `measured`, `models`, `paired` and `bits`. Each entry of `models`
+gives the numbers of the table. It also gives `events_sampled`, the number of events of the
+counted samples, `events_margin`, the largest difference with no proof, and `events_verdict`:
+`"too few"`, `"too many"` or `null`. Each entry of `bits` gives the measured rate, and the
+forecast rate and its sampling error for each profile.
 
 ## Limits
 
