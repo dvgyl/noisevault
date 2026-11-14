@@ -14,6 +14,16 @@ This file lists all notable changes to NoiseVault. Versions follow
   `python -m study.layout_history PARQUET --device ibm_kingston` compares the chain of the day
   with the chain from a history of 7 days. `noisevault.score.rule_test`, the paired test of one
   rule, is now public.
+- **Five more study scripts.** Each script writes text to standard output.
+  `python -m study.correlation_rules` simulates studies and compares five rules for the
+  correlation of neighbouring weeks. `python -m study.precision fisher` gives the relative
+  standard error of the gate factor for the fit circuits and for the short circuits.
+  `python -m study.precision budget` gives designs for a fixed amount of money with
+  `noisevault.design`. `python -m study.overrotation` gives the probability of the right result
+  of each circuit when `sx` and `x` turn too far. `python -m study.archive_zeros PARQUET` counts
+  the readout probabilities of exactly 0 in each observation of the IBM calibration archive,
+  stated in the observation and in force at it.
+  `study.error_rates` makes `measured` and `standard_error` public.
 - **More statistics of the IBM calibration archive.** `python -m study.archive_steps PARQUET`
   gives the change of a value in 1, 3 and 7 days, the rank correlation inside one day and the
   minutes between two observation times. It also gives the regression to the mean with chance

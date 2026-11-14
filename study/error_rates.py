@@ -55,21 +55,33 @@ def series(
     return mu + y * np.asarray(spread)[None, :, None]
 
 
-def statistics(y: np.ndarray, min_rho: float = RHO_LIMITS[0]) -> np.ndarray:
-    """The t statistic of the estimate of each study of ``y``. Each device has each week."""
-    devices, weeks = y.shape[1], y.shape[2]
+def measured(y: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """For each study of ``y``: the mean of all values, the measured correlation ``rho_hat`` of
+    neighbouring weeks, and the variance of each device, with the shape (studies, devices)."""
+    weeks = y.shape[2]
     mean = y.mean(axis=2)
     residual = y - mean[..., None]
     square = (residual * residual).sum(axis=2)
     cross = (residual[..., 1:] * residual[..., :-1]).sum(axis=(1, 2))
-    rho_hat = cross / square.sum(axis=1)
-    rho = np.clip(rho_hat + (1 + 3 * rho_hat) / weeks, min_rho, RHO_LIMITS[1])
+    return mean.mean(axis=1), cross / square.sum(axis=1), square / (weeks - 1)
+
+
+def standard_error(variance: np.ndarray, rho: np.ndarray, weeks: int = WEEKS) -> np.ndarray:
+    """The standard error of the mean of each study, with the correlation ``rho`` of the study
+    in the factor of each device. ``variance`` is the third result of :func:`measured`."""
+    devices = variance.shape[1]
     k = np.arange(1, weeks)
     g = ((1 - k / weeks)[None, :] * rho[:, None] ** k[None, :]).sum(axis=1)
     factor = (1 + 2 * g) / (1 - 2 * g / (weeks - 1))
-    variance = square / (weeks - 1)
-    error = np.sqrt(factor * variance.sum(axis=1) / weeks) / devices
-    return mean.mean(axis=1) / error
+    return np.sqrt(factor * variance.sum(axis=1) / weeks) / devices
+
+
+def statistics(y: np.ndarray, min_rho: float = RHO_LIMITS[0]) -> np.ndarray:
+    """The t statistic of the estimate of each study of ``y``. Each device has each week."""
+    weeks = y.shape[2]
+    mean, rho_hat, variance = measured(y)
+    rho = np.clip(rho_hat + (1 + 3 * rho_hat) / weeks, min_rho, RHO_LIMITS[1])
+    return mean / standard_error(variance, rho, weeks)
 
 
 def rates(t: np.ndarray, df: int) -> tuple[float, float, float]:
