@@ -306,13 +306,13 @@ def test_gives_the_rank_correlation_of_a_change_and_the_next_change(data: dict[s
 
 def test_gives_a_negative_rank_correlation_for_reversed_values() -> None:
     first = np.array([1.0, 2.0, 3.0, 4.0])
-    assert archive._spearman(first, first[::-1].copy()) == pytest.approx(-1.0)
+    assert archive.spearman(first, first[::-1].copy()) == pytest.approx(-1.0)
 
 
 def test_gives_no_rank_correlation_when_all_values_tie() -> None:
     first = np.array([1.0, 2.0, 2.0, 3.0])
-    assert archive._spearman(first, np.ones(4)) is None
-    assert archive._spearman(first, first.copy()) == pytest.approx(1.0)
+    assert archive.spearman(first, np.ones(4)) is None
+    assert archive.spearman(first, first.copy()) == pytest.approx(1.0)
 
 
 def test_counts_only_the_rows_and_the_changes_in_the_window(parquet: Path) -> None:

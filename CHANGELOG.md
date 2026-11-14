@@ -7,6 +7,12 @@ This file lists all notable changes to NoiseVault. Versions follow
 
 ### Added
 
+- **More statistics of the IBM calibration archive.** `python -m study.archive_steps PARQUET`
+  gives the change of a value in 1, 3 and 7 days, the rank correlation inside one day and the
+  minutes between two polls. It also gives the regression to the mean with chance alone.
+  `python -m study.archive_vendor PARQUET` compares the values of the archive with the values
+  of IBM's public calibration endpoint at 12 random times. `study.archive` makes `micros`,
+  `micros_of`, `regression`, `sha256`, `spearman`, `utc_date` and `SERIES_STRIDE` public.
 - **Unusable qubits.** `Profile.unusable_qubits()` names each qubit that a circuit should not
   use, with the reason: the profile disables it, its readout is no better than chance in one
   direction, or it has no usable 2-qubit gate. `nv show` lists these qubits, and `--json` gives
