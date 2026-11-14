@@ -29,7 +29,7 @@ import noisevault as nv
 from noisevault.cli import _PACKAGES, app
 from noisevault.compare import NOTE as COMPARE_NOTE
 from noisevault.counts import PlannedCircuit, plan, simulate
-from noisevault.errors import REPOSITORY, SourceUnavailable, install_hint
+from noisevault.errors import SourceUnavailable, install_hint
 from noisevault.profile import Profile
 
 runner = CliRunner()
@@ -1248,9 +1248,7 @@ def test_check_counts_a_reduced_circuit_apart_and_names_its_missing_gates(tmp_pa
 
 
 def _uvx(extra: str, command: str) -> str:
-    return (
-        f'Or, with uv and no install: uvx --from "noisevault[{extra}] @ git+{REPOSITORY}" {command}'
-    )
+    return f'Or, with uv and no install: uvx --from "noisevault[{extra}]" {command}'
 
 
 @pytest.mark.parametrize(
@@ -1308,7 +1306,7 @@ def test_the_uvx_check_command_runs_as_printed(
     uvx = _uvx("qiskit,stim", f"nv check --framework qiskit,stim {printed}")
     assert uvx in result.stdout.splitlines()
     words = shlex.split(uvx.partition(": ")[2])
-    assert words[:4] == ["uvx", "--from", f"noisevault[qiskit,stim] @ git+{REPOSITORY}", "nv"]
+    assert words[:4] == ["uvx", "--from", "noisevault[qiskit,stim]", "nv"]
     followed = runner.invoke(app, words[4:], env={"COLUMNS": "80"})
     assert followed.exit_code == 0, followed.output
     assert followed.stdout.splitlines()[0] == result.stdout.splitlines()[0]
@@ -1505,8 +1503,7 @@ def test_check_with_no_framework_installed_is_one_error_and_one_install_command(
         "error: nv check needs a framework to check, and none is installed",
         f"hint: {install_hint('qiskit')}",
         "      (or cirq, pennylane or stim, or several, as in noisevault[qiskit,stim])",
-        f'      or, with uv and no install: uvx --from "noisevault[qiskit] @ git+{REPOSITORY}"'
-        " nv check ibm_manila",
+        '      or, with uv and no install: uvx --from "noisevault[qiskit]" nv check ibm_manila',
     ]
 
 
@@ -1520,7 +1517,7 @@ def test_check_of_a_named_framework_that_is_not_installed_installs_that_one(
     assert result.stderr.splitlines() == [
         "error: nv check needs a framework to check, and cirq is not installed",
         f"hint: {install_hint('cirq')}",
-        f'      or, with uv and no install: uvx --from "noisevault[cirq] @ git+{REPOSITORY}"'
+        '      or, with uv and no install: uvx --from "noisevault[cirq]"'
         " nv check --framework cirq ibm_manila",
     ]
 

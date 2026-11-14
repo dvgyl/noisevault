@@ -124,7 +124,7 @@ without cancelling them.
 Mitiq is optional and supports Python up to 3.12. Its Qiskit conversion also needs `ply`:
 
 ```bash
-pip install "noisevault[qiskit] @ git+https://github.com/dvgyl/noisevault" mitiq ply
+pip install "noisevault[qiskit]" mitiq ply
 ```
 
 ```python

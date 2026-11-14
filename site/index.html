@@ -963,13 +963,12 @@ more.addEventListener("click", () => {
 });
 
 /* terminal and editor windows that type their content when they scroll into view */
-const REPO = "git+https://github.com/dvgyl/noisevault";
 const esc = (t) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;");
 const hl = (code) => esc(code).replace(/("[^"]*")/g, '<span class="s">$1</span>').replace(/\b(from|import|as|print)\b/g, '<span class="k">$1</span>').replace(/([(=,] ?)(\d+)\b/g, '$1<span class="nm">$2</span>');
-const PINNED = `${REPO}@v${DATA.version}`;
+const PINNED = `noisevault==${DATA.version}`;
 const WINS = [
   { kind: "shell", title: "Terminal", cmd: `uvx --from ${PINNED} nv show ibm_fez`, out: DATA.cli.show },
-  { kind: "shell", title: "Terminal", cmd: `pip install "noisevault[qiskit] @ ${PINNED}"` },
+  { kind: "shell", title: "Terminal", cmd: `pip install "noisevault[qiskit]==${DATA.version}"` },
   { kind: "code", title: "ghz.py", run: "python ghz.py", cmd: `from qiskit import QuantumCircuit, transpile
 import noisevault as nv
 

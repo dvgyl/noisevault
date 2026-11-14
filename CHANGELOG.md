@@ -3,10 +3,13 @@
 This file lists all notable changes to NoiseVault. Versions follow
 [Semantic Versioning](https://semver.org).
 
-## Unreleased
+## 0.5.0 (2026-11-15)
 
 ### Added
 
+- **NoiseVault is on PyPI.** `pip install "noisevault[qiskit]"` installs a release. The README,
+  the pages, the examples and each install hint of the package give this command. Before, they
+  gave an install from GitHub.
 - **Checks of the paired test and of a chain from a history.** `python -m study.score_checks`
   gives four checks of the paired test of two models. `unseen` has a result that no shot
   showed. `hidden` hides a rare result among other rare results. `safe` gives the smallest

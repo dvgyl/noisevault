@@ -29,23 +29,29 @@ errors to match the counts.
 To try NoiseVault without an install, use [uv](https://docs.astral.sh/uv/):
 
 ```bash
-uvx --from git+https://github.com/dvgyl/noisevault nv show ibm_fez
+uvx --from noisevault nv show ibm_fez
 ```
 
 <img src="assets/cli-show.svg" alt="Terminal output of nv show ibm_fez. The output shows a 156-qubit Heron r2 device and its native gates, with the median average infidelity and duration of each gate. It also shows the median T1, T2 and readout error, how much older the values are than the calibration time, the data source, the license and the profile fingerprint." width="830">
 
 ## Install
 
-In a virtual environment with Python 3.11 to 3.14, install NoiseVault from GitHub:
+In a virtual environment with Python 3.11 to 3.14, install NoiseVault from PyPI:
 
 ```bash
-pip install "noisevault[qiskit] @ git+https://github.com/dvgyl/noisevault"
+pip install "noisevault[qiskit]"
 ```
 
 A virtual environment from `uv venv` has no pip. In that environment, use `uv pip install`:
 
 ```bash
-uv pip install "noisevault[qiskit] @ git+https://github.com/dvgyl/noisevault"
+uv pip install "noisevault[qiskit]"
+```
+
+For the newest development version, install from GitHub:
+
+```bash
+pip install "noisevault[qiskit] @ git+https://github.com/dvgyl/noisevault"
 ```
 
 For another framework, use `cirq`, `pennylane` or `stim` in place of `qiskit`. For several
@@ -75,7 +81,7 @@ counts = sim.run(compiled, seed_simulator=1).result().get_counts()
 print(counts)
 # {'111': 510, '011': 8, '101': 6, '100': 4, '001': 1, '110': 6, '010': 2, '000': 487}
 print(sim.report.summary())
-# NoiseVault 0.4.0 -> qiskit 2.5.2 (qiskit-aer 0.17.2): ibm_fez (nv:06404cefa54f)
+# NoiseVault 0.5.0 -> qiskit 2.5.2 (qiskit-aer 0.17.2): ibm_fez (nv:06404cefa54f)
 # options: unknown_gates='typical', readout=True
 # exact: gate noise: channels per exported native and physical locus (Aer QuantumError), ...
 # approximated: cz error: the stated error already includes single-qubit gate error ...
@@ -214,7 +220,7 @@ lists what no export models.
 To run the check on all four frameworks with uv and no install, use this command:
 
 ```bash
-uvx --from "noisevault[qiskit,cirq,pennylane,stim] @ git+https://github.com/dvgyl/noisevault" nv check ibm_fez
+uvx --from "noisevault[qiskit,cirq,pennylane,stim]" nv check ibm_fez
 ```
 
 ## Compare with hardware
@@ -243,18 +249,18 @@ curl -O https://raw.githubusercontent.com/dvgyl/noisevault/main/examples/kingsto
 ```text
 $ nv compare ibm_kingston@2026-04-15 kingston-simulated.counts.json
 ibm_kingston@2026-04-15 nv:609c845ed934 on qubits 148-149-150-151
-counts kingston-simulated.counts.json, simulated, sha256:efeaf3d1f923
+counts kingston-simulated.counts.json, simulated, sha256:b1b70f902611
 run 2026-04-16 09:30Z, 26 h after calibration
 
 circuit       shots  profile TVD  fitted TVD  noise TVD 95%
-ghz_chain      4000       0.0217      0.0215         0.0322
+ghz_chain      4000       0.0217      0.0215         0.0321
 mirror         4000       0.0237      0.0050         0.0070
-single_qubit   4000       0.0067      0.0011         0.0042
+single_qubit   4000       0.0067      0.0011         0.0041
 readout        4000       0.0096      0.0036         0.0048
 
-gate errors     x2.16 (95% interval 1.77 to 2.59)
-readout errors  x1.34 (95% interval 1.16 to 1.53)
-fit             within shot noise on every circuit (p = 0.69)
+gate errors     x2.16 (95% interval 1.74 to 2.58)
+readout errors  x1.34 (95% interval 1.16 to 1.54)
+fit             within shot noise on every circuit (p = 0.7)
 
 Factors multiply the profile's error rates, so x2 means about twice the errors.
 On these qubits, the factors absorb crosstalk, leakage, coherent error and idle
@@ -263,7 +269,7 @@ error beyond T1 and T2. The profile from -o applies the factors to every qubit.
 
 Both intervals contain the factors that the simulation used. `nv compare` needs no framework. To
 run it with no install, put
-`uvx --from git+https://github.com/dvgyl/noisevault` in front of `nv compare`.
+`uvx --from noisevault` in front of `nv compare`.
 
 `nv compare ... -o fitted.json` saves the profile with the fitted factors. Every export of the
 saved profile applies the factors.

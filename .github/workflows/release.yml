@@ -60,7 +60,7 @@ jobs:
               raise SystemExit(f"CHANGELOG.md has no section for {version}")
           install = (
               "Install this release:\n\n```bash\n"
-              f'pip install "noisevault[qiskit] @ git+https://github.com/dvgyl/noisevault@v{version}"\n'
+              f'pip install "noisevault[qiskit]=={version}"\n'
               "```\n\n"
           )
           open("notes.md", "w", encoding="utf-8").write(install + match.group(1).strip() + "\n")

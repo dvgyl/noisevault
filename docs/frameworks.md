@@ -18,7 +18,7 @@ Each framework installs with the extra of the same name. These extras are `qiski
 no framework.
 
 ```bash
-pip install "noisevault[qiskit] @ git+https://github.com/dvgyl/noisevault"
+pip install "noisevault[qiskit]"
 ```
 
 Every export takes `unknown_gates`. With `"typical"` (the default), a gate the profile does not

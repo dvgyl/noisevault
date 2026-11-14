@@ -26,7 +26,7 @@ see [Data sources](data-sources.md).
 Install the `pennylane` extra. It installs no Qiskit:
 
 ```bash
-pip install "noisevault[pennylane] @ git+https://github.com/dvgyl/noisevault"
+pip install "noisevault[pennylane]"
 ```
 
 ```python

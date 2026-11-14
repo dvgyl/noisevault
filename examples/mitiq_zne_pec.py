@@ -11,7 +11,7 @@ simulator, so each expectation value is exact and the only sampling is PEC's own
 docs/tutorials/mitiq.md explains each step.
 
 Needs:
-    pip install "noisevault[cirq] @ git+https://github.com/dvgyl/noisevault" mitiq
+    pip install "noisevault[cirq]" mitiq
 """
 
 import sys

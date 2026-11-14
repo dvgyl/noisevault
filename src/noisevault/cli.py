@@ -1283,7 +1283,7 @@ def _check_command(ref: str, framework: str | None) -> str:
 
 
 def _uvx_hint(extra: str, command: str) -> str:
-    return f'uvx --from "noisevault[{extra}] @ git+{REPOSITORY}" {command}'
+    return f'uvx --from "noisevault[{extra}]" {command}'
 
 
 @app.command()

@@ -2,7 +2,7 @@
 
 The numbers below are illustrative, not measurements of any device.
 
-Needs: pip install "noisevault[qiskit,stim] @ git+https://github.com/dvgyl/noisevault"
+Needs: pip install "noisevault[qiskit,stim]"
 """
 
 import tempfile

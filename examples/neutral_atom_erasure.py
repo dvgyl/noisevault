@@ -5,7 +5,7 @@ occurred, so it fails less often than a decoder that ignores them. The script ex
 then decodes with PyMatching both ways.
 
 Needs:
-    pip install "noisevault[stim] @ git+https://github.com/dvgyl/noisevault"
+    pip install "noisevault[stim]"
     pip install pymatching
 """
 

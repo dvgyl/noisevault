@@ -279,4 +279,4 @@ REPOSITORY = "https://github.com/dvgyl/noisevault"
 
 def install_hint(extra: str) -> str:
     """The pip command that adds an optional extra, for example ``install_hint("cirq")``."""
-    return f'pip install "noisevault[{extra}] @ git+{REPOSITORY}"'
+    return f'pip install "noisevault[{extra}]"'

@@ -126,7 +126,7 @@ nv schema > docs/schema/profile-1.0.json
    The fingerprints do not change. Only the `tool` text, the `client` text and the file
    hashes do.
 4. Merge to `main` when CI passes.
-5. Tag the release and push the tag, as in `git tag v0.4.0 && git push origin v0.4.0`.
+5. Tag the release and push the tag, as in `git tag v0.5.0 && git push origin v0.5.0`.
 
 The tag starts `.github/workflows/release.yml`. The workflow checks that the tag matches the
 version, builds the wheel and sdist, and creates a GitHub release with the notes of that version
