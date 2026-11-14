@@ -10,7 +10,7 @@ import pytest
 
 import noisevault as nv
 from noisevault.compare import NoEstimate
-from noisevault.counts import PlannedCircuit, simulate
+from noisevault.counts import MeasuredCounts, PlannedCircuit, simulate
 from noisevault.errors import SourceUnavailable
 from noisevault.profile import Profile
 from noisevault.reference import Op, probabilities
@@ -174,6 +174,34 @@ def test_a_measured_readout_is_never_0() -> None:
     found = models.readout_measured(truth, counts)
 
     assert min(min(pair) for pair in _readouts(found)) >= 0.5 / 201
+
+
+def test_readout_measured_joins_each_bit_with_its_qubit_in_the_order_of_measured() -> None:
+    profile = device(2)
+    x = (Op("x", (0,)), Op("x", (1,)))
+    circuits = [
+        PlannedCircuit(name="readout", qubits=(0, 1), ops=(), measured=(1, 0)),
+        PlannedCircuit(name="readout_1", qubits=(0, 1), ops=x),
+    ]
+    data = simulate(profile, circuits, shots=1000, seed=0, run_at=RUN_AT).to_dict()
+    data["circuits"][0]["counts"] = {"00": 900, "10": 100}
+    data["circuits"][1]["counts"] = {"01": 50, "11": 950}
+
+    found = models.readout_measured(profile, MeasuredCounts.model_validate(data))
+
+    assert found.table.qubit(0).readout == pytest.approx((0.5 / 1001, 50.5 / 1001))
+    assert found.table.qubit(1).readout == pytest.approx((100.5 / 1001, 0.5 / 1001))
+
+
+def test_fit_factor_reads_the_counts_of_a_circuit_that_measures_a_part_of_its_qubits() -> None:
+    profile = device(3)
+    ops = tuple(Op("x", (0,)) for _ in range(20))
+    circuit = PlannedCircuit(name="xs", qubits=(0, 1, 2), ops=ops, measured=(2, 0))
+    counts = simulate(models.with_factors(profile, 3.0), [circuit], shots=20_000, seed=1)
+
+    found = models.gate_factor(profile, counts, ["xs"])
+
+    assert found == pytest.approx(3.0, rel=0.25)
 
 
 def test_gate_factor_recovers_a_known_factor() -> None:
