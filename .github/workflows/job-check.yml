@@ -1,0 +1,113 @@
+name: Job check
+
+# A manual check of the functions that read an IBM Quantum job, with a real job of the account
+# of the secret IBM_QUANTUM_TOKEN. The check reads the newest finished sampler job. It uses no
+# device time. The log holds no job id, no counts and no score.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  UV_SYSTEM_PYTHON: "1"
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - uses: astral-sh/setup-uv@v6
+      - run: uv pip install -e '.[ibm]'
+      - name: Read the newest finished sampler job
+        env:
+          IBM_QUANTUM_TOKEN: ${{ secrets.IBM_QUANTUM_TOKEN }}
+          NOISEVAULT_HOME: ${{ runner.temp }}/noisevault
+        run: |
+          if [ -z "$IBM_QUANTUM_TOKEN" ]; then
+            echo "::error::The repository has no secret IBM_QUANTUM_TOKEN."
+            exit 1
+          fi
+          python - <<'EOF'
+          import subprocess
+          import sys
+          import tempfile
+          import traceback
+          from pathlib import Path
+
+          import noisevault as nv
+          from noisevault import catalog
+          from noisevault.sources.ibm_account import _service
+
+          service = _service()
+          chosen = None
+          for job in service.jobs(limit=30, descending=True):
+              status = getattr(job.status(), "name", job.status())
+              if getattr(job, "primitive_id", None) == "sampler" and str(status) == "DONE":
+                  chosen = job
+                  break
+          if chosen is None:
+              sys.exit("the account has no finished sampler job among its 30 newest jobs")
+          job_id = chosen.job_id()
+          print(f"::add-mask::{job_id}")
+          device = chosen.backend().name
+          print(f"device {device}, job created {chosen.creation_date:%Y-%m-%d}")
+
+
+          def step(name, action):
+              try:
+                  found = action()
+              except Exception as exc:
+                  text = traceback.format_exc().replace(job_id, "JOB")
+                  print(f"FAILED {name}: {type(exc).__name__}\n{text}")
+                  return None
+              print(f"ok {name}: {found}")
+              return found
+
+
+          def pull_in_python():
+              pulled, started = catalog.pull_job(device, job_id)
+              return f"{pulled.profile.id} {pulled.profile.short_fingerprint}, start {started:%Y-%m-%dT%H:%MZ}"
+
+
+          def pull_on_the_command_line():
+              with tempfile.TemporaryDirectory() as folder:
+                  target = Path(folder) / "job.json.gz"
+                  run = subprocess.run(
+                      ["nv", "pull", device, "--job", job_id, "--output", str(target)],
+                      capture_output=True,
+                      text=True,
+                      check=False,
+                  )
+                  if run.returncode != 0:
+                      raise RuntimeError(run.stderr.replace(job_id, "JOB")[-1500:])
+                  if "started at" not in run.stdout:
+                      raise RuntimeError("the output has no start time of the job")
+                  return nv.load(target).short_fingerprint
+
+
+          def read_the_job():
+              profile, counts = nv.from_ibm_job(chosen)
+              widths = sorted({len(c.qubits) for c in counts.circuits})
+              shots = sorted({c.shots for c in counts.circuits})
+              forecast = profile.score(counts)
+              return (
+                  f"{profile.short_fingerprint}, {len(counts.circuits)} circuits on {widths} qubits,"
+                  f" shots {shots}, {len(forecast.circuits)} circuits scored,"
+                  f" {len(forecast.left_out)} left out"
+              )
+
+
+          results = [
+              step("nv.pull with job=", pull_in_python),
+              step("nv pull --job", pull_on_the_command_line),
+              step("nv.from_ibm_job and Profile.score", read_the_job),
+          ]
+          sys.exit(0 if all(r is not None for r in results) else 1)
+          EOF
