@@ -7,6 +7,11 @@ This file lists all notable changes to NoiseVault. Versions follow
 
 ### Added
 
+- **The error rates of the test of the study plan.** `python -m study.error_rates` simulates
+  studies with no true difference and gives how often the test of the plan confirms a
+  comparison. `study.estimate.estimate` takes `min_rho`, the lower limit of the correlation
+  between weeks, for the second report of the plan entry of 2026-11-14.
+  [study/PLAN.md](study/PLAN.md#changes)
 - **A page of user questions.** [docs/questions.md](docs/questions.md) lists eleven questions in
   the words of a user. Each answer gives the commands or the code and links to the details.
   Examples are a device with no fake backend, Stim noise with a detector error model, and the

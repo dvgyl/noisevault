@@ -167,6 +167,13 @@ test counts with a p-value of 1. A confirmed comparison holds for these devices 
 the study. It is not a result for devices in general. A confirmed difference below 0.001 nats
 for each shot is called small.
 
+The 5% level of the family holds when the weeks of a device are independent. When neighbouring
+weeks are alike, more than 5% of the studies with no true difference give a confirmation (entry
+of 2026-11-14 in [Changes](#changes)). Each primary comparison therefore has a second report:
+the same test with rho of at least 0.5 in place of at least 0. This careful rule decides no
+confirmation. The summary gives its p-value next to the p-value of the plan, and it says for
+each confirmed comparison if the careful rule confirms it too.
+
 The primary result of a comparison uses all runs that count and the log score.
 
 ## Strata
@@ -534,3 +541,17 @@ trial run of circuit set version 2 on `ibm_fez` on 2026-11-12. No run that count
   2026-11-12 on these circuits names a gate factor of 2 for their depth. Since circuit set
   version 2, each depth comes from the stated errors, as the section [Circuits](#circuits)
   says. This entry changes words only.
+- 2026-11-14: the error rate of the confirmation rule, and a second report.
+  `python -m study.error_rates` simulates studies of 3 devices and 8 weeks with no true
+  difference. Among five independent comparisons, the Holm rule gave one or more confirmations
+  in 3.7% of the studies for independent weeks. It gave them in 12.9% of the studies for a
+  correlation of 0.3 between neighbouring weeks of a device, and in 22.7% for 0.5. The 5% level
+  of the family thus holds for independent weeks, and 8 weeks cannot show how alike the weeks
+  are. Each primary comparison is therefore also reported with rho of at least 0.5
+  (`study.estimate.estimate` with `min_rho=0.5`). This careful rule gave 0.0%, 0.8% and 4.9% in
+  the same simulation, and 23.4% for a correlation of 0.7. With independent weeks, the rule of
+  the plan finds a difference of 0.7 standard deviations of Y in 85% of the studies, and the
+  careful rule needs 1.0 standard deviations for 85%. The confirmation rule does not change.
+  The code of the second report is not in the frozen tag. It uses the values Y that the frozen
+  analysis gives, so no run and no result of the frozen analysis changes. No run that counts
+  existed when this entry was written.

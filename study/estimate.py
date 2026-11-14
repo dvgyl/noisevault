@@ -18,6 +18,10 @@ The same estimate with f = 1, the interval for Y of a new week of each device, a
 test of Y are descriptions. A device with fewer than 4 weeks is not in the estimate. With no
 such device, the result has no estimate and no test.
 
+The second report of the plan entry of 2026-11-14 is the same estimate with a lower limit of
+``CAREFUL_RHO`` for rho: ``estimate(values, min_rho=CAREFUL_RHO)``. It decides no confirmation.
+``study.error_rates`` gives the error rates of both rules in simulated studies.
+
 The module uses only the standard library, so that the Student t distribution has no extra
 dependency.
 """
@@ -33,6 +37,7 @@ from typing import Any
 
 MIN_WEEKS = 4
 RHO_LIMITS = (0.0, 0.9)
+CAREFUL_RHO = 0.5
 LEVEL = 0.05
 CONFIDENCE = 0.95
 SMALL = 0.001
@@ -143,11 +148,17 @@ def correction(rho: float, n: int) -> float:
 def estimate(
     values: Mapping[str, Mapping[date, float]],
     incomplete: Mapping[str, int] | None = None,
+    *,
+    min_rho: float = RHO_LIMITS[0],
 ) -> Estimate:
     """The estimate of the plan over the values Y of each device, keyed by the week.
 
     Weeks 7 days apart are consecutive ISO weeks of one device. Each value must be finite.
+    ``min_rho`` is the lower limit of rho. The plan uses 0, and its second report uses
+    ``CAREFUL_RHO``.
     """
+    if not RHO_LIMITS[0] <= min_rho <= RHO_LIMITS[1]:
+        raise ValueError(f"min_rho={min_rho!r} is not from {RHO_LIMITS[0]} to {RHO_LIMITS[1]}")
     incomplete = dict(incomplete or {})
     excluded = {d: len(w) for d, w in sorted(values.items()) if 0 < len(w) < MIN_WEEKS}
     kept = {d: dict(sorted(w.items())) for d, w in sorted(values.items()) if len(w) >= MIN_WEEKS}
@@ -164,7 +175,7 @@ def estimate(
     square = sum(r * r for res in residuals.values() for r in res.values())
     rho_hat = cross / square if square > 0 else 0.0
     n_bar = sum(len(w) for w in kept.values()) / len(kept)
-    rho = min(RHO_LIMITS[1], max(RHO_LIMITS[0], rho_hat + (1 + 3 * rho_hat) / n_bar))
+    rho = min(RHO_LIMITS[1], max(min_rho, rho_hat + (1 + 3 * rho_hat) / n_bar))
     factors = {d: correction(rho, len(w)) for d, w in kept.items()}
     count = len(kept)
     value = sum(means.values()) / count

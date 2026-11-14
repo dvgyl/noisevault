@@ -153,6 +153,39 @@ def test_rho_is_limited_at_0_and_at_0_9() -> None:
     assert all(d.f > 1 for d in high.devices)
 
 
+def test_a_lower_limit_of_rho_gives_the_careful_test() -> None:
+    # Independent values give rho = 0 with the rule of the plan.
+    table = {
+        "a": _weeks([0.9, -0.4, 0.7, -0.6, 0.5, -0.8, 0.6, -0.3]),
+        "b": _weeks([-0.2, 0.8, -0.7, 0.4, -0.5, 0.9, -0.6, 0.3]),
+    }
+    plan = est.estimate(table)
+    careful = est.estimate(table, min_rho=est.CAREFUL_RHO)
+    assert plan.rho == 0.0
+    assert careful.rho == est.CAREFUL_RHO
+    assert careful.estimate == plan.estimate
+    assert careful.plain == plan.plain
+    factor = est.correction(0.5, 8)
+    assert factor == pytest.approx(3.186, abs=0.001)
+    assert careful.corrected.standard_error == pytest.approx(
+        plan.corrected.standard_error * factor**0.5
+    )
+    assert est.estimate(table, min_rho=0.0) == plan
+
+
+def test_a_lower_limit_does_not_lower_a_larger_rho() -> None:
+    rising = {"a": _weeks([0.1 * i for i in range(8)]), "b": _weeks([0.2 * i for i in range(8)])}
+    plan = est.estimate(rising)
+    assert plan.rho > est.CAREFUL_RHO
+    assert est.estimate(rising, min_rho=est.CAREFUL_RHO) == plan
+
+
+@pytest.mark.parametrize("bad", [-0.1, 0.95])
+def test_a_lower_limit_outside_the_range_of_rho_is_refused(bad: float) -> None:
+    with pytest.raises(ValueError, match="min_rho"):
+        est.estimate({"a": _weeks([1.0, 2.0, 3.0, 4.0])}, min_rho=bad)
+
+
 def test_the_correction_factor_and_the_interval_for_a_new_week() -> None:
     assert est.correction(0.0, 8) == pytest.approx(1.0)
     k = np.arange(1, 6)
