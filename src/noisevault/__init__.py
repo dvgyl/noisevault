@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from .catalog import ProfileInfo, load, profiles, pull
+from .derived import typical
 from .errors import (
     AmbiguousRef,
     CountsError,
@@ -165,4 +166,5 @@ __all__ = [
     "load",
     "profiles",
     "pull",
+    "typical",
 ]

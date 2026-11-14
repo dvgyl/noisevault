@@ -22,7 +22,7 @@ from typing import Any
 
 import numpy as np
 
-from noisevault import catalog, metrics
+from noisevault import catalog, metrics, typical
 from noisevault.compare import FACTOR_RANGE, Comparison
 from noisevault.counts import MeasuredCircuit, MeasuredCounts
 from noisevault.errors import SourceUnavailable
@@ -154,63 +154,13 @@ def medians(profile: Profile) -> Profile:
 def averaged(profile: Profile, calibrations: Sequence[Profile]) -> Profile:
     """``profile`` with each value replaced by the median of that value over ``calibrations``.
 
-    ``profile`` gives the structure: the records and the durations. ``calibrations`` gives the
-    values, and ``profile`` is not one of them unless the list holds it. A value is the T1, T2,
-    P(1|0) or P(0|1) of a qubit, or the average infidelity of a gate on one locus. Only the
-    records of ``profile`` for one qubit or one locus change. A calibration counts for a value
-    only when it states the value and does not disable the gate or the qubit. A calibration
-    that is in ``calibrations`` two times counts two times. A value that no calibration states
-    stays as ``profile`` states it.
+    ``noisevault.typical`` with ``structure=profile`` gives the rules. ``profile`` is not one of
+    the calibrations unless the list holds it. With no calibrations, the result is the stated
+    calibration of ``profile``.
     """
-    base = profile.uncorrected()
-    every = [p.uncorrected() for p in calibrations]
-    data = base.to_dict()
-
-    def over(read: Callable[[Profile], float | None]) -> float | None:
-        found = [value for value in map(read, every) if value is not None]
-        return median(found) if found else None
-
-    def gate(name: str, qubits: tuple[int, ...]) -> Callable[[Profile], float | None]:
-        def read(p: Profile) -> float | None:
-            if name not in p.gates or any(q >= p.device.num_qubits for q in qubits):
-                return None
-            found = p.table.gate(name, qubits)
-            calibrated = isinstance(found, GateNoise) and found.state == "calibrated"
-            return found.avg_infidelity if calibrated else None
-
-        return read
-
-    def qubit(index: int, pick: Callable[[Any], float | None]) -> Callable[[Profile], float | None]:
-        def read(p: Profile) -> float | None:
-            if index >= p.device.num_qubits or p.table.qubit(index).disabled:
-                return None
-            return pick(p.table.qubit(index))
-
-        return read
-
-    records = []
-    for record in data.get("calibrations", ()):
-        middle = None
-        if not record.get("disabled"):
-            middle = over(gate(record["gate"], tuple(record["qubits"])))
-        records.append(record if middle is None else _metric(record, {"avg_infidelity": middle}))
-    if records:
-        data["calibrations"] = records
-    for q in data.get("qubits", ()):
-        index = q["index"]
-        for key, pick in (
-            ("t1_us", lambda found: None if found.t1_ns is None else found.t1_ns / 1000),
-            ("t2_us", lambda found: None if found.t2_ns is None else found.t2_ns / 1000),
-        ):
-            middle = over(qubit(index, pick))
-            if key in q and middle is not None:
-                q[key] = middle
-        if "readout" in q:
-            low = over(qubit(index, lambda found: found.readout and found.readout[0]))
-            high = over(qubit(index, lambda found: found.readout and found.readout[1]))
-            if low is not None and high is not None:
-                q["readout"] = _readout(q["readout"], low, high)
-    return Profile.model_validate(data)
+    if not calibrations:
+        return profile.uncorrected()
+    return typical(calibrations, structure=profile)
 
 
 def symmetric(profile: Profile) -> Profile:

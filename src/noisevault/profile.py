@@ -1011,10 +1011,34 @@ class Profile(_Model):
 
     # operations implemented in other modules -----------------------------------------------
 
-    def suggest_layout(self, n: int) -> dict[int, int]:
+    def suggest_layout(self, n: int, *, history: Sequence[Profile] | None = None) -> dict[int, int]:
         from .layout import suggest_layout
 
-        return suggest_layout(self, n)
+        return suggest_layout(self, n, history=history)
+
+    def unusable_qubits(self) -> dict[int, str]:
+        """Each qubit that a circuit should not use, with the reason in words.
+
+        A qubit is unusable when the profile disables it, when its stated P(1|0) or P(0|1) is
+        0.5 or more, or when it has 2-qubit gates and each one is disabled or at or past full
+        depolarization. ``suggest_layout`` leaves these qubits out.
+        """
+        from .layout import unusable_qubits
+
+        return unusable_qubits(self)
+
+    def scaled(
+        self, *, one_qubit: float = 1.0, two_qubit: float = 1.0, readout: float = 1.0
+    ) -> Profile:
+        """This profile with each stated error multiplied by the factor of its group.
+
+        ``one_qubit`` and ``two_qubit`` multiply the gate errors of that arity, and ``readout``
+        each readout probability. T1, T2, durations and ``unmodeled_error`` do not change. A
+        stated 0 stays 0. ``noisevault.derived.scaled`` gives the full rules.
+        """
+        from .derived import scaled
+
+        return scaled(self, one_qubit=one_qubit, two_qubit=two_qubit, readout=readout)
 
     def medians(self) -> DeviceMedians:
         """Device-wide medians over the enabled qubits and the usable ordered pairs.
