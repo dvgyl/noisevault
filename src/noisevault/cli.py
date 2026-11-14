@@ -852,13 +852,33 @@ def pull(
             "--output", "-o", metavar="FILE", help="Save here instead of the vault. Replaces FILE."
         ),
     ] = None,
+    job: Annotated[
+        str | None,
+        typer.Option(
+            "--job",
+            metavar="JOB_ID",
+            help="Calibration in effect when this IBM job ran (needs your IBM account).",
+        ),
+    ] = None,
 ) -> None:
     """Download a live calibration and save it as a profile (network)."""
     with _friendly():
+        if at is not None and job is not None:
+            raise NoiseVaultError(
+                "give --at or --job, not both", hint="remove --at, because the job gives the time"
+            )
         if output is not None:
             _check_writable(output)
-        with err.status(f"Pulling {device}{f' at {at}' if at else ''}..."):
-            pulled = catalog.pull_and_save(device, at=at, source=source, output=output)
+        when = f" at {at}" if at else f" for job {job}" if job else ""
+        with err.status(f"Pulling {device}{when}..."):
+            pulled = catalog.pull_and_save(device, at=at, source=source, output=output, job=job)
+        if job is not None and pulled.at is not None:
+            out.print(
+                f"job {job} started at {pulled.at:%Y-%m-%d %H:%M:%SZ}. This is the calibration"
+                " in effect at that time.",
+                markup=False,
+                soft_wrap=True,
+            )
         _print_card(card(pulled.profile), brief=True)
         saved = "saved" if pulled.written else "already saved"
         out.print(f"{saved}: {pulled.path}", markup=False, soft_wrap=True)
