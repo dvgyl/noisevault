@@ -66,9 +66,9 @@ MIN_EXPECTED = 5
 # The fewest samples on each side of a marginal, and in a cell with a measured shot, for which
 # the delta method of the sampling variance is valid.
 MIN_SAMPLES = 100
-# With fewer expected events, or fewer expected shots with no event, the report tests the rate
-# of a bit with the exact binomial test.
-EXACT_BELOW = 5
+# With fewer expected events, or fewer expected bits with no event, the number of events of a
+# model is not near a normal distribution, and the report gives no test of that number.
+SPARSE_BELOW = 25
 # The largest chunk of samples, in bits. A chunk of 2^25 bits takes 128 MiB as float32.
 _CHUNK_BITS = 2**25
 _SHOWN_BITS = 3
@@ -444,7 +444,9 @@ class ModelScore:
     """The forecast of one model, over all scored bits.
 
     ``rates`` and ``errors`` hold the forecast event rate of each bit of the report and its
-    sampling standard error. ``events`` is the forecast mean number of events in a shot, and
+    sampling standard error. ``rate_p`` holds, for each bit, the two-sided p-value of Fisher's
+    exact test of the samples with an event against the measured shots with an event.
+    ``events`` is the forecast mean number of events in a shot, and
     ``events_error`` its sampling standard error. ``events_shot_error`` is the standard error
     that the measured mean number of events has when the model is right. ``none`` is the
     forecast share of shots with
@@ -457,6 +459,7 @@ class ModelScore:
     samples: int
     rates: tuple[float, ...] = field(repr=False)
     errors: tuple[float, ...] = field(repr=False)
+    rate_p: tuple[float, ...] = field(repr=False)
     events: float
     events_error: float
     events_shot_error: float
@@ -622,6 +625,15 @@ class EventScore:
         return f"{what}, {plural(self.shots, 'shot')}, {drawn}"
 
     def _events_phrase(self, m: ModelScore) -> str:
+        expected = sum(b.shots * rate for b, rate in zip(self.bits, m.rates, strict=True))
+        without = sum(b.shots for b in self.bits) - expected
+        if expected < SPARSE_BELOW:
+            return f"no test of the number of events, the forecast has fewer than {SPARSE_BELOW}"
+        if without < SPARSE_BELOW:
+            return (
+                "no test of the number of events, the forecast has fewer than"
+                f" {SPARSE_BELOW} bits with no event"
+            )
         # The spread of the shots comes from the forecast. The measured spread is 0 when no shot
         # shows an event, and a test with it calls each forecast above 0 too high.
         error = math.hypot(m.events_shot_error, m.events_error)
@@ -635,10 +647,7 @@ class EventScore:
     def _different_bits(self, m: ModelScore) -> str:
         """The bits whose forecast rate differs most from the measured rate. Each difference
         must be more than chance after a Bonferroni correction for the number of bits."""
-        f = np.array([b.measured for b in self.bits])
-        n = np.array([b.shots for b in self.bits], dtype=float)
-        q, e = np.array(m.rates), np.array(m.errors)
-        p = np.array([_rate_p_value(*values) for values in zip(f, n, q, e, strict=True)])
+        f, q, p = np.array([b.measured for b in self.bits]), np.array(m.rates), m.rate_p
         chosen = [i for i in np.argsort(p, kind="stable") if p[i] < LEVEL / len(self.bits)]
         many = len(self.circuits) > 1
         shown = []
@@ -649,40 +658,32 @@ class EventScore:
         return ", ".join(shown)
 
 
-def _rate_p_value(measured: float, shots: float, forecast: float, error: float) -> float:
-    """The two-sided p-value of a measured event rate, if the forecast rate is right.
+def two_sample_p_value(events: int, shots: int, sampled: int, samples: int) -> float:
+    """The two-sided p-value of Fisher's exact test of two event counts.
 
-    ``error`` is the sampling standard error of the forecast. With ``EXACT_BELOW`` or more
-    expected events and expected shots with no event, the test is a z-test with the spread of
-    the forecast. With fewer, it is the exact binomial test at a forecast rate that is moved
-    toward the measured rate by two times ``error``, so that the test stays careful.
+    ``events`` of ``shots`` measured shots and ``sampled`` of ``samples`` forecast samples show
+    the event. If the two rates are equal, the events divide between the two groups by chance
+    alone, with a hypergeometric distribution. The p-value is two times the smaller tail of
+    that distribution, and 1 at most. The test is exact for each rate, also near 0 and near 1,
+    so it holds its level after a division by the number of bits.
     """
-    expected = shots * min(forecast, 1 - forecast)
-    if expected >= EXACT_BELOW:
-        spread = math.sqrt(forecast * (1 - forecast) / shots + error**2)
-        return math.erfc(abs(forecast - measured) / spread / math.sqrt(2))
-    moved = forecast + min(max(measured - forecast, -2 * error), 2 * error)
-    events, total = round(measured * shots), round(shots)
-    if forecast > 0.5:
-        return _binomial_p_value(total - events, total, 1 - moved)
-    return _binomial_p_value(events, total, moved)
-
-
-def _binomial_p_value(events: int, shots: int, rate: float) -> float:
-    """Two times the smaller tail of ``events`` in ``shots`` at ``rate``, and 1 at most."""
-    if rate <= 0:
-        return 1.0 if events == 0 else 0.0
-    mean = shots * rate
-    if events > mean + 60 * math.sqrt(mean) + 60:
-        return 0.0
-    log_rate, log_rest = math.log(rate), math.log1p(-rate)
-
-    def probability(k: int) -> float:
-        ways = math.lgamma(shots + 1) - math.lgamma(k + 1) - math.lgamma(shots - k + 1)
-        return math.exp(ways + k * log_rate + (shots - k) * log_rest)
-
-    below = sum(probability(k) for k in range(events))
-    return min(1.0, 2 * min(below + probability(events), 1 - below))
+    total = events + sampled
+    low, high = max(0, total - samples), min(total, shots)
+    if low == high:
+        return 1.0
+    share = total / (shots + samples)
+    mean = shots * share
+    reach = 40 * math.sqrt(mean * (1 - share)) + 40
+    first = max(low, min(events, math.floor(mean - reach)))
+    last = min(high, max(events, math.ceil(mean + reach)))
+    k = np.arange(first, last, dtype=float)
+    # The probability of k + 1 measured events, divided by the probability of k.
+    step = np.log((shots - k) * (total - k)) - np.log((k + 1) * (samples - total + k + 1))
+    log_p = np.concatenate([[0.0], np.cumsum(step)])
+    p = np.exp(log_p - log_p.max())
+    p /= p.sum()
+    at = events - first
+    return float(min(1.0, 2 * min(p[: at + 1].sum(), p[at:].sum())))
 
 
 def score_events(measured: Any, sampled: Mapping[str, Any | Iterable[Any]]) -> EventScore:
@@ -893,10 +894,12 @@ def _report(
     hist = [_histogram(m) for m in measured]
     events = sum(h @ np.arange(len(h)) for h in hist) / shots
     spread = sum(m.shots * _variance(h / m.shots) for m, h in zip(measured, hist, strict=True))
+    bits = tuple(bit for _, _, group in groups for bit in group)
     models = []
     for name, (profile, found) in forecasts.items():
         rates = np.concatenate([f.rate for f in found])
         samples = np.concatenate([np.full(len(f.rate), f.samples) for f in found])
+        sampled = np.concatenate([_rate_samples(f) for f in found])
         forecast_events = sum(
             m.shots * float(f.rate.sum()) for m, f in zip(measured, found, strict=True)
         )
@@ -917,6 +920,10 @@ def _report(
                 samples=max(f.samples for f in found),
                 rates=tuple(map(float, rates)),
                 errors=tuple(map(float, np.sqrt(rates * (1 - rates) / samples))),
+                rate_p=tuple(
+                    two_sample_p_value(round(b.measured * b.shots), b.shots, int(k), int(n))
+                    for b, k, n in zip(bits, sampled, samples, strict=True)
+                ),
                 events=forecast_events / shots,
                 events_error=math.sqrt(forecast_spread) / shots,
                 events_shot_error=math.sqrt(shot_spread) / shots,
@@ -946,7 +953,7 @@ def _report(
         counts=counts,
         circuits=tuple(name for name, _, _ in groups if name is not None),
         shots=shots,
-        bits=tuple(bit for _, _, bits in groups for bit in bits),
+        bits=bits,
         events=float(events),
         events_error=math.sqrt(spread) / shots,
         none=sum(float(h[0]) for h in hist) / shots,
@@ -1111,6 +1118,14 @@ def _bits(ideal: str) -> np.ndarray:
 
 def _smoothed(k: int, samples: int) -> float:
     return (k + 0.5) / (samples + 1)
+
+
+def _rate_samples(found: Sampled) -> np.ndarray:
+    """The number of samples with an event on each bit. Without the counted numbers, the
+    function takes them from the smoothed rates."""
+    if found.rate_samples is not None:
+        return np.asarray(found.rate_samples)
+    return np.clip(np.rint(found.rate * (found.samples + 1) - 0.5), 0, found.samples)
 
 
 def _rows(circuit: MeasuredCircuit) -> tuple[np.ndarray, np.ndarray]:

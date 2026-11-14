@@ -349,7 +349,9 @@ def _edge_cost(table: NoiseTable, a: int, b: int, costs: NoiseTable | None = Non
         found = _usable_gate(table, pair)
         if found is None:
             continue
-        ranked = costs.gate(found.gate, found.qubits)
+        # A gate from a record on the reversed pair has its history on that record.
+        stated_on = found.qubits[::-1] if found.origin == "reversed_record" else found.qubits
+        ranked = costs.gate(found.gate, stated_on)
         known = isinstance(ranked, GateNoise) and ranked.avg_infidelity is not None
         values.append((ranked if known else found).avg_infidelity)
     return _Cost(0, 0, 0, min(values)) if values else None

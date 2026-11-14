@@ -418,6 +418,7 @@ def test_from_ibm_job_refuses_a_job_with_no_start_time(pulls, vault) -> None:
     circuits = [mirror([148, 149, 150], 4)]
     job = FakeJob([(circuits[0],)], device_counts(circuits))
     job.running = None
+    job.result = lambda: pytest.fail("the result of a job that did not start was requested")
     with pytest.raises(SourceUnavailable, match="job d1job has no start time") as caught:
         nv.from_ibm_job(job)
     assert caught.value.hint == "wait until the job ran, then pull again"

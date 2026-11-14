@@ -103,8 +103,9 @@ def from_ibm_job(job: Any, *, source: str = "ibm") -> tuple[Profile, MeasuredCou
     backend = job.backend()
     inputs = job.inputs
     circuits = [_circuit(pub, i, job_id) for i, pub in enumerate(inputs["pubs"])]
-    counts = [pub.join_data().get_counts() for pub in job.result()]
+    # A job that did not start has no result, and a call for its result can wait or fail.
     run_at = _start(job_id, job.metrics())
+    counts = [pub.join_data().get_counts() for pub in job.result()]
     profile = pull(backend.name, at=run_at, source=source)
     block = execution(dict(inputs.get("options") or {}), [job_id])
     measured = counts_from_qiskit(

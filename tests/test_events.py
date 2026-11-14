@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import sys
 import time
 from datetime import UTC, datetime
@@ -299,16 +300,72 @@ def test_no_measured_event_does_not_contradict_a_forecast_of_a_rare_event() -> N
     # 100 shots show no event with a probability of 0.82 when each bit has the rate 0.001.
     measured, samples = _rare(100, 0)
     text = events.score_events(measured, {"model": samples}).summary()
-    assert "the number of events agrees with the measured number, within chance" in text
+    assert "model: no test of the number of events, the forecast has fewer than 25" in text
     assert "largest differences" not in text
 
 
 def test_many_measured_events_contradict_a_forecast_of_a_rare_event() -> None:
     measured, samples = _rare(1000, 30)
     text = events.score_events(measured, {"model": samples}).summary()
-    assert "model: too few events" in text
     assert "largest differences, forecast against measured: b0 0.001 against 0.030" in text
     assert "b1" not in text.split("largest differences")[1].splitlines()[0]
+
+
+def test_one_measured_event_gives_no_statement_on_the_number_of_events() -> None:
+    # One event in 100 shots occurs in 9.5% of the experiments at the forecast rate of 0.001.
+    measured = np.zeros((100, 1), dtype=bool)
+    measured[0, 0] = True
+    samples = np.zeros((100_000, 1), dtype=bool)
+    samples[:100, 0] = True
+    text = events.score_events(measured, {"model": samples}).summary()
+    assert "too few events" not in text and "largest differences" not in text
+    assert "model: no test of the number of events" in text
+
+
+def test_a_forecast_with_an_event_in_almost_each_sample_gets_no_test_of_the_number() -> None:
+    measured = np.ones((100, 1), dtype=bool)
+    measured[0, 0] = False
+    samples = np.ones((100_000, 1), dtype=bool)
+    samples[:100, 0] = False
+    text = events.score_events(measured, {"model": samples}).summary()
+    assert "the forecast has fewer than 25 bits with no event" in " ".join(text.split())
+    assert "largest differences" not in text
+
+
+def test_one_shot_and_one_sample_that_disagree_give_a_summary() -> None:
+    text = events.score_events([[1]], {"model": np.array([[0]])}).summary()
+    assert "model: no test of the number of events" in text
+
+
+def _tail_p_value(events_: int, shots: int, sampled: int, samples: int) -> float:
+    """Two times the smaller tail of the hypergeometric distribution, from binomial numbers."""
+    total = events_ + sampled
+    ways = [
+        math.comb(shots, k) * math.comb(samples, total - k) if 0 <= total - k <= samples else 0
+        for k in range(min(total, shots) + 1)
+    ]
+    below, above = sum(ways[: events_ + 1]), sum(ways[events_:])
+    return min(1.0, 2 * min(below, above) / math.comb(shots + samples, total))
+
+
+@pytest.mark.parametrize(
+    "case",
+    [(0, 100, 100, 5000), (25, 5000, 0, 1000), (13, 500, 20, 2000), (500, 500, 1999, 2000)],
+)
+def test_the_test_of_a_rate_is_the_exact_test_of_two_counts(
+    case: tuple[int, int, int, int],
+) -> None:
+    assert events.two_sample_p_value(*case) == pytest.approx(_tail_p_value(*case), rel=1e-9)
+
+
+def test_the_test_of_a_rate_holds_its_level_for_a_rare_event_and_few_samples() -> None:
+    # 25 events in 5000 shots against no event in 1000 samples is no contradiction at the
+    # level of 100 bits: at one rate, all 25 events are in the shots with a chance of 1%.
+    p = events.two_sample_p_value(25, 5000, 0, 1000)
+    assert p == pytest.approx(0.020756, rel=1e-4) and p > events.LEVEL / 100
+    assert events.two_sample_p_value(4975, 5000, 1000, 1000) == pytest.approx(p)
+    assert events.two_sample_p_value(13, 5000, 200, 200_000) == pytest.approx(0.004827, rel=1e-3)
+    assert events.two_sample_p_value(0, 7, 0, 9) == 1.0
 
 
 # wide circuits -------------------------------------------------------------------------------

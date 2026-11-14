@@ -479,6 +479,27 @@ def test_a_history_ranks_only_the_pairs_that_the_present_profile_can_use() -> No
     assert found == suggest_layout(newest, 2)
 
 
+def test_a_history_ranks_a_directed_gate_that_the_search_uses_on_the_reversed_pair() -> None:
+    def day(first: float) -> Profile:
+        gates = {name: spec for name, spec in toy()["gates"].items() if name != "cz"}
+        records = [
+            {"gate": "cx", "qubits": [1, 0], "avg_infidelity": first},
+            {"gate": "cx", "qubits": [1, 2], "avg_infidelity": 0.01},
+        ]
+        return Profile.model_validate(
+            toy(
+                device={"name": "directed", "technology": "superconducting", "num_qubits": 3},
+                connectivity={"edges": [[1, 0], [1, 2]], "directed": True},
+                gates={**gates, "cx": {"duration_ns": 70}},
+                calibrations=records,
+            )
+        )
+
+    newest, history = day(0.001), [day(0.2), day(0.2)]
+    assert set(suggest_layout(newest, 2).values()) == {0, 1}
+    assert set(suggest_layout(newest, 2, history=history).values()) == {1, 2}
+
+
 def test_a_pair_whose_preferred_native_is_at_full_depolarization_links_with_another() -> None:
     gates = {**toy()["gates"], "cx": {"duration_ns": 70}, "cz": {"duration_ns": 70}}
     profile = _line(
