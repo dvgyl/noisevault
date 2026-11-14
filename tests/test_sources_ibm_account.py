@@ -262,6 +262,29 @@ def test_a_snapshot_value_it_cannot_read_names_the_device_and_the_value(
     )
 
 
+def test_a_new_variant_of_measure_is_not_a_gate(
+    calls: list[Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # IBM added measure_terminal in November 2026, with a duration and no error.
+    runtime = require("qiskit_ibm_runtime")
+    props = _Backend(calls)._fake.properties().to_dict()
+    length = next(p for p in props["gates"][0]["parameters"] if p["name"] == "gate_length")
+    props["gates"].append(
+        {
+            "gate": "measure_terminal",
+            "name": "measure_terminal0",
+            "qubits": [0],
+            "parameters": [{**length, "value": 1340}],
+        }
+    )
+    snapshot = runtime.models.BackendProperties.from_dict(props)
+    monkeypatch.setattr(_Backend, "properties", lambda self, **_: snapshot)
+    profile = ibm_account.pull("ibm_manila")
+    assert "measure_terminal" not in profile.gates
+    assert not [r for r in profile.calibrations if r.gate == "measure_terminal"]
+    assert "Not converted: measure_terminal." in profile.provenance.notes
+
+
 def test_a_gate_on_a_qubit_that_is_not_an_index_names_the_gate(
     calls: list[Any], monkeypatch: pytest.MonkeyPatch
 ) -> None:

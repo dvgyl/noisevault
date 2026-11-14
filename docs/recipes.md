@@ -91,6 +91,30 @@ the same data for scripts, and `profile.diff(other)` returns it in Python.
 [examples/drift.py](../examples/drift.py) diffs today's calibration against the one from 90
 days ago.
 
+For more than two dates, `nv history ibm_fez --from 2026-10-01 --to 2026-10-31 -o fez.csv` writes
+the values of each calibration in the range as one table. [The history page](history.md) shows
+how to load the table in pandas.
+
+## Keep a test with noise the same on each day
+
+A test that builds its noise model from the newest calibration can pass on one day and fail on
+the next, with no change of the code. Load the profile by its date, and give its fingerprint:
+
+```python
+import noisevault as nv
+
+
+def test_my_circuit_under_the_noise_of_one_day():
+    fez = nv.load("ibm_fez@2025-02-26", expect="nv:06404cefa54f")
+    assert fez.short_fingerprint == "nv:06404cefa54f"
+
+
+test_my_circuit_under_the_noise_of_one_day()
+```
+
+The profile has the same numbers on each machine and on each day. If a number of the profile
+changes, `expect=` raises `FingerprintMismatch`, and the test fails at the load with the reason.
+
 ## Mitigate errors with Mitiq
 
 A NoiseVault simulator is a noisy backend for Mitiq. The executor transpiles each folded circuit

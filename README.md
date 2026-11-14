@@ -284,9 +284,11 @@ cannot express.
 
 | Page | What it covers |
 | --- | --- |
+| [Find your question](docs/questions.md) | Questions that users ask, each with the code that answers it |
 | [Is my noise model any good?](docs/first-score.md) | Three commands that tell how far you can trust a profile for your device |
 | [Frameworks](docs/frameworks.md) | Each export, its options and what its report can list |
-| [Recipes](docs/recipes.md) | Pin and cite, drift, Mitiq, QEC with Stim, hypothetical devices, PennyLane training, hardware comparison |
+| [Recipes](docs/recipes.md) | Pin and cite, drift, tests that repeat, Mitiq, QEC with Stim, hypothetical devices, your own calibration numbers, PennyLane training, hardware comparison |
+| [History](docs/history.md) | The calibration values of a device over a range of dates, as one table |
 | [Mitiq tutorial](docs/tutorials/mitiq.md) | ZNE and PEC on IBM Fez noise, with PEC representations from the profile |
 | [Data sources](docs/data-sources.md) | Bundled, pulled and imported data, with licenses |
 | [Profile format](docs/profile-format.md) | Every field of format 1.0, with examples |

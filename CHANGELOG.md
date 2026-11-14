@@ -7,6 +7,13 @@ This file lists all notable changes to NoiseVault. Versions follow
 
 ### Added
 
+- **A page of user questions.** [docs/questions.md](docs/questions.md) lists eleven questions in
+  the words of a user. Each answer gives the commands or the code and links to the details.
+  Examples are a device with no fake backend, Stim noise with a detector error model, and the
+  readout errors of each qubit at the time of a job. A table puts old Qiskit noise code next to
+  its present form. Two new recipes make a profile from a lab's own calibration numbers, and
+  keep a test with noise the same on each day.
+  [docs/recipes.md](docs/recipes.md#make-a-profile-from-your-own-calibration-numbers)
 - **The calibration values of a device over a range of dates, as one table.**
   `nv history DEVICE --from DATE --to DATE` and `nv.history()` give one row for each value of
   each calibration in the range. The output is CSV, or JSON with `--json`. The sources are
@@ -122,6 +129,11 @@ This file lists all notable changes to NoiseVault. Versions follow
 
 ### Fixed
 
+- **A new measurement instruction of IBM is no longer a gate of the profile.** In November 2026,
+  IBM added `measure_terminal` to the calibration of some devices. `nv pull` read it as a 1-qubit
+  gate with no error, and `nv show` listed it as a native gate. The IBM sources now take each
+  instruction with a name that starts with `measure_` or `reset_` as a variant of measure or
+  reset. A provenance note names each such instruction, as for `measure_2`.
 - **A T1 or T2 from the IBM calibration archive was a million times too small for a calibration
   before June 2026.** A newer revision of the dataset `phanerozoic/qiskit-calibration-drift`
   gives the unit `us` to its old T1 and T2 rows, but their values are in seconds.

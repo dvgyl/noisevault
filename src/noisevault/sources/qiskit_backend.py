@@ -33,8 +33,9 @@ from . import Origin, source_json
 RUNTIME_REPO = "https://github.com/Qiskit/qiskit-ibm-runtime"
 IBM_ATTRIBUTION = "IBM Quantum, via qiskit-ibm-runtime"
 
-# Not gates of a noise model: scheduling, control flow, and IBM's mid-circuit variants of
-# measure and reset, which a circuit reaches only through dynamic-circuit instructions.
+# Not gates of a noise model: scheduling, control flow, and IBM's variants of measure and reset.
+# IBM adds a variant from time to time, such as measure_terminal, so ``_not_a_gate`` also takes
+# each name that starts with ``measure_`` or ``reset_``.
 _NOT_GATES = frozenset(
     {
         "delay",
@@ -50,6 +51,12 @@ _NOT_GATES = frozenset(
         "measure_reset_2",
     }
 )
+
+
+def _not_a_gate(name: str) -> bool:
+    return name in _NOT_GATES or name.startswith(("measure_", "reset_"))
+
+
 # IBM documents its error numbers this way: RB throughout, 2-qubit errors measured on isolated
 # pairs and including the single-qubit Clifford layers, 1-qubit errors measured simultaneously.
 _IBM_QUALIFIERS: Mapping[int, Mapping[str, Any]] = {
@@ -190,7 +197,7 @@ def calibration_from_target(target: Any, *, name: str) -> Calibration:
     for op_name in sorted(target.operation_names):
         operation = target.operation_from_name(op_name)
         keep = isinstance(operation, Gate) or op_name in ("measure", "reset")
-        if op_name in _NOT_GATES or not keep:
+        if _not_a_gate(op_name) or not keep:
             skipped.add(op_name)
             continue
         loci = dict(target[op_name])
@@ -491,7 +498,7 @@ def calibration_from_properties(props: Mapping[str, Any], *, origin: Origin) -> 
         _check_indices(name, entry["qubits"], len(qubits), origin)
         if name == "measure":
             continue
-        if name in _NOT_GATES:
+        if _not_a_gate(name):
             skipped.add(name)
             continue
         canonical = _QISKIT_TO_CANONICAL.get(name, name)

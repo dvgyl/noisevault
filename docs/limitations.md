@@ -21,6 +21,10 @@ neighboring operations, the time since the last calibration) are not in the numb
   `WaitGate` and Stim `TICK` layers with `tick_ns`. Time a qubit spends waiting while others
   run gates adds no noise unless you schedule the circuit. PennyLane circuits never get idle
   noise.
+- **The error of a mid-circuit measurement.** Some IBM devices state an error for a measurement
+  in the middle of a circuit (`measure_2`), next to the error of the final measurement. A profile
+  holds only the error of the final measurement, and a provenance note names the values that
+  the importer did not convert.
 - **Crosstalk.** A gate on one pair does not disturb its neighbors. No export models always-on ZZ
   coupling, spectator errors or measurement-induced disturbance of other qubits.
 - **Leakage and atom loss.** No export keeps population outside the qubit. The Stim and Cirq
@@ -389,8 +393,9 @@ Each of these tests draws its counts from the model it fits, and the two-factor 
 device at one pair of true factors. The tests show that the intervals cover factors the model can
 express. They do not show how the factors behave when the device differs from the model in a way
 that no pair of factors captures. On such counts, the goodness-of-fit test is the check, and an
-interval describes the best pair of factors, not the device. No counts from a real device have
-been compared yet.
+interval describes the best pair of factors, not the device.
+[Comparison with hardware](#comparison-with-hardware) gives the first results with counts of
+real devices.
 
 ## What the unmodeled-error factors absorb
 
