@@ -484,6 +484,9 @@ class EventScore:
     the best model against each other model. ``events`` is the measured mean number of events
     in a shot, ``events_error`` its standard error, and ``none`` the measured share of shots
     with no event. A wide score sums over its circuits: each circuit has its own bits and shots.
+
+    The bit score treats the bits as independent, so it does not see a correlation between bits.
+    The count score sees a part of the correlations, through the spread of the number of events.
     """
 
     kind: Kind

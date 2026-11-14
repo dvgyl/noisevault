@@ -388,10 +388,11 @@ def test_one_80_qubit_circuit_of_the_circuit_set_scores_two_models_in_under_a_mi
     truth = _factor(profile, 2.0)
     counts = events.simulate_wide(truth, [circuit], shots=4000, seed=1, run_at=RUN_AT)
 
-    start = time.perf_counter()
+    start, cpu = time.perf_counter(), time.process_time()
     report = events.score_wide({"calibration": profile, "device": truth}, counts)
-    elapsed = time.perf_counter() - start
+    elapsed, used = time.perf_counter() - start, time.process_time() - cpu
 
-    print(f"score_wide of one 80-qubit circuit, two models: {elapsed:.1f} s")
+    print(f"score_wide of one 80-qubit circuit, two models: {elapsed:.1f} s, {used:.1f} s of CPU")
     assert report.tests[0].better == "device"
-    assert elapsed < 60
+    # A shared machine stretches the wall time, so the budget is on the CPU time of the process.
+    assert used < 60
