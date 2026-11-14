@@ -294,6 +294,7 @@ cannot express.
 | [Profile format](docs/profile-format.md) | Every field of format 1.0, with examples |
 | [Counts format](docs/counts-format.md) | The file that records a hardware run for `nv compare` |
 | [Scoring](docs/scoring.md) | `nv score`: which profile forecasts measured counts better, with no fit |
+| [Wide circuits and detection events](docs/wide-and-detectors.md) | Score a profile on Clifford circuits of more than 10 qubits, and on the detection events of an error-correction experiment |
 | [For scripts and AI agents](docs/for-scripts.md) | The rules of each command, the exit status and the JSON output |
 | [Conventions](docs/conventions.md) | Error metrics, channel construction, readout and qubit order |
 | [Limitations](docs/limitations.md) | What the noise models leave out and what has been checked |

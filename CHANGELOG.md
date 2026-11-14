@@ -7,6 +7,13 @@ This file lists all notable changes to NoiseVault. Versions follow
 
 ### Added
 
+- **A score for wide circuits and for detection events.** `noisevault.events.score_wide` scores
+  the Clifford circuits of a counts file that have more than 10 qubits, from Stim samples.
+  `noisevault.events.score_detectors` adds the noise of each profile to the Stim circuit of an
+  error-correction experiment and scores the measured detection events.
+  `noisevault.events.score_events` scores samples from any simulator. The report gives the event
+  rate of each bit, a bit score, a count score, and tests of two profiles that hold the sampling
+  error of the forecasts. [docs/wide-and-detectors.md](docs/wide-and-detectors.md)
 - **The error rates of the test of the study plan.** `python -m study.error_rates` simulates
   studies with no true difference and gives how often the test of the plan confirms a
   comparison. `study.estimate.estimate` takes `min_rho`, the lower limit of the correlation
