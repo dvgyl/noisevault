@@ -7,6 +7,19 @@ This file lists all notable changes to NoiseVault. Versions follow
 
 ### Added
 
+- **Unusable qubits.** `Profile.unusable_qubits()` names each qubit that a circuit should not
+  use, with the reason: the profile disables it, its readout is no better than chance in one
+  direction, or it has no usable 2-qubit gate. `nv show` lists these qubits, and `--json` gives
+  them under `unusable_qubits`. `suggest_layout` leaves them out, and it does not join a pair at
+  or past full depolarization. [docs/qubit-choice.md](docs/qubit-choice.md)
+- **Errors scaled by group.** `Profile.scaled(one_qubit=, two_qubit=, readout=)` multiplies the
+  stated errors of each group. The result has a new fingerprint, `derived_from` and a provenance
+  note. A failed gate or readout stays as stated.
+- **Typical values of several calibrations.** `nv.typical(profiles)` gives the median of each
+  value over calibrations of one device, and `suggest_layout(n, history=...)` ranks by these
+  medians. On `ibm_kingston` from June to October 2026, the stated errors of the chain from a
+  history of 7 days were closer to the values of the next day. The chain did not have fewer
+  errors on the next day.
 - **A score for wide circuits and for detection events.** `noisevault.events.score_wide` scores
   the Clifford circuits of a counts file that have more than 10 qubits, from Stim samples.
   `noisevault.events.score_detectors` adds the noise of each profile to the Stim circuit of an
@@ -186,6 +199,8 @@ This file lists all notable changes to NoiseVault. Versions follow
 
 ### Changed
 
+- `suggest_layout` can now raise `LayoutError` with "has only N qubits that a circuit can use"
+  for a profile where it gave a chain over an unusable qubit before.
 - **The reference simulator is much faster.** It builds one superoperator for each gate on
   each locus from the unitary and the noise channels, and contracts the density matrix with it
   one time. A 1-qubit superoperator joins the next superoperator on its qubit. With a report,

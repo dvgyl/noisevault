@@ -456,3 +456,21 @@ def test_a_history_outvotes_one_low_outlier() -> None:
     assert suggest_layout(newest, 3, history=week) == {0: 1, 1: 2, 2: 3}
     assert suggest_layout(newest, 3, history=[]) == suggest_layout(newest, 3)
     assert newest.suggest_layout(3, history=week) == {0: 1, 1: 2, 2: 3}
+
+
+def test_nv_show_lists_the_unusable_qubits() -> None:
+    import json
+
+    from typer.testing import CliRunner
+
+    from noisevault.cli import app
+
+    runner = CliRunner()
+    text = runner.invoke(app, ["show", "ibm_kingston@2026-04-15"], env={"COLUMNS": "120"})
+    assert text.exit_code == 0, text.output
+    assert "unusable      qubits 96, 120, 132, 146" in text.stdout
+    data = json.loads(runner.invoke(app, ["show", "ibm_kingston@2026-04-15", "--json"]).stdout)
+    assert [entry["qubit"] for entry in data["unusable_qubits"]] == [96, 120, 132, 146]
+    assert data["unusable_qubits"][2]["reason"] == (
+        "its readout is no better than chance for a prepared 1 (P(0|1) = 0.719)"
+    )

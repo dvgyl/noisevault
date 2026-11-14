@@ -570,6 +570,7 @@ def test_show_lists_what_the_model_leaves_out_before_provenance_and_notes() -> N
         "natives",
         "coherence",
         "readout",
+        "unusable",
         "effects",
         "provenance",
         "license",
@@ -671,7 +672,8 @@ def test_show_states_the_calibration_and_adds_a_row_for_unmodeled_error(tmp_path
     result = show(path)
     lines = _unstyled(result.stdout).splitlines()
     row = lines.index("unmodeled     gate errors x1.84 (95% interval 1.54 to 2.12)")
-    assert lines[row - 1].startswith("readout       median error")
+    assert lines[row - 1] == "unusable      qubits 96, 120, 132, 146"
+    assert lines[row - 2].startswith("readout       median error")
     assert lines[row : row + 6] == [
         "unmodeled     gate errors x1.84 (95% interval 1.54 to 2.12)",
         "              readout errors x1.58 (95% interval 1.32 to 1.84)",

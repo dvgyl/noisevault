@@ -73,8 +73,9 @@ print(fez.suggest_layout(4))
 # {0: 136, 1: 143, 2: 142, 3: 141}
 ```
 
-`suggest_layout(n)` returns a connected chain of n enabled qubits that can measure, with low
-summed gate and readout error. `noisevault.layout.suggest_layout(profile, n, usable_pair=f)`
+`suggest_layout(n)` returns a connected chain of n enabled qubits that can measure and that
+`unusable_qubits()` does not name, with low summed gate and readout error.
+[Which qubits should my circuit use?](qubit-choice.md) gives the details. `noisevault.layout.suggest_layout(profile, n, usable_pair=f)`
 also does not make qubits `a < b` neighbors in the chain when `f(a, b)` is false.
 `suggest_layout` prefers complete qubits. A complete qubit has every single-qubit native, apart
 from the identity, that is usable on at least one qubit of the device. The records that

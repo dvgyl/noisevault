@@ -539,6 +539,9 @@ def card(profile: Profile) -> dict[str, Any]:
         "median_p0_given_1": medians.p0_given_1,
         "zero_readout_qubits": list(profile.zero_readouts()),
         "disabled_qubits": [i for i in range(dev.num_qubits) if table.qubit(i).disabled],
+        "unusable_qubits": [
+            {"qubit": q, "reason": why} for q, why in profile.unusable_qubits().items()
+        ],
         "value_ages": profile.value_ages() if dev.calibrated_at else None,
         "provenance": prov.model_dump(mode="json", exclude_none=True, exclude={"notes", "extra"}),
         "fingerprint": profile.fingerprint,
@@ -661,6 +664,9 @@ def _print_card(
         grid.add_row("", "Profile.floored() and nv score --floor replace these values")
     if data["disabled_qubits"]:
         grid.add_row("disabled", "qubits " + ", ".join(map(str, data["disabled_qubits"])))
+    if data["unusable_qubits"]:
+        unusable = ", ".join(str(entry["qubit"]) for entry in data["unusable_qubits"])
+        grid.add_row("unusable", f"qubits {unusable}")
     _add_lines(grid, "unmodeled", [line.short for line in data["unmodeled_note"]])
     if not brief:
         _add_lines(grid, "effects", [_plain_effect(line) for line in data["effects"]])

@@ -293,6 +293,7 @@ cannot express.
 | [Frameworks](docs/frameworks.md) | Each export, its options and what its report can list |
 | [Recipes](docs/recipes.md) | Pin and cite, drift, tests that repeat, Mitiq, QEC with Stim, hypothetical devices, your own calibration numbers, PennyLane training, hardware comparison |
 | [History](docs/history.md) | The calibration values of a device over a range of dates, as one table |
+| [Qubit choice](docs/qubit-choice.md) | Which qubits a circuit should use: unusable qubits, and a choice from the medians of several calibrations |
 | [Mitiq tutorial](docs/tutorials/mitiq.md) | ZNE and PEC on IBM Fez noise, with PEC representations from the profile |
 | [Data sources](docs/data-sources.md) | Bundled, pulled and imported data, with licenses |
 | [Profile format](docs/profile-format.md) | Every field of format 1.0, with examples |
