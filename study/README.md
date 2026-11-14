@@ -18,6 +18,10 @@ Run each script from the repository root, in an environment with NoiseVault inst
 | `python -m study.archive_steps PARQUET` | The same parquet file | Text on standard output. It gives the change of a value in 1, 3 and 7 days, the rank correlation inside one day and the minutes between two polls. It also gives the regression to the mean with chance alone |
 | `python -m study.archive_vendor PARQUET` | The same parquet file, and the network | Text on standard output: the share of the values of the archive that agree with IBM's public calibration endpoint at 12 random times |
 | `python -m study.error_rates` | Nothing: it simulates studies with no true difference | Text on standard output: how often the test of the plan and its careful rule give a false confirmation |
+| `python -m study.layout_history PARQUET --device ibm_kingston` | The same parquet file | Text on standard output. On each date, it gives the chain from the calibration of the day and the chain from a history of 7 days. It also gives their errors on the next day |
+| `python -m study.score_checks hidden` | Nothing: it simulates jobs of one circuit | Text on standard output. A rare result with a large score difference hides among other rare results. The text gives how often the paired test then gives a false verdict |
+| `python -m study.score_checks safe` | Nothing | Text on standard output: the smallest mean score difference that a test from the Hoeffding bound can show |
+| `python -m study.score_checks chain PROFILE --chain 1,2,3,4` | A profile reference or a profile file, the chain and the random stream of the week (`--fresh`) | Text on standard output: the level and the power of the paired test on the circuits of the chain, in simulated jobs |
 
 `FOLDER` is a tree of counts files, such as the campaign folder of
 `scripts/ibm_campaign.py`. Each counts file `NAME.counts.json` needs the profile file

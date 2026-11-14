@@ -103,6 +103,8 @@ calibration of the next day then gave the errors of each chain:
 | Next-day 2-qubit gate error / stated error (median) | 1.03 | 1.02 |
 | Next-day sum of errors of the chain (median) | 0.0273 | 0.0280 |
 
+`python -m study.layout_history train.parquet --device ibm_kingston` gives these numbers.
+
 The stated errors of the chain from the history are thus closer to the next day. But that
 chain did not have fewer errors. Its next-day sum was lower on 10 dates, higher on 13 dates,
 and the same on 6 dates, where both choices gave the same chain. Use a history when you want
