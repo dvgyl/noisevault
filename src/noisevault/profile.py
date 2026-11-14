@@ -59,6 +59,8 @@ from .units import DURATION, T1, T2, normalize_times
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
+    import numpy as np
+
     from .check import CheckResult
     from .compare import Comparison
     from .counts import MeasuredCounts
@@ -791,6 +793,17 @@ class Profile(_Model):
         if self.unmodeled_error is None:
             return self
         return self.model_copy(update={"unmodeled_error": None})
+
+    def readout_matrix(self, qubit: int) -> np.ndarray | None:
+        """The readout matrix of one qubit, or None when its readout error is unknown.
+
+        The matrix is ``[[1 - a, b], [a, 1 - b]]`` with a = P(1|0) and b = P(0|1). Each column
+        is a prepared state, each row is a measured result, and each column sums to 1. The
+        values include ``unmodeled_error``.
+        """
+        from .channels import readout_matrix
+
+        return readout_matrix(self.table.qubit(qubit))
 
     def zero_readouts(self) -> tuple[int, ...]:
         """The enabled qubits with a stated readout probability of exactly 0, in their order.

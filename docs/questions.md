@@ -231,26 +231,22 @@ builds a 3-qubit profile from a table of numbers. For a device with one value of
 
 ## I want the readout errors of my device at the time of my job for readout mitigation.
 
-Pull the calibration of the job time with `nv pull DEVICE --at TIME`. Then read the two readout
-errors of each qubit. This example uses the bundled `ibm_fez` profile:
+Pull the calibration of the job time with `nv pull DEVICE --at TIME`. Then read the readout
+matrix of each qubit. This example uses the bundled `ibm_fez` profile:
 
 ```python
-import numpy as np
-
 import noisevault as nv
 
 fez = nv.load("ibm_fez@2025-02-26")
 for q in (3, 4):
-    p1_given_0, p0_given_1 = fez.table.qubit(q).readout
-    matrix = np.array([[1 - p1_given_0, p0_given_1], [p1_given_0, 1 - p0_given_1]])
-    print(q, matrix.round(4).tolist())
+    print(q, fez.readout_matrix(q).round(4).tolist())
 # 3 [[0.9946, 0.0264], [0.0054, 0.9736]]
 # 4 [[1.0, 0.0029], [0.0, 0.9971]]
 ```
 
 Each column of the matrix is a prepared state, and each row is a measured result, as in
-[Conventions](conventions.md#readout). `readout` is `None` for a qubit with no stated readout
-error. Know two limits:
+[Conventions](conventions.md#readout). `readout_matrix` gives `None` for a qubit with no stated
+readout error. Know two limits:
 
 - A stated readout error is one reading. On IBM devices, a readout value changes about each 4
   hours (median). The calibration of the job time holds the newest reading before the job.

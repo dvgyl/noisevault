@@ -1687,6 +1687,27 @@ def _with_zeros() -> Profile:
     return Profile.model_validate(data)
 
 
+def test_the_readout_matrix_has_a_column_for_each_prepared_state() -> None:
+    profile = nv.Profile.uniform(
+        "lab",
+        technology="superconducting",
+        num_qubits=2,
+        one_qubit_error=0.001,
+        two_qubit_error=0.01,
+    )
+    assert profile.readout_matrix(0) is None
+    data = profile.to_dict()
+    data["qubits"] = [{"index": 1, "readout": {"p1_given_0": 0.01, "p0_given_1": 0.04}}]
+    stated = Profile.model_validate(data)
+    assert stated.readout_matrix(0) is None
+    assert stated.readout_matrix(1).tolist() == [[0.99, 0.04], [0.01, 0.96]]
+    doubled = stated.scaled(readout=2).readout_matrix(1)
+    assert doubled.ravel().tolist() == pytest.approx([0.98, 0.08, 0.02, 0.92])
+    assert doubled.sum(axis=0).tolist() == pytest.approx([1.0, 1.0])
+    with pytest.raises(IndexError, match="qubit 2 is outside 0..1"):
+        stated.readout_matrix(2)
+
+
 def test_zero_readouts_names_each_qubit_with_a_stated_probability_of_0() -> None:
     assert _with_zeros().zero_readouts() == (0, 1)
     assert not nv.load("ibm_kingston").zero_readouts()

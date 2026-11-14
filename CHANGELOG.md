@@ -12,6 +12,9 @@ This file lists all notable changes to NoiseVault. Versions follow
   direction, or it has no usable 2-qubit gate. `nv show` lists these qubits, and `--json` gives
   them under `unusable_qubits`. `suggest_layout` leaves them out, and it does not join a pair at
   or past full depolarization. [docs/qubit-choice.md](docs/qubit-choice.md)
+- **The readout matrix of a qubit.** `Profile.readout_matrix(qubit)` gives the 2 by 2 matrix
+  of one qubit, with a column for each prepared state. It gives `None` when the readout error
+  is unknown.
 - **Errors scaled by group.** `Profile.scaled(one_qubit=, two_qubit=, readout=)` multiplies the
   stated errors of each group. The result has a new fingerprint, `derived_from` and a provenance
   note. A failed gate or readout stays as stated.
