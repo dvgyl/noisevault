@@ -1241,7 +1241,7 @@ def score(
             q
             for circuit in measured.circuits
             if len(circuit.qubits) <= MAX_QUBITS
-            for q in circuit.qubits
+            for q in circuit.measured_qubits
         }
         zeros = {
             ref: sorted(read.intersection(profile.zero_readouts()))

@@ -225,8 +225,8 @@ _REFUSALS: dict[str, _Refusal] = {
     ),
     "measure in ops": _Refusal(
         _set("circuits", 0, "ops", 3, value=["measure", [0], []]),
-        "circuits[0].ops[3]: ops cannot hold measure, because the device measures every"
-        " circuit qubit",
+        "circuits[0].ops[3]: ops cannot hold measure, because the device measures each"
+        " measured circuit qubit",
         "remove the measure",
     ),
     "gate outside the registry": _Refusal(

@@ -595,7 +595,9 @@ def test_select_gives_the_forecast_of_the_named_circuits_with_no_new_simulation(
     kingston = nv.load(KINGSTON)
     counts = kingston_counts(shots=500)
     whole = score(kingston, counts)
-    monkeypatch.setattr("noisevault.score.probabilities", lambda *a, **k: pytest.fail("simulated"))
+    monkeypatch.setattr(
+        "noisevault.score.outcome_probabilities", lambda *a, **k: pytest.fail("simulated")
+    )
 
     part = whole.select(["readout", "mirror"])
 

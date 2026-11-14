@@ -15,7 +15,7 @@ import numpy as np
 from . import gates, metrics
 from .channels import gate_channels
 from .conversion import resolve_op
-from .counts import refuse_wide
+from .counts import outcome_probabilities, refuse_wide
 from .errors import (
     CountsError,
     DisabledGateError,
@@ -28,7 +28,7 @@ from .errors import (
     qubit_loci,
 )
 from .profile import POOR_FIT_P_VALUE, Bound, ErrorFactor, UnmodeledError, iso_z, ref_on_day
-from .reference import charged_as, outcome_bits, probabilities
+from .reference import charged_as, outcome_bits
 from .report import Report
 from .table import GateNoise, refuse_disabled, unscaled_phrases
 
@@ -471,7 +471,7 @@ class _Surface:
 
     @classmethod
     def cached(cls, base: Profile, circuits: Sequence[PlannedCircuit]) -> _Surface:
-        key = (base.fingerprint, tuple((c.qubits, c.ops) for c in circuits))
+        key = (base.fingerprint, tuple((c.qubits, c.ops, c.measured) for c in circuits))
         if key in cls._built:
             cls._built.move_to_end(key)
             return cls._built[key]
@@ -485,7 +485,7 @@ class _Surface:
         fine = np.linspace(_LO, _HI, FINE_POINTS)
         floors = tuple(float(x) for x in np.log(_floor_factors(base, circuits)))
         nodes = np.unique(np.concatenate([fine[:: (FINE_POINTS - 1) // (GATE_NODES - 1)], floors]))
-        sizes = [2 ** len(c.qubits) for c in circuits]
+        sizes = [2**c.width for c in circuits]
         starts = np.cumsum([0, *sizes])
         slices = tuple(slice(int(a), int(b)) for a, b in zip(starts[:-1], starts[1:], strict=True))
 
@@ -502,7 +502,9 @@ class _Surface:
             gate, nodes, before_readout, floors = None, np.zeros(1), run(0.0)[None, :], ()
         else:
             gate = np.unique(np.concatenate([fine, nodes]))
-        pairs = tuple(tuple(base.table.qubit(q).readout for q in c.qubits) for c in circuits)
+        pairs = tuple(
+            tuple(base.table.qubit(q).readout for q in c.measured_qubits) for c in circuits
+        )
         scales = any(
             pair is not None
             and metrics.scale_readout(pair, FACTOR_RANGE[0])
@@ -1330,7 +1332,7 @@ def _fisher(
     readout: float | None,
 ) -> np.ndarray:
     step = math.exp(FD_STEP)
-    sizes = [2 ** len(c.qubits) for c in circuits]
+    sizes = [2**c.width for c in circuits]
     ends = np.cumsum(sizes)[:-1]
     bound = _rounding(circuits)
     rounding = np.split(bound, ends)
@@ -1402,7 +1404,7 @@ def _ruled_out(
         shots = impossible[part]
         if not shots.any():
             continue
-        width = len(c.qubits)
+        width = c.width
         unread = surface.before_readout[:, part].reshape(-1, *(2,) * width)
         for i, pair in enumerate(pairs):
             p01, p10 = pair or (0.0, 0.0)
@@ -1412,7 +1414,7 @@ def _ruled_out(
                     continue
                 cells = [k for k in np.flatnonzero(shots) if outcome_bits(k, width)[i] == str(bit)]
                 if cells:
-                    per = found.setdefault((c.qubits[i], bit), {})
+                    per = found.setdefault((c.measured_qubits[i], bit), {})
                     per[c.name] = per.get(c.name, 0) + int(shots[cells].sum())
     phrases = []
     for (qubit, bit), per in sorted(found.items()):
@@ -1429,7 +1431,7 @@ def _notes(base: Profile, circuits: Sequence[PlannedCircuit]) -> tuple[LociText,
         for found, _ in _calibrated_gates(base, circuits)
         if (reason := _why_unscaled(found))
     ]
-    measured = sorted({q for c in circuits for q in c.qubits})
+    measured = sorted({q for c in circuits for q in c.measured_qubits})
     pairs = [(q, table.qubit(q).readout) for q in measured]
     chance = [
         (q, reason)
@@ -1477,18 +1479,7 @@ def _exact(
     scaled = _scaled_without_revalidation(base, gate, readout)
     report = Report.start(scaled, "reference", None)
     return np.concatenate(
-        [
-            probabilities(
-                scaled,
-                c.ops,
-                len(c.qubits),
-                layout=c.qubits,
-                readout=read,
-                unknown_gates="error",
-                report=report,
-            )
-            for c in circuits
-        ]
+        [outcome_probabilities(scaled, c, readout=read, report=report) for c in circuits]
     )
 
 
@@ -1718,8 +1709,11 @@ def _varies(rows: ByPointByCell, rounding: ByCell) -> bool:
 
 
 def _rounding(circuits: Sequence[PlannedCircuit]) -> ByCell:
-    steps = [(len(c.ops) + len(c.qubits) + 1) * EPS for c in circuits]
-    return np.repeat(steps, [2 ** len(c.qubits) for c in circuits])
+    # A key that leaves out k qubits sums 2**k outcomes of the simulator, and their rounding.
+    steps = [
+        (len(c.ops) + len(c.qubits) + 1) * EPS * 2 ** (len(c.qubits) - c.width) for c in circuits
+    ]
+    return np.repeat(steps, [2**c.width for c in circuits])
 
 
 def _tvd(p: np.ndarray, q: np.ndarray) -> float:
