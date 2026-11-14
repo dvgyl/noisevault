@@ -66,6 +66,9 @@ MIN_EXPECTED = 5
 # The fewest samples on each side of a marginal, and in a cell with a measured shot, for which
 # the delta method of the sampling variance is valid.
 MIN_SAMPLES = 100
+# With fewer expected events, or fewer expected shots with no event, the report tests the rate
+# of a bit with the exact binomial test.
+EXACT_BELOW = 5
 # The largest chunk of samples, in bits. A chunk of 2^25 bits takes 128 MiB as float32.
 _CHUNK_BITS = 2**25
 _SHOWN_BITS = 3
@@ -442,7 +445,9 @@ class ModelScore:
 
     ``rates`` and ``errors`` hold the forecast event rate of each bit of the report and its
     sampling standard error. ``events`` is the forecast mean number of events in a shot, and
-    ``events_error`` its sampling standard error. ``none`` is the forecast share of shots with
+    ``events_error`` its sampling standard error. ``events_shot_error`` is the standard error
+    that the measured mean number of events has when the model is right. ``none`` is the
+    forecast share of shots with
     no event. ``few_samples`` is True when a bit or a measured count cell has fewer than
     ``MIN_SAMPLES`` samples. Then a test with this model can give no verdict.
     """
@@ -454,6 +459,7 @@ class ModelScore:
     errors: tuple[float, ...] = field(repr=False)
     events: float
     events_error: float
+    events_shot_error: float
     none: float
     scores: Scores
     few_samples: bool
@@ -616,7 +622,9 @@ class EventScore:
         return f"{what}, {plural(self.shots, 'shot')}, {drawn}"
 
     def _events_phrase(self, m: ModelScore) -> str:
-        error = math.hypot(self.events_error, m.events_error)
+        # The spread of the shots comes from the forecast. The measured spread is 0 when no shot
+        # shows an event, and a test with it calls each forecast above 0 too high.
+        error = math.hypot(m.events_shot_error, m.events_error)
         z = 0.0 if error == 0 else (m.events - self.events) / error
         if math.erfc(abs(z) / math.sqrt(2)) >= LEVEL:
             return "the number of events agrees with the measured number, within chance"
@@ -630,10 +638,8 @@ class EventScore:
         f = np.array([b.measured for b in self.bits])
         n = np.array([b.shots for b in self.bits], dtype=float)
         q, e = np.array(m.rates), np.array(m.errors)
-        error = np.sqrt(f * (1 - f) / n + e**2)
-        z = np.divide(q - f, error, out=np.zeros_like(q), where=error > 0)
-        p = np.array([math.erfc(abs(v) / math.sqrt(2)) for v in z])
-        chosen = [i for i in np.argsort(-np.abs(z)) if p[i] < LEVEL / len(self.bits)]
+        p = np.array([_rate_p_value(*values) for values in zip(f, n, q, e, strict=True)])
+        chosen = [i for i in np.argsort(p, kind="stable") if p[i] < LEVEL / len(self.bits)]
         many = len(self.circuits) > 1
         shown = []
         for i in chosen[:_SHOWN_BITS]:
@@ -641,6 +647,42 @@ class EventScore:
             name = f"{bit.name} of {bit.circuit}" if many else bit.name
             shown.append(f"{name} {_share(q[i])} against {_share(f[i])}")
         return ", ".join(shown)
+
+
+def _rate_p_value(measured: float, shots: float, forecast: float, error: float) -> float:
+    """The two-sided p-value of a measured event rate, if the forecast rate is right.
+
+    ``error`` is the sampling standard error of the forecast. With ``EXACT_BELOW`` or more
+    expected events and expected shots with no event, the test is a z-test with the spread of
+    the forecast. With fewer, it is the exact binomial test at a forecast rate that is moved
+    toward the measured rate by two times ``error``, so that the test stays careful.
+    """
+    expected = shots * min(forecast, 1 - forecast)
+    if expected >= EXACT_BELOW:
+        spread = math.sqrt(forecast * (1 - forecast) / shots + error**2)
+        return math.erfc(abs(forecast - measured) / spread / math.sqrt(2))
+    moved = forecast + min(max(measured - forecast, -2 * error), 2 * error)
+    events, total = round(measured * shots), round(shots)
+    if forecast > 0.5:
+        return _binomial_p_value(total - events, total, 1 - moved)
+    return _binomial_p_value(events, total, moved)
+
+
+def _binomial_p_value(events: int, shots: int, rate: float) -> float:
+    """Two times the smaller tail of ``events`` in ``shots`` at ``rate``, and 1 at most."""
+    if rate <= 0:
+        return 1.0 if events == 0 else 0.0
+    mean = shots * rate
+    if events > mean + 60 * math.sqrt(mean) + 60:
+        return 0.0
+    log_rate, log_rest = math.log(rate), math.log1p(-rate)
+
+    def probability(k: int) -> float:
+        ways = math.lgamma(shots + 1) - math.lgamma(k + 1) - math.lgamma(shots - k + 1)
+        return math.exp(ways + k * log_rate + (shots - k) * log_rest)
+
+    below = sum(probability(k) for k in range(events))
+    return min(1.0, 2 * min(below + probability(events), 1 - below))
 
 
 def score_events(measured: Any, sampled: Mapping[str, Any | Iterable[Any]]) -> EventScore:
@@ -857,6 +899,9 @@ def _report(
             m.shots**2 * _variance(f.count) / f.samples
             for m, f in zip(measured, found, strict=True)
         )
+        shot_spread = sum(
+            m.shots * _variance(f.count) for m, f in zip(measured, found, strict=True)
+        )
         few = any(few_rate_samples(f) for f in found) or any(
             few_count_samples(f, m, f, f) for m, f in zip(measured, found, strict=True)
         )
@@ -869,6 +914,7 @@ def _report(
                 errors=tuple(map(float, np.sqrt(rates * (1 - rates) / samples))),
                 events=forecast_events / shots,
                 events_error=math.sqrt(forecast_spread) / shots,
+                events_shot_error=math.sqrt(shot_spread) / shots,
                 none=sum(m.shots * f.none for m, f in zip(measured, found, strict=True)) / shots,
                 scores=scores(measured, found),
                 few_samples=few,

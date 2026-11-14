@@ -13,7 +13,7 @@ Run each script from the repository root, in an environment with NoiseVault inst
 | --- | --- | --- |
 | `python -m study.derive FOLDER --out results` | Counts files with the profile file beside each one | `fits.json`, `fits.md`, and the realism table `table.json`, `table.md` |
 | `python -m study.analyze FOLDER --out results --cache calibrations` | The same folder | `analysis.json`, `analysis.md`: the score of each model and the paired tests of the plan, for each run of the deep circuit set |
-| `python -m study.summarize results/analysis.json --out results` | `analysis.json` | `summary.json`, `summary.md`: the estimates over device-weeks of the plan, with the descriptions and the secondary results |
+| `python -m study.summarize results/analysis.json --out results` | `analysis.json` | `summary.json`, `summary.md`: the estimates over device-weeks of the plan, the careful rule for each primary comparison, the descriptions and the secondary results |
 | `python -m study.archive PARQUET --out results` | The parquet file of the public archive of IBM calibrations | `archive.json`, `archive.md`: how often IBM measures each value again, and how old the values are |
 | `python -m study.error_rates` | Nothing: it simulates studies with no true difference | Text on standard output: how often the test of the plan and its careful rule give a false confirmation |
 

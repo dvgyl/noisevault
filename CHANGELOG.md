@@ -175,6 +175,14 @@ This file lists all notable changes to NoiseVault. Versions follow
 
 ### Fixed
 
+- **A report of events with few events.** `score_detectors` and `score_events` compared each
+  rate with the spread of the measured rate only. A bit with no measured event thus counted as
+  a contradiction of each forecast above zero. The comparison now uses the spread of the
+  forecast, and an exact binomial test below 5 expected events. The line of all events
+  includes the spread of the shots.
+- **The careful rule in the study summary.** `python -m study.summarize` gives, for each
+  primary comparison, the estimate with rho of at least 0.5, its Holm p-value and its
+  confirmation. The confirmation of the plan does not change. The summary format is `3`.
 - **A new measurement instruction of IBM is no longer a gate of the profile.** In November 2026,
   IBM added `measure_terminal` to the calibration of some devices. `nv pull` read it as a 1-qubit
   gate with no error, and `nv show` listed it as a native gate. The IBM sources now take each

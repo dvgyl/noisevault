@@ -251,6 +251,32 @@ def test_the_primary_estimate_of_3_devices_and_4_weeks() -> None:
     assert "stratum zero_on_chain" in text
 
 
+def test_the_summary_gives_the_careful_rule_next_to_the_rule_of_the_plan() -> None:
+    # Each week of each device gives 0.0017 or -0.0003 in turn, for each primary comparison.
+    rows = []
+    for d, device in enumerate(DEVICES):
+        for w in range(8):
+            when = FIRST + timedelta(days=7 * w + d)
+            deltas = dict.fromkeys(PRIMARY, 0.0017 if w % 2 == 0 else -0.0003)
+            for c, chain in enumerate(("best", "median")):
+                rows.append(_row(device, when + timedelta(minutes=c), chain, deltas=deltas))
+
+    summary = summarize.summarize({"rows": rows})
+
+    for found, key in zip(summary["primary"], PRIMARY, strict=True):
+        careful = estimate.estimate(_y(rows, key), min_rho=estimate.CAREFUL_RHO)
+        assert found["careful"]["rho"] == estimate.CAREFUL_RHO
+        assert found["careful"]["test"]["p_value"] == pytest.approx(careful.corrected.p_value)
+        assert found["estimate"]["test"]["p_value"] == pytest.approx(0.00423, abs=0.00001)
+        assert found["careful"]["test"]["p_value"] == pytest.approx(0.0867, abs=0.0001)
+        assert found["p_holm"] == pytest.approx(0.0211, abs=0.0001) and found["confirmed"]
+        assert found["careful_p_holm"] == pytest.approx(0.433, abs=0.001)
+        assert not found["careful_confirmed"]
+    text = summarize.markdown(summary)
+    assert "p (Holm), careful rule | Confirmed, careful rule |" in text
+    assert "| 0.0211 | yes | yes | 0.433 | no |" in text
+
+
 def test_the_stratum_of_a_stated_zero_takes_the_mean_of_the_runs_in_the_stratum() -> None:
     rows, _ = _study()
     key = PRIMARY[0]

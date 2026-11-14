@@ -49,9 +49,9 @@ from study.analyze import (
     WIDE_COMPARISONS,
     device_week,
 )
-from study.estimate import LEVEL, SMALL, Estimate, estimate, holm, sign_test
+from study.estimate import CAREFUL_RHO, LEVEL, SMALL, Estimate, estimate, holm, sign_test
 
-FORMAT = "2"
+FORMAT = "3"
 AGE_KINDS = ("readout", "one_qubit", "two_qubit")
 MIN_POINTS = 5
 # The runs that count: from the first week to the end of the last week, in UTC.
@@ -588,6 +588,7 @@ def _primary(rows: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
             return delta(row, a, b, group, "quadratic")
 
         main_estimate = estimate(*device_weeks(rows, value))
+        careful = estimate(*device_weeks(rows, value), min_rho=CAREFUL_RHO)
         errors = [
             _test(r, a, b, group)["log"]["standard_error"]
             for r in rows
@@ -603,6 +604,7 @@ def _primary(rows: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
                 "b": b,
                 "group": group,
                 "estimate": main_estimate.to_dict(),
+                "careful": careful.to_dict(),
                 "median_run_standard_error": statistics.median(errors) if errors else None,
                 "quadratic": estimate(*device_weeks(rows, quadratic)).to_dict(),
                 "without_marked_runs": estimate(*device_weeks(unmarked, value)).to_dict(),
@@ -610,15 +612,19 @@ def _primary(rows: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
                 "best_minus_median": estimate(*device_weeks(rows, value, "contrast")).to_dict(),
                 "verdicts": verdicts(rows, a, b, group),
                 "_p": _p(main_estimate),
+                "_p_careful": _p(careful),
             }
         )
     adjusted = holm([c.pop("_p") for c in result])
-    for found, p_holm in zip(result, adjusted, strict=True):
+    adjusted_careful = holm([c.pop("_p_careful") for c in result])
+    for found, p_holm, p_careful in zip(result, adjusted, adjusted_careful, strict=True):
         tested = (
             found["estimate"]["test"] is not None and found["estimate"]["test"]["t"] is not None
         )
         found["p_holm"] = p_holm if tested else None
         found["confirmed"] = tested and p_holm < LEVEL
+        found["careful_p_holm"] = p_careful if tested else None
+        found["careful_confirmed"] = tested and p_careful < LEVEL
         value = found["estimate"]["estimate"]
         found["small"] = bool(found["confirmed"] and abs(value) < SMALL)
     return result
@@ -797,11 +803,12 @@ def _estimate_line(label: str, found: Mapping[str, Any]) -> str:
 def _primary_table(primary: Sequence[Mapping[str, Any]]) -> list[str]:
     lines = [
         "Delta is the log score of the first model minus the log score of the second model, in"
-        " nats for each shot. The test is the t-test over device-weeks.",
+        " nats for each shot. The test is the t-test over device-weeks. The careful rule is the"
+        f" same test with rho of at least {CAREFUL_RHO}. It decides no confirmation.",
         "",
         "| First model | Second model | Circuits | Estimate | Standard error | t | df | p |"
-        " p (Holm) | Confirmed | Small |",
-        "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+        " p (Holm) | Confirmed | Small | p (Holm), careful rule | Confirmed, careful rule |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
     for c in primary:
         found = c["estimate"]
@@ -811,7 +818,8 @@ def _primary_table(primary: Sequence[Mapping[str, Any]]) -> list[str]:
             f" {_number(test.get('standard_error'), '.5f')} | {_signed(test.get('t'), '.2f')} |"
             f" {found['df']} | {_number(test.get('p_value'), '.3g')} |"
             f" {_number(c['p_holm'], '.3g')} | {'yes' if c['confirmed'] else 'no'} |"
-            f" {'yes' if c['small'] else 'no'} |"
+            f" {'yes' if c['small'] else 'no'} | {_number(c['careful_p_holm'], '.3g')} |"
+            f" {'yes' if c['careful_confirmed'] else 'no'} |"
         )
     return lines
 

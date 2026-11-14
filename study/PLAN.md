@@ -171,8 +171,10 @@ The 5% level of the family holds when the weeks of a device are independent. Whe
 weeks are alike, more than 5% of the studies with no true difference give a confirmation (entry
 of 2026-11-14 in [Changes](#changes)). Each primary comparison therefore has a second report:
 the same test with rho of at least 0.5 in place of at least 0. This careful rule decides no
-confirmation. The summary gives its p-value next to the p-value of the plan, and it says for
-each confirmed comparison if the careful rule confirms it too.
+confirmation. The frozen workflow does not compute it. `python -m study.summarize` of the main
+branch computes it from the file `analysis.json` of the artifact `study-results`. Its summary
+gives the Holm p-value of the careful rule next to the Holm p-value of the plan. It also says
+for each comparison if the careful rule confirms it.
 
 The primary result of a comparison uses all runs that count and the log score.
 
@@ -552,6 +554,7 @@ trial run of circuit set version 2 on `ibm_fez` on 2026-11-12. No run that count
   the same simulation, and 23.4% for a correlation of 0.7. With independent weeks, the rule of
   the plan finds a difference of 0.7 standard deviations of Y in 85% of the studies, and the
   careful rule needs 1.0 standard deviations for 85%. The confirmation rule does not change.
-  The code of the second report is not in the frozen tag. It uses the values Y that the frozen
-  analysis gives, so no run and no result of the frozen analysis changes. No run that counts
-  existed when this entry was written.
+  The code of the second report is not in the frozen tag. It is `study.summarize` of the main
+  branch, which reads the file `analysis.json` of the frozen analysis. It uses the values Y
+  that the frozen analysis gives, so no run and no result of the frozen analysis changes. No
+  run that counts existed when this entry was written.

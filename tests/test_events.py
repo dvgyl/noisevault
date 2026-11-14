@@ -285,6 +285,32 @@ def test_without_stim_the_error_names_the_install_extra(
         events.score_wide(line_9, None)
 
 
+def _rare(shots: int, events_on_bit_0: int) -> tuple[np.ndarray, np.ndarray]:
+    """Measured bits with events on bit 0 only, and samples with a rate of 0.001 on each bit."""
+    measured = np.zeros((shots, 2), dtype=bool)
+    measured[:events_on_bit_0, 0] = True
+    samples = np.zeros((100_000, 2), dtype=bool)
+    samples[:100, 0] = True
+    samples[100:200, 1] = True
+    return measured, samples
+
+
+def test_no_measured_event_does_not_contradict_a_forecast_of_a_rare_event() -> None:
+    # 100 shots show no event with a probability of 0.82 when each bit has the rate 0.001.
+    measured, samples = _rare(100, 0)
+    text = events.score_events(measured, {"model": samples}).summary()
+    assert "the number of events agrees with the measured number, within chance" in text
+    assert "largest differences" not in text
+
+
+def test_many_measured_events_contradict_a_forecast_of_a_rare_event() -> None:
+    measured, samples = _rare(1000, 30)
+    text = events.score_events(measured, {"model": samples}).summary()
+    assert "model: too few events" in text
+    assert "largest differences, forecast against measured: b0 0.001 against 0.030" in text
+    assert "b1" not in text.split("largest differences")[1].splitlines()[0]
+
+
 # wide circuits -------------------------------------------------------------------------------
 
 
