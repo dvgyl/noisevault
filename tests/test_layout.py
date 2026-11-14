@@ -7,6 +7,7 @@ import numpy as np
 import pytest
 from conftest import toy
 
+from noisevault.catalog import bundled_profiles
 from noisevault.errors import LayoutError, NoiseVaultWarning
 from noisevault.layout import normalize_layout, suggest_layout
 from noisevault.profile import Profile
@@ -382,3 +383,76 @@ def test_suggest_layout_falls_back_to_an_incomplete_qubit_and_says_so() -> None:
     with pytest.warns(NoiseVaultWarning, match=r"qubit 0 .*sx"):
         layout = suggest_layout(profile, 3)
     assert set(layout.values()) == {0, 1, 2}
+
+
+def _readout(p1_given_0: float, p0_given_1: float) -> dict:
+    return {"p1_given_0": p1_given_0, "p0_given_1": p0_given_1}
+
+
+_NO_PAIR = "each of its 2-qubit gates is disabled or at or past full depolarization"
+
+
+def test_unusable_qubits_names_each_reason() -> None:
+    profile = _line(
+        6,
+        qubits=[
+            {"index": 0, "disabled": True},
+            {"index": 1, "readout": _readout(0.5, 0.01)},
+            {"index": 2, "readout": _readout(0.02, 0.49)},
+            {"index": 3, "readout": _readout(0.01, 0.7)},
+        ],
+        calibrations=[{"gate": "cz", "qubits": [4, 5], "avg_infidelity": 0.8}],
+    )
+    assert profile.unusable_qubits() == {
+        0: "the profile disables it",
+        1: "its readout is no better than chance for a prepared 0 (P(1|0) = 0.5)",
+        3: "its readout is no better than chance for a prepared 1 (P(0|1) = 0.7)",
+        5: _NO_PAIR,
+    }
+
+
+def test_a_qubit_whose_only_pair_is_disabled_is_unusable() -> None:
+    profile = _line(3, calibrations=[{"gate": "cz", "qubits": [0, 1], "disabled": True}])
+    assert profile.unusable_qubits() == {0: _NO_PAIR}
+    assert _line(1).unusable_qubits() == {}
+
+
+def test_suggest_layout_leaves_out_unusable_qubits() -> None:
+    profile = _line(4, qubits=[{"index": 0, "readout": _readout(0.6, 0.01)}])
+    assert set(suggest_layout(profile, 3).values()) == {1, 2, 3}
+    with pytest.raises(
+        LayoutError, match=r"^line has only 3 qubits that a circuit can use, not 4"
+    ) as caught:
+        suggest_layout(profile, 4)
+    assert caught.value.hint == "profile.unusable_qubits() names the other qubits and the reasons"
+
+
+def test_suggest_layout_does_not_link_a_pair_at_full_depolarization() -> None:
+    profile = _line(4, calibrations=[{"gate": "cz", "qubits": [1, 2], "avg_infidelity": 0.8}])
+    assert profile.unusable_qubits() == {}
+    with pytest.raises(LayoutError, match="no connected chain of 3 usable qubits"):
+        suggest_layout(profile, 3)
+
+
+@pytest.mark.parametrize("info", bundled_profiles(), ids=lambda info: info.id)
+def test_a_history_of_the_same_calibration_gives_the_same_layout(info) -> None:
+    profile = info.load()
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", NoiseVaultWarning)
+        for n in [n for n in (2, 4, 8) if n <= profile.device.num_qubits]:
+            assert profile.suggest_layout(n, history=[profile]) == profile.suggest_layout(n)
+
+
+def test_a_history_outvotes_one_low_outlier() -> None:
+    def day(first: float) -> Profile:
+        errors = (first, 0.02, 0.02, 0.03)
+        return _line(
+            4, qubits=[{"index": q, "readout": {"error": e}} for q, e in enumerate(errors)]
+        )
+
+    newest = day(0.001)
+    week = [day(0.05), day(0.06), day(0.05)]
+    assert suggest_layout(newest, 3) == {0: 0, 1: 1, 2: 2}
+    assert suggest_layout(newest, 3, history=week) == {0: 1, 1: 2, 2: 3}
+    assert suggest_layout(newest, 3, history=[]) == suggest_layout(newest, 3)
+    assert newest.suggest_layout(3, history=week) == {0: 1, 1: 2, 2: 3}

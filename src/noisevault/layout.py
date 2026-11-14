@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from . import gates
+from . import gates, metrics
 from .errors import LayoutError, NoiseVaultWarning
 from .report import warn_from_caller
 from .table import GateNoise
@@ -131,8 +131,49 @@ def has_chain(profile: Profile, n: int) -> bool:
     return True
 
 
+def unusable_qubits(profile: Profile) -> dict[int, str]:
+    """Each qubit that a circuit should not use, with the reason, from the stated values.
+
+    A qubit is unusable for one of three reasons. The profile disables it. Its P(1|0) or P(0|1)
+    is 0.5 or more. It has 2-qubit gates, and none is usable: the profile disables each one or
+    gives it an error at or past full depolarization.
+    """
+    table = profile.uncorrected().table
+    others = _neighbors(table, list(range(table.num_qubits)))
+    found: dict[int, str] = {}
+    for q in range(table.num_qubits):
+        if table.qubit(q).disabled:
+            found[q] = "the profile disables it"
+            continue
+        reasons = [
+            f"its readout is no better than chance for a prepared {state} ({label} = {value:.3g})"
+            for state, label, value in zip(
+                "01", ("P(1|0)", "P(0|1)"), table.qubit(q).readout or (), strict=False
+            )
+            if value >= 0.5
+        ]
+        pairs = [
+            g
+            for other in others[q]
+            for name in table.natives(2)
+            for g in (table.gate(name, (q, other)), table.gate(name, (other, q)))
+            if isinstance(g, GateNoise)
+        ]
+        if pairs and not any(map(_works, pairs)):
+            reasons.append(
+                "each of its 2-qubit gates is disabled or at or past full depolarization"
+            )
+        if reasons:
+            found[q] = "; ".join(reasons)
+    return found
+
+
 def suggest_layout(
-    profile: Profile, n: int, *, usable_pair: Callable[[int, int], bool] | None = None
+    profile: Profile,
+    n: int,
+    *,
+    usable_pair: Callable[[int, int], bool] | None = None,
+    history: Sequence[Profile] | None = None,
 ) -> dict[int, int]:
     """A connected chain of ``n`` well-calibrated qubits as ``{0: p0, 1: p1, ...}``.
 
@@ -141,8 +182,9 @@ def suggest_layout(
     the chain. Two qubits can be consecutive in the chain if and only if the pair has a usable
     2-qubit gate. The pair counts when connectivity lists it, and also when only a calibration
     record lists it. ``usable_pair(a, b)``, with ``a < b``, can remove more pairs: the chain
-    then has no consecutive pair for which ``usable_pair`` returns False. The chain has no qubit
-    whose measurement the profile disables.
+    then has no consecutive pair for which ``usable_pair`` returns False. A 2-qubit gate at or
+    past full depolarization does not make a pair usable. The chain has no qubit whose
+    measurement the profile disables, and no qubit of ``unusable_qubits(profile)``.
 
     When such a chain exists, every qubit in the chain has every 1-qubit native that the device
     has. Those natives are the unitary 1-qubit gates, other than the identity, that are usable
@@ -160,6 +202,11 @@ def suggest_layout(
     1-qubit and readout cost when every consecutive pair is usable. If not, the search
     works as on any other device. The result is a starting point for small experiments, not a
     circuit placer.
+
+    ``history`` is a sequence of earlier profiles of the same device. With a history, the costs
+    come from ``typical([*history, profile], structure=profile)``: the median of each stated
+    value. The connectivity, the disabled marks and the unusable qubits still come from
+    ``profile``.
     """
     table = profile.table
     if not 1 <= n <= table.num_qubits:
@@ -167,11 +214,23 @@ def suggest_layout(
     enabled = [q for q in range(table.num_qubits) if not table.qubit(q).disabled]
     if len(enabled) < n:
         raise LayoutError(f"{profile.id} has only {len(enabled)} usable qubits, not {n}")
-    usable = [q for q in enabled if can_measure(table, q)]
+    measurable = [q for q in enabled if can_measure(table, q)]
+    if len(measurable) < n:
+        raise LayoutError(
+            f"{profile.id} has only {len(measurable)} enabled qubits that can measure, not {n}"
+        )
+    unusable = unusable_qubits(profile)
+    usable = [q for q in measurable if q not in unusable]
     if len(usable) < n:
         raise LayoutError(
-            f"{profile.id} has only {len(usable)} enabled qubits that can measure, not {n}"
+            f"{profile.id} has only {len(usable)} qubits that a circuit can use, not {n}",
+            hint="profile.unusable_qubits() names the other qubits and the reasons",
         )
+    costs = table
+    if history:
+        from .derived import typical
+
+        costs = typical([*history, profile], structure=profile).table
     required = [
         name
         for name in table.profile.gates
@@ -180,14 +239,14 @@ def suggest_layout(
         and any(table.allowed(name, (q,)) for q in usable)
     ]
     lacking = {q: tuple(g for g in required if not table.allowed(g, (q,))) for q in usable}
-    qubit_cost = {q: _qubit_cost(table, q, lacking[q]) for q in usable}
+    qubit_cost = {q: _qubit_cost(costs, q, lacking[q]) for q in usable}
     edge_costs: dict[tuple[int, int], _Cost | None] = {}
 
     def edge(a: int, b: int) -> _Cost | None:
         key = (min(a, b), max(a, b))
         if key not in edge_costs:
             ruled_out = usable_pair is not None and not usable_pair(*key)
-            edge_costs[key] = None if ruled_out else _edge_cost(table, *key)
+            edge_costs[key] = None if ruled_out else _edge_cost(costs, *key)
         return edge_costs[key]
 
     complete = [q for q in usable if not lacking[q]]
@@ -274,9 +333,17 @@ def _edge_cost(table: NoiseTable, a: int, b: int) -> _Cost | None:
     costs = [
         found.avg_infidelity
         for found in (table.typical(2, (a, b)), table.typical(2, (b, a)))
-        if isinstance(found, GateNoise) and found.avg_infidelity is not None
+        if isinstance(found, GateNoise) and found.avg_infidelity is not None and _works(found)
     ]
     return _Cost(0, 0, 0, min(costs)) if costs else None
+
+
+def _works(found: GateNoise) -> bool:
+    """Not disabled, and not at or past full depolarization."""
+    if found.state != "calibrated":
+        return found.state != "disabled"
+    metric = found.spec.metric
+    return metric is None or not metrics.unscalable(*metric, len(found.qubits))
 
 
 def _neighbors(table: NoiseTable, usable: list[int]) -> dict[int, list[int]]:
