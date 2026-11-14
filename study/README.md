@@ -17,7 +17,12 @@ Run each script from the repository root, in an environment with NoiseVault inst
 | `python -m study.archive PARQUET --out results` | The parquet file of the public archive of IBM calibrations | `archive.json`, `archive.md`: how often IBM measures each value again, and how old the values are |
 | `python -m study.archive_steps PARQUET` | The same parquet file | Text on standard output. It gives the change of a value in 1, 3 and 7 days, the rank correlation inside one day and the minutes between two polls. It also gives the regression to the mean with chance alone |
 | `python -m study.archive_vendor PARQUET` | The same parquet file, and the network | Text on standard output: the share of the values of the archive that agree with IBM's public calibration endpoint at 12 random times |
+| `python -m study.archive_zeros PARQUET` | The same parquet file | Text on standard output: the readout probabilities of exactly 0 in each observation, by device, by month and for the last 7 days |
 | `python -m study.error_rates` | Nothing: it simulates studies with no true difference | Text on standard output: how often the test of the plan and its careful rule give a false confirmation |
+| `python -m study.correlation_rules` | Nothing: it simulates studies | Text on standard output: the mean of the measured correlation of neighbouring weeks. It also gives the false confirmations, the standard error and the power of five rules for this correlation |
+| `python -m study.precision fisher` | A bundled profile (default `ibm_kingston`) | Text on standard output: the relative standard error of the gate factor for the fit circuits and for the short circuits, with the same shots |
+| `python -m study.precision budget` | A bundled profile (default `quantinuum_h1-1`) | Text on standard output: designs for a fixed amount of money at some public prices. It also gives the error of the short circuits for the same money |
+| `python -m study.overrotation` | A bundled profile (default `ibm_kingston`) | Text on standard output: the probability of the right result of each chain circuit when `sx` and `x` turn too far, with no noise |
 
 `FOLDER` is a tree of counts files, such as the campaign folder of
 `scripts/ibm_campaign.py`. Each counts file `NAME.counts.json` needs the profile file
@@ -33,8 +38,8 @@ that can pass (see `pending` below) is not kept, so the next call computes it ag
 
 `study.analyze` reads older calibrations of IBM devices from IBM's public endpoint. `--offline`
 leaves out the models that need them. `--samples N` sets the number of stabilizer samples of
-each forecast of a Clifford circuit (default 4,000,000). `study.archive`, `study.archive_steps`
-and `study.archive_vendor` need the `hf` extra and the file `data/train-00000-of-00001.parquet`
+each forecast of a Clifford circuit (default 4,000,000). `study.archive`, `study.archive_steps`,
+`study.archive_vendor` and `study.archive_zeros` need the `hf` extra and the file `data/train-00000-of-00001.parquet`
 of the Hugging Face dataset `phanerozoic/qiskit-calibration-drift`.
 
 ## What the outputs hold
