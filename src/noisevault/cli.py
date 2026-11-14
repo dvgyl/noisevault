@@ -882,11 +882,15 @@ def pull(
         if output is not None:
             _check_writable(output)
         when = f" at {at}" if at else f" for job {job}" if job else ""
+        started = None
         with err.status(f"Pulling {device}{when}..."):
-            pulled = catalog.pull_and_save(device, at=at, source=source, output=output, job=job)
-        if job is not None and pulled.at is not None:
+            if job is None:
+                pulled = catalog.pull_and_save(device, at=at, source=source, output=output)
+            else:
+                pulled, started = catalog.pull_job(device, job, source=source, output=output)
+        if started is not None:
             out.print(
-                f"job {job} started at {pulled.at:%Y-%m-%d %H:%M:%SZ}. This is the calibration"
+                f"job {job} started at {started:%Y-%m-%d %H:%M:%SZ}. This is the calibration"
                 " in effect at that time.",
                 markup=False,
                 soft_wrap=True,

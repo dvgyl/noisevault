@@ -415,7 +415,6 @@ class Pulled(NamedTuple):
     profile: Profile
     path: Path
     written: bool  # False when the vault already held this calibration
-    at: datetime | None = None
 
 
 def pull(
@@ -447,18 +446,38 @@ def pull_and_save(
     output: str | Path | None = None,
     job: str | None = None,
 ) -> Pulled:
+    source = _checked_source(source, device)
+    if job is not None:
+        at = _job_time(device, job, at)
+    return _save_pull(device, source, None if at is None else as_utc(at), output)
+
+
+def pull_job(
+    device: str, job: str, *, source: str | None = None, output: str | Path | None = None
+) -> tuple[Pulled, datetime]:
+    """``pull_and_save`` for the calibration in effect when ``job`` started to run, and the
+    start time of the job."""
+    source = _checked_source(source, device)
+    started = as_utc(_job_time(device, job, None))
+    return _save_pull(device, source, started, output), started
+
+
+def _checked_source(source: str | None, device: str) -> str:
     source = source.strip().lower() if source else _default_source(device)
     if source not in _PULL_SOURCES:
         raise _unknown_source(source)
-    if job is not None:
-        at = _job_time(device, job, at)
-    when = None if at is None else as_utc(at)
+    return source
+
+
+def _save_pull(
+    device: str, source: str, when: datetime | None, output: str | Path | None
+) -> Pulled:
     module = importlib.import_module(_PULL_SOURCES[source])
     profile = module.pull(device, at=when)
     if output is not None:
-        return Pulled(profile, profile.save(output), written=True, at=when)
+        return Pulled(profile, profile.save(output), written=True)
     path = _earlier_path(profile) or vault_path(profile)
-    return Pulled(profile, path, _save_in_vault(profile, path), at=when)
+    return Pulled(profile, path, _save_in_vault(profile, path))
 
 
 def _job_time(device: str, job: str, at: str | date | datetime | None) -> datetime:

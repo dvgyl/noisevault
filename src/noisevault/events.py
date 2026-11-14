@@ -842,6 +842,11 @@ def simulate_wide(
     """Counts of the Clifford ``circuits`` sampled from the stabilizer forecast of ``truth``,
     bound to its calibration, as ``noisevault.counts.simulate`` binds them. ``truth`` stands for
     the device, so a test of a model can use counts with a known noise model."""
+    wide.stim_module()
+    if not circuits:
+        raise NoiseVaultError(
+            "simulate_wide got no circuit", hint="give one Clifford circuit or more"
+        )
     measured = [
         {
             "name": c.name,

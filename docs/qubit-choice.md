@@ -85,6 +85,13 @@ values of a calibration. The next measured values of the same qubits have a medi
 times higher. A chain that takes the lowest values of one calibration thus expects fewer errors
 than it gets.
 
+A stated readout error can be exactly 0. The calibration then counted no wrong result in its
+shots, and the search gives the qubit a readout cost of 0 in that direction. Such a qubit is a
+good choice, but its profile calls a wrong result impossible. `nv score` rules the profile out
+when the device gives one such result. `Profile.zero_readouts()` names these qubits, and
+`nv score --floor` or `Profile.floored()` replaces each stated 0. [Scoring](scoring.md#ruled-out)
+gives the rule.
+
 A history does not remove this effect, but it makes the effect smaller. A test on `ibm_kingston`
 used 29 dates from June to October 2026 and a chain of 4 qubits. On each date, one chain came
 from the calibration of the day, and one chain came from a history of the 7 days before. The

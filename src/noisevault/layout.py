@@ -140,6 +140,7 @@ def unusable_qubits(profile: Profile) -> dict[int, str]:
     """
     table = profile.uncorrected().table
     others = _neighbors(table, list(range(table.num_qubits)))
+    natives = table.natives(2)
     found: dict[int, str] = {}
     for q in range(table.num_qubits):
         if table.qubit(q).disabled:
@@ -152,20 +153,30 @@ def unusable_qubits(profile: Profile) -> dict[int, str]:
             )
             if value >= 0.5
         ]
-        pairs = [
-            g
-            for other in others[q]
-            for name in table.natives(2)
-            for g in (table.gate(name, (q, other)), table.gate(name, (other, q)))
-            if isinstance(g, GateNoise)
-        ]
-        if pairs and not any(map(_works, pairs)):
+        if _no_pair_works(table, q, others[q], natives):
             reasons.append(
                 "each of its 2-qubit gates is disabled or at or past full depolarization"
             )
         if reasons:
             found[q] = "; ".join(reasons)
     return found
+
+
+def _no_pair_works(
+    table: NoiseTable, q: int, others: Iterable[int], natives: Iterable[str]
+) -> bool:
+    """True when the qubit has 2-qubit gates and none works. The search stops at the first gate
+    that works, so a device with all pairs connected costs one gate for each good qubit."""
+    has_gate = False
+    for other in others:
+        for name in natives:
+            for pair in ((q, other), (other, q)):
+                found = table.gate(name, pair)
+                if isinstance(found, GateNoise):
+                    if _works(found):
+                        return False
+                    has_gate = True
+    return has_gate
 
 
 def suggest_layout(
@@ -246,7 +257,7 @@ def suggest_layout(
         key = (min(a, b), max(a, b))
         if key not in edge_costs:
             ruled_out = usable_pair is not None and not usable_pair(*key)
-            edge_costs[key] = None if ruled_out else _edge_cost(table, costs, *key)
+            edge_costs[key] = None if ruled_out else _edge_cost(table, *key, costs)
         return edge_costs[key]
 
     complete = [q for q in usable if not lacking[q]]
@@ -329,8 +340,10 @@ def _qubit_cost(table: NoiseTable, q: int, lacking: tuple[str, ...]) -> _Cost:
     )
 
 
-def _edge_cost(table: NoiseTable, costs: NoiseTable, a: int, b: int) -> _Cost | None:
-    """The cost of the pair in ``costs``, of the gates that ``table`` can use on it."""
+def _edge_cost(table: NoiseTable, a: int, b: int, costs: NoiseTable | None = None) -> _Cost | None:
+    """The cost of the pair, of the gates that ``table`` can use on it. ``costs`` gives the
+    values when it is not ``table``, as for a history."""
+    costs = table if costs is None else costs
     values = []
     for pair in ((a, b), (b, a)):
         found = _usable_gate(table, pair)

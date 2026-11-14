@@ -103,7 +103,7 @@ counts = nv.counts_from_qiskit(
 counts.save("my.counts.json")
 print(profile.score(counts).summary())
 # ibm_kingston@2026-04-15 nv:609c845ed934, calibration age 26 h
-# counts sha256:e50746a4c0f0, simulated, run 2026-04-16 09:30Z on ibm_kingston
+# counts sha256:..., simulated, run 2026-04-16 09:30Z on ibm_kingston
 #   qubits 148-149-150-151
 #
 # circuit  shots  log score   excess  ruled out
@@ -112,9 +112,12 @@ print(profile.score(counts).summary())
 # total     8000   -0.73038  0.01013          0
 #
 # quadratic score 0.62359
-# fit excess 0.01013, shot noise 0.00137 at 95% (p = 0.005)
+# fit excess 0.01013, shot noise ... at 95% (p = 0.005)
 # largest excess mirror (0.01704)
 ```
+
+The counts file names your Qiskit version. The hash of the counts and the shot noise thus
+change with that version, and the example shows `...` for them.
 
 For your own run, give your circuits and the counts of the device. Give the calibration from
 step 1 as `profile`, and the start time of the job as `run_at`. A key of Qiskit counts can have spaces
