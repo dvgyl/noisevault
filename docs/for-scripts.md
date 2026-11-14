@@ -22,7 +22,8 @@ gives the rules that each command follows, and the JSON output of each command.
   starts with `hint:` says what to do, when NoiseVault knows it.
 - **A profile has a fingerprint.** `nv:` and 12 hexadecimal digits name one calibration with its
   values. Record the fingerprint of each profile that a result used.
-- **Only `nv pull` uses the network.** Each other command works offline.
+- **Only `nv pull` and `nv history` use the network.** `nv history` uses it with
+  `--source ibm`, the default. Each other command works offline.
 
 ```text
 $ nv show no_such_device --json
@@ -39,12 +40,14 @@ $ echo $?
 | `nv list --json` | Lists the profiles that load offline | A list of objects: `ref`, `id`, `date`, `calibrated_at`, `technology`, `vendor`, `num_qubits`, `processor`, `source_kind`, `data_kind`, `license`, `redistributable`, `location`, `fingerprint` |
 | `nv show REF --json` | Describes one profile | `ref`, `id`, `calibrated_at`, `vendor`, `processor`, `technology`, `num_qubits`, `connectivity`, `natives`, `median_t1_us`, `median_t2_us`, `median_readout_error`, `median_p1_given_0`, `median_p0_given_1`, `zero_readout_qubits`, `disabled_qubits`, `value_ages`, `provenance`, `fingerprint`, `short_fingerprint`, `assumptions`, `notes`, `effects`, `unmodeled_error`, `unmodeled_note` |
 | `nv diff A B --json` | Compares two profiles | `before`, `after`, `before_fingerprint`, `after_fingerprint`, `identical`, `time_delta_seconds`, `medians`, `qubits`, `pairs`, `newly_disabled`, `reenabled`, `pairs_added`, `pairs_removed`, `qubits_added`, `qubits_removed`, `warnings` |
+| `nv history DEVICE --from DATE --to DATE --json` | Gives the calibration values of a device over a range of dates as one table | `device`, `source`, `from`, `to`, `step_seconds`, `calibrations`, `columns`, `rows` |
 | `nv check REF --json` | Checks each framework export against the reference | `profile_id`, `fingerprint`, `passed`, `layout`, `shots`, `seed`, `circuits`, `frameworks`, `skipped`, `failed`, `note` |
 | `nv compare REF COUNTS --json` | Fits a gate factor and a readout factor to counts | `profile_id`, `fingerprint`, `calibration`, `counts`, `source`, `backend`, `run_at`, `calibration_age_hours`, `qubits`, `circuits`, `gates`, `readout`, `deviance`, `dof`, `dispersion`, `p_value`, `resamples`, `impossible_shots`, `ruled_out`, `notes`, `note` |
 | `nv score REF... COUNTS --json` | Scores profiles as forecasts of counts, with no fit | `counts`, `source`, `backend`, `run_at`, `qubits`, `models`, `paired`, `floor`, `zero_readout_qubits`, `probes` |
 | `nv schema` | Prints the JSON Schema of the profile format | The schema itself |
 
-`nv pull`, `nv cite`, `nv validate` and `nv doctor` print text. [Profile format](profile-format.md)
+`nv pull`, `nv cite`, `nv validate` and `nv doctor` print text. Without `--json`, `nv history`
+prints its table as CSV. [Profile format](profile-format.md)
 and [Counts format](counts-format.md) define the two file formats, and [Scoring](scoring.md)
 defines each number of `nv score`.
 

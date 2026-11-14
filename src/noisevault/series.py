@@ -28,7 +28,7 @@ if TYPE_CHECKING:
     from .catalog import ProfileInfo
 
 Kind = Literal["t1", "t2", "p1_given_0", "p0_given_1", "gate_error", "gate_duration"]
-Source = Literal["ibm", "vault", "archive"]
+Source = Literal["ibm", "offline", "archive"]
 UNITS: Mapping[Kind, str] = MappingProxyType(
     {
         "t1": "us",
@@ -170,7 +170,7 @@ def history(
 
     ``source="ibm"`` asks IBM's public endpoint for the calibration in effect at each step from
     ``start`` to ``end``. ``source="archive"`` does the same with a local copy of the IBM
-    calibration archive at ``archive``. ``source="vault"`` reads each profile that loads offline
+    calibration archive at ``archive``. ``source="offline"`` reads each profile that loads offline
     with a calibration time from ``start`` to ``end``, and ignores ``step``. A date or a time
     with no time zone is UTC. Before each step, ``history`` calls
     ``progress(step_number, steps, time)``.
@@ -181,14 +181,14 @@ def history(
         raise HistoryError(f"the range ends ({iso_z(finish)}) before it starts ({iso_z(begin)})")
     kind = source.strip().lower()
     if kind not in get_args(Source):
-        raise HistoryError(f"source={source!r} is not 'ibm', 'vault' or 'archive'")
+        raise HistoryError(f"source={source!r} is not 'ibm', 'offline' or 'archive'")
     if (kind == "archive") != (archive is not None):
         raise HistoryError(
             "source='archive' needs archive=PATH"
             if archive is None
             else f"archive={str(archive)!r} needs source='archive'"
         )
-    if kind == "vault":
+    if kind == "offline":
         found = _saved(name, begin, finish)
         return History(name, kind, begin, finish, None, found, _table(found))
     times = steps(begin, finish, step)
@@ -264,7 +264,7 @@ def _failed(number: int, count: int, at: datetime, exc: NoiseVaultError) -> Step
         hint = (
             "start the range at a later date"
             if exc.listed
-            else "the public endpoint has no data for a retired device; use source='vault'"
+            else "the public endpoint has no data for a retired device; use source='offline'"
             " for the profiles that load offline, or source='archive' for an archive file"
         )
     return StepFailed(

@@ -92,7 +92,7 @@ def check(result: subprocess.CompletedProcess, expected: str) -> None:
 
 
 def test_every_example_is_listed() -> None:
-    found = {path.name for path in EXAMPLES.glob("*.py")}
+    found = {p.name for p in EXAMPLES.glob("*.py") if not p.name.startswith("._")}
     assert found == set(LOCAL_EXAMPLES) | OTHER_EXAMPLES
 
 
@@ -256,7 +256,8 @@ def fenced(path: Path, language: str, *, runnable_only: bool = True) -> list[Blo
     return blocks
 
 
-DOC_PAGES = sorted(DOCS.rglob("*.md"))
+# macOS writes a "._name" companion file for each file on a disk with no extended attributes.
+DOC_PAGES = sorted(p for p in DOCS.rglob("*.md") if not p.name.startswith("._"))
 DOC_BLOCKS = [block for path in DOC_PAGES for block in fenced(path, "python")]
 
 

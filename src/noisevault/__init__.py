@@ -140,7 +140,7 @@ def history(
 ) -> History:
     """The calibrations of ``device`` from ``start`` to ``end``, and a table of their values.
 
-    ``source="ibm"`` pulls from IBM's public endpoint at each ``step``. ``source="vault"`` reads
+    ``source="ibm"`` pulls from IBM's public endpoint at each ``step``. ``source="offline"`` reads
     each profile that loads offline, with no network. ``source="archive"`` reads a local copy of
     the IBM calibration archive at ``archive`` at each ``step``. The result has ``rows``,
     ``to_csv(path)``, ``to_dict()`` and ``summary()``.

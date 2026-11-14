@@ -177,7 +177,7 @@ def test_a_device_the_endpoint_does_not_list_gives_one_error_with_a_hint(
     assert error.startswith("error: step 1 of 2 (2026-03-01T00:00:00Z) failed: ibm_gone is not")
     assert error.endswith("the device may be retired")
     assert hint == (
-        "hint: the public endpoint has no data for a retired device; use --source vault for the"
+        "hint: the public endpoint has no data for a retired device; use --source offline for the"
         " profiles that load offline, or --source archive for an archive file"
     )
 
@@ -207,10 +207,10 @@ def test_the_vault_source_reads_each_profile_in_the_range_with_no_network(
     monkeypatch.setattr(ibm_public, "fetch", no_network)
     inside = [_saved(datetime(2026, 5, day, 9, tzinfo=UTC)) for day in (3, 4)]
     _saved(datetime(2026, 6, 1, tzinfo=UTC))
-    found = nv.history("ibm_manila", "2026-05-01", "2026-05-31", source="vault")
+    found = nv.history("ibm_manila", "2026-05-01", "2026-05-31", source="offline")
     assert [p.fingerprint for p in found.profiles] == [p.fingerprint for p in inside]
     assert found.step is None
-    bundled = nv.history("ibm_manila", "2024-01-01", "2026-05-03T09:00", source="vault")
+    bundled = nv.history("ibm_manila", "2024-01-01", "2026-05-03T09:00", source="offline")
     assert [p.device.calibrated_at.date().isoformat() for p in bundled.profiles] == [
         "2024-05-27",
         "2026-05-03",
@@ -219,7 +219,7 @@ def test_the_vault_source_reads_each_profile_in_the_range_with_no_network(
 
 def test_the_vault_source_names_the_times_it_holds_when_none_is_in_the_range() -> None:
     with pytest.raises(series.HistoryError) as info:
-        nv.history("ibm_manila", "2026-05-01", "2026-05-31", source="vault")
+        nv.history("ibm_manila", "2026-05-01", "2026-05-31", source="offline")
     assert info.value.hint == (
         "the only calibration time of ibm_manila that loads offline is 2024-05-27T18:27:23Z;"
         " run nv list to see them"

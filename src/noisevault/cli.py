@@ -1035,7 +1035,7 @@ def history(
         typer.Option(
             "--source",
             metavar="NAME",
-            help="ibm (network), vault (offline) or archive. The default is ibm.",
+            help="ibm (network), offline (the profiles of nv list) or archive. The default is ibm.",
         ),
     ] = None,
     archive: Annotated[

@@ -70,7 +70,7 @@ give the date of one value.
 | `--source` | What it reads | Network |
 | --- | --- | --- |
 | `ibm` (the default) | IBM's public endpoint, one pull for each step. | Yes |
-| `vault` | Each profile of the device that loads offline, with a calibration time in the range. These are the profiles that `nv list` shows. `--step` has no effect. | No |
+| `offline` | Each profile of the device that loads offline, with a calibration time in the range. These are the profiles that `nv list` shows. `--step` has no effect. | No |
 | `archive` | A local copy of the [IBM calibration archive](data-sources.md#ibm-calibration-archive-on-hugging-face). Give the file with `--archive FILE`. One read of the file for each step. | No |
 
 <!-- not-run: needs the 66 MB file that hf download writes -->
@@ -91,7 +91,7 @@ each qubit, and prints the T1 of qubit 0:
 import noisevault as nv
 import pandas as pd
 
-nv.history("ibm_fez", "2025-01-01", "2025-12-31", source="vault").to_csv("fez.csv")
+nv.history("ibm_fez", "2025-01-01", "2025-12-31", source="offline").to_csv("fez.csv")
 
 frame = pd.read_csv("fez.csv", parse_dates=["calibrated_at"])
 t1 = frame[frame.kind == "t1"].pivot(index="calibrated_at", columns="qubit_a", values="value")
@@ -106,12 +106,12 @@ print(round(t1[0].iloc[0], 1))
 
 ## Limits
 
-- **One request for each step.** Each step of the `ibm` source makes one pull, and one pull
+- **One pull for each step.** Each step of the `ibm` source makes one pull, and one pull
   sends two requests to the endpoint. The command waits 0.5 seconds between two steps. A range
   has at most 400 steps. For a longer range, use a larger step, such as `--step 7d`.
 - **The public endpoint has no data for a retired device.** On 2026-11-14, the endpoint did not
   list `ibm_torino`, at any date. The command then fails at the first step. Use
-  `--source vault` for the profiles that you pulled before, or `--source archive`.
+  `--source offline` for the profiles that you pulled before, or `--source archive`.
 - **A value keeps the date of its own calibration.** IBM gives each value its own date. A value
   can be some days older than the calibration time of its row. Read
   [the ages of IBM values](limitations.md#limits-of-the-data) for the typical ages.

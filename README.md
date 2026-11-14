@@ -138,6 +138,10 @@ nv diff ibm_fez@2025-02-26 ibm_fez@2025-05-31
 `nv diff` compares the device medians, lists the qubits and pairs that changed most, and names
 the gates that were disabled or re-enabled and the pairs that were added or removed.
 
+For more than two dates, `nv history ibm_fez --from 2026-11-01 --to 2026-11-30 -o fez.csv` writes
+the values of each calibration in the range as one table. Read
+[The calibration of a device over time](docs/history.md).
+
 A bare id such as `ibm_fez` loads the newest calibration that you have. After this pull, the
 quickstart's `nv.load("ibm_fez")` loads 2025-05-31 instead of the bundled 2025-02-26. To load
 the calibration of a given date, add the date to the id, as in `ibm_fez@2025-02-26`.

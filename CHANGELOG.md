@@ -7,6 +7,12 @@ This file lists all notable changes to NoiseVault. Versions follow
 
 ### Added
 
+- **The calibration values of a device over a range of dates, as one table.**
+  `nv history DEVICE --from DATE --to DATE` and `nv.history()` give one row for each value of
+  each calibration in the range. The output is CSV, or JSON with `--json`. The sources are
+  IBM's public endpoint (no account), the profiles that load offline, and a local copy of the
+  IBM calibration archive. A failed step stops the command, and the command writes no file.
+  [docs/history.md](docs/history.md)
 - **`nv score` works on a run of the deep circuit set and shows its probe circuits.** By
   default, `score` and `nv score` leave out the probe circuits and each circuit on more than 10
   qubits, and `Forecast.left_out` names them. A probe circuit has the name `axis_d` or
