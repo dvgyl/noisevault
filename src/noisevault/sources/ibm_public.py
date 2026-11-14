@@ -115,6 +115,17 @@ class _NotFound(Exception):
     pass
 
 
+class NotServed(SourceUnavailable):
+    """The endpoint has no calibration of the device at the time asked.
+
+    ``listed`` is True when the endpoint lists the device but has no calibration that old.
+    """
+
+    def __init__(self, *args: object, hint: str | None = None, listed: bool) -> None:
+        super().__init__(*args, hint=hint)
+        self.listed = listed
+
+
 def fetch(url: str) -> bytes:
     """GET ``url``: its body, _NotFound on HTTP 404, SourceUnavailable on any other failure."""
     request = urllib.request.Request(
@@ -151,15 +162,16 @@ def _processor(name: str) -> str | None:
     return processor_name(config.get("processor_type"))
 
 
-def _not_found(name: str, at: str | date | datetime | None) -> SourceUnavailable:
+def _not_found(name: str, at: str | date | datetime | None) -> NotServed:
     try:
         listed = listed_devices()
     except (_NotFound, SourceUnavailable):
         listed = None
     if at is not None and listed is not None and name in listed:
-        return SourceUnavailable(
+        return NotServed(
             f"IBM's public endpoint has no {name} calibration older than {at}",
             hint="pick a later date, or pull through your IBM account with source='ibm-account'",
+            listed=True,
         )
     from ..catalog import bundled_profiles as bundled
 
@@ -170,8 +182,10 @@ def _not_found(name: str, at: str | date | datetime | None) -> SourceUnavailable
     else:
         hint = "if your IBM account can see it, pull with source='ibm-account'"
     retired = "if not, the device may be retired" if guess else "the device may be retired"
-    return SourceUnavailable(
-        f"{name} is not listed on the public endpoint{known}; {guess}{retired}", hint=hint
+    return NotServed(
+        f"{name} is not listed on the public endpoint{known}; {guess}{retired}",
+        hint=hint,
+        listed=False,
     )
 
 
