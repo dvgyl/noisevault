@@ -250,8 +250,79 @@ To require that the exports model an effect, set `"allow": "approximate"` or `"e
 effect. An export that models the effect less faithfully then raises `UnsupportedEffect`. Add
 `"heralded": true` when the device reports each loss.
 
-To give qubits or pairs their own values, edit the saved JSON by hand. See
-[Profile format](profile-format.md). Then run `nv validate toy-ions.json`.
+To give qubits or pairs their own values, see the next recipe.
+
+## Make a profile from your own calibration numbers
+
+A lab that calibrates its own device has numbers for each qubit and each pair. Write the
+numbers into a profile dict. `nv.Profile.from_dict` checks the dict and returns the profile. The
+numbers in this example are illustrative:
+
+```python
+import noisevault as nv
+
+# qubit: T1 (us), T2 (us), P(1|0), P(0|1), sx error
+qubits = {
+    0: (85.0, 60.0, 0.012, 0.031, 3.1e-4),
+    1: (110.0, 95.0, 0.009, 0.022, 2.4e-4),
+    2: (72.0, 40.0, 0.015, 0.040, 5.0e-4),
+}
+# pair: cz error
+pairs = {(0, 1): 8.1e-3, (1, 2): 1.2e-2}
+
+lab = nv.Profile.from_dict(
+    {
+        "noisevault": "1.0",
+        "device": {
+            "name": "lab3",
+            "vendor": "mylab",
+            "technology": "superconducting",
+            "num_qubits": len(qubits),
+            "calibrated_at": "2026-11-14T09:00:00Z",
+        },
+        "connectivity": {"edges": [list(pair) for pair in pairs]},
+        "gates": {
+            "rz": {"virtual": True},
+            "sx": {"avg_infidelity": 3e-4, "duration_ns": 32},
+            "x": {"avg_infidelity": 3e-4, "duration_ns": 32},
+            "cz": {"avg_infidelity": 1e-2, "duration_ns": 68},
+        },
+        "qubits": [
+            {"index": q, "t1_us": t1, "t2_us": t2, "readout": {"p1_given_0": a, "p0_given_1": b}}
+            for q, (t1, t2, a, b, _) in qubits.items()
+        ],
+        "calibrations": [
+            *(
+                {"gate": gate, "qubits": [q], "avg_infidelity": values[4]}
+                for q, values in qubits.items()
+                for gate in ("sx", "x")
+            ),
+            *({"gate": "cz", "qubits": list(p), "avg_infidelity": e} for p, e in pairs.items()),
+        ],
+    }
+)
+lab.save("lab3.json")
+print(lab)
+# <Profile mylab_lab3@2026-11-14 superconducting 3q nv:3fa5bf800061>
+```
+
+`gates` names the native gates of the device, with one value of each gate for the device. A
+qubit or pair without a record gets that value. Each record in `calibrations` gives one gate its
+error on one qubit or pair. Give every gate error as an average gate infidelity, as
+[Conventions](conventions.md#error-metrics) defines it. [Profile format](profile-format.md)
+gives every field.
+
+Do not start from `Profile.uniform` here. `Profile.uniform` defines every 1- and 2-qubit gate,
+so `transpile` can keep a `cx` with the device value, and your `cz` records then have no effect.
+
+Check the saved file:
+
+```bash
+nv validate lab3.json
+nv check lab3.json
+```
+
+NoiseVault has no importer for a table of numbers, such as a CSV file in a layout of your own.
 
 ## Train a PennyLane circuit under device noise
 
