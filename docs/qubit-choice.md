@@ -52,7 +52,8 @@ A qubit is unusable for one of three reasons:
 
 Give `suggest_layout` the earlier calibrations of the same device as `history`. The search then
 ranks qubits by the median of each value over the history and the newest profile. The
-connectivity, the disabled marks and the unusable qubits still come from the newest profile.
+connectivity, the disabled marks, the usable 2-qubit gates and the unusable qubits still come
+from the newest profile.
 
 <!-- not-run: needs the 106 MB archive file that hf download writes -->
 ```python

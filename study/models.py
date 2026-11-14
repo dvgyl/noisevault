@@ -24,10 +24,9 @@ import numpy as np
 
 from noisevault import catalog, metrics, typical
 from noisevault.compare import FACTOR_RANGE, Comparison
-from noisevault.counts import MeasuredCircuit, MeasuredCounts
+from noisevault.counts import MeasuredCircuit, MeasuredCounts, outcome_probabilities
 from noisevault.errors import SourceUnavailable
 from noisevault.profile import ErrorFactor, Profile, gate_loci, iso_z, qubit_medians
-from noisevault.reference import probabilities
 from noisevault.table import GateNoise, NoiseTable
 
 Pull = Callable[[str, datetime], Profile]
@@ -269,16 +268,16 @@ def readout_measured(profile: Profile, counts: MeasuredCounts) -> Profile:
     (k + 1/2) / (n + 1), so it is never 0 or 1. The gate errors stay as stated.
     """
     zeros, ones = _circuit(counts, "readout"), _circuit(counts, "readout_1")
-    if zeros.qubits != ones.qubits:
+    if set(zeros.measured_qubits) != set(ones.measured_qubits):
         raise ValueError("the readout and readout_1 circuits measure different qubits")
+    high = {q: _rate(ones, i, "0") for i, q in enumerate(ones.measured_qubits)}
     data = profile.uncorrected().to_dict()
     records = {q["index"]: q for q in data.get("qubits", ())}
     stated = data.get("readout", {})
-    for i, q in enumerate(zeros.qubits):
+    for i, q in enumerate(zeros.measured_qubits):
         record = records.setdefault(q, {"index": q})
         low = _rate(zeros, i, "1")
-        high = _rate(ones, i, "0")
-        record["readout"] = _readout(record.get("readout", stated), low, high)
+        record["readout"] = _readout(record.get("readout", stated), low, high[q])
     data["qubits"] = list(records.values())
     return Profile.model_validate(data)
 
@@ -351,9 +350,7 @@ def fit_factor(
         model = build(math.exp(x))
         total = 0.0
         for c, n in zip(chosen, measured, strict=True):
-            p = probabilities(
-                model, c.ops, len(c.qubits), layout=c.qubits, readout=True, unknown_gates="error"
-            )
+            p = outcome_probabilities(model, c, readout=True, unknown_gates="error")
             seen = n > 0
             if np.any(p[seen] <= 0):
                 return -math.inf

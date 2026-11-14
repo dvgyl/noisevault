@@ -17,7 +17,7 @@ from qiskit.circuit import Parameter
 from qiskit.circuit.library import U3Gate
 
 import noisevault as nv
-from noisevault import CountsError
+from noisevault import CountsError, SourceUnavailable
 from noisevault.counts import MeasuredCounts, simulate
 from noisevault.frameworks.qiskit import planned_circuit
 from noisevault.profile import Profile
@@ -159,6 +159,16 @@ def test_delays_keep_their_time_in_ns_and_a_delay_on_an_unused_qubit_drops_out()
     assert planned.qubits == (148,)
     assert [op.name for op in planned.ops] == ["x", "delay", "delay"]
     assert [op.params for op in planned.ops[1:]] == [(500.0,), (pytest.approx(200.0),)]
+
+
+def test_a_delay_in_dt_on_an_unused_qubit_drops_out_with_no_dt() -> None:
+    qc = QuantumCircuit(2, 1, name="wait")
+    qc.delay(8, 1, unit="dt")
+    qc.x(0)
+    qc.measure(0, 0)
+    planned = planned_circuit(qc)
+    assert planned.qubits == (0,)
+    assert [op.name for op in planned.ops] == ["x"]
 
 
 def _circuit(
@@ -382,8 +392,10 @@ class FakeJob:
     def result(self) -> list[FakePubResult]:
         return [FakePubResult(c) for c in self._counts]
 
+    running: str | None = "2026-04-16T09:30:02.5"
+
     def metrics(self) -> dict[str, Any]:
-        return {"timestamps": {"running": "2026-04-16T09:30:02.5", "finished": "x"}}
+        return {"timestamps": {"running": self.running, "finished": "x"}}
 
 
 @pytest.fixture
@@ -399,6 +411,17 @@ def pulls(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, datetime | None]]:
 
     monkeypatch.setattr(ibm_public, "pull", pull)
     return seen
+
+
+def test_from_ibm_job_refuses_a_job_with_no_start_time(pulls, vault) -> None:
+    pytest.importorskip("qiskit_ibm_runtime")
+    circuits = [mirror([148, 149, 150], 4)]
+    job = FakeJob([(circuits[0],)], device_counts(circuits))
+    job.running = None
+    with pytest.raises(SourceUnavailable, match="job d1job has no start time") as caught:
+        nv.from_ibm_job(job)
+    assert caught.value.hint == "wait until the job ran, then pull again"
+    assert pulls == []
 
 
 def test_the_user_story_scores_the_counts_of_a_job_against_its_calibration(pulls, vault) -> None:

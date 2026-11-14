@@ -458,6 +458,41 @@ def test_a_history_outvotes_one_low_outlier() -> None:
     assert newest.suggest_layout(3, history=week) == {0: 1, 1: 2, 2: 3}
 
 
+def test_a_history_ranks_only_the_pairs_that_the_present_profile_can_use() -> None:
+    def day(first: float) -> Profile:
+        edges = [[0, 1], [1, 2], [2, 3], [3, 0]]
+        records = [
+            {"gate": "cz", "qubits": e, "avg_infidelity": first if e == [0, 1] else 0.3}
+            for e in edges
+        ]
+        return Profile.model_validate(
+            toy(
+                device={"name": "cycle", "technology": "superconducting", "num_qubits": 4},
+                connectivity={"edges": edges},
+                calibrations=records,
+            )
+        )
+
+    newest = day(0.75)
+    found = suggest_layout(newest, 2, history=[day(0.001), day(0.001)])
+    assert set(found.values()) != {0, 1}
+    assert found == suggest_layout(newest, 2)
+
+
+def test_a_pair_whose_preferred_native_is_at_full_depolarization_links_with_another() -> None:
+    gates = {**toy()["gates"], "cx": {"duration_ns": 70}, "cz": {"duration_ns": 70}}
+    profile = _line(
+        2,
+        gates=gates,
+        calibrations=[
+            {"gate": "cx", "qubits": [0, 1], "avg_infidelity": 0.75},
+            {"gate": "cz", "qubits": [0, 1], "avg_infidelity": 0.01},
+        ],
+    )
+    assert profile.unusable_qubits() == {}
+    assert set(suggest_layout(profile, 2).values()) == {0, 1}
+
+
 def test_nv_show_lists_the_unusable_qubits() -> None:
     import json
 

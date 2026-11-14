@@ -27,11 +27,24 @@ def started_at(metrics: Mapping[str, Any]) -> datetime:
     reads as UTC when it has no offset. Local testing mode gives a naive datetime in local time,
     which ``astimezone`` reads as local time."""
     stamp = metrics["timestamps"]["running"]
+    if stamp is None:
+        raise ValueError("the job has no start time")
     if isinstance(stamp, str):
         stamp = datetime.fromisoformat(stamp)
         if stamp.tzinfo is None:
             stamp = stamp.replace(tzinfo=UTC)
     return stamp.astimezone(UTC)
+
+
+def _start(job_id: str, metrics: Mapping[str, Any]) -> datetime:
+    """``started_at``, or the refusal for a job with no start time."""
+    try:
+        return started_at(metrics)
+    except (KeyError, TypeError, ValueError):
+        raise SourceUnavailable(
+            f"job {job_id} has no start time, so it did not run yet",
+            hint="wait until the job ran, then pull again",
+        ) from None
 
 
 def execution(options: Any, job_ids: Sequence[str]) -> dict[str, Any]:
@@ -65,13 +78,7 @@ def job_start(job_id: str) -> tuple[str, datetime]:
             f"your IBM account cannot open job {job_id} ({exc})",
             hint="check the job id, and that the saved account is the one that ran the job",
         ) from None
-    try:
-        return device, started_at(metrics)
-    except (KeyError, TypeError, ValueError):
-        raise SourceUnavailable(
-            f"job {job_id} has no start time, so it did not run yet",
-            hint="wait until the job ran, then pull again",
-        ) from None
+    return device, _start(job_id, metrics)
 
 
 def from_ibm_job(job: Any, *, source: str = "ibm") -> tuple[Profile, MeasuredCounts]:
@@ -97,7 +104,7 @@ def from_ibm_job(job: Any, *, source: str = "ibm") -> tuple[Profile, MeasuredCou
     inputs = job.inputs
     circuits = [_circuit(pub, i, job_id) for i, pub in enumerate(inputs["pubs"])]
     counts = [pub.join_data().get_counts() for pub in job.result()]
-    run_at = started_at(job.metrics())
+    run_at = _start(job_id, job.metrics())
     profile = pull(backend.name, at=run_at, source=source)
     block = execution(dict(inputs.get("options") or {}), [job_id])
     measured = counts_from_qiskit(

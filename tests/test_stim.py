@@ -451,7 +451,7 @@ def test_no_layout_hint_when_no_pair_has_a_usable_2_qubit_gate(unknown_gates):
     data = toy()
     data["gates"] = {"h": {"virtual": True}, "cx": {"avg_infidelity": 0.01, "disabled": True}}
     profile = Profile.model_validate(data)
-    with pytest.raises(LayoutError, match="no connected chain of 2 usable qubits"):
+    with pytest.raises(LayoutError, match="has only 0 qubits that a circuit can use, not 2"):
         profile.suggest_layout(2)
     for layout in ([0, 2], [0, 1]):
         where = rf"^CX 0 1 \(physical qubits {layout[0]}-{layout[1]}\)"

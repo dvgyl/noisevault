@@ -395,6 +395,25 @@ def paired(a: Forecast, b: Forecast) -> PairedTest:
     return PairedTest(a=a, b=b, log=log, quadratic=quadratic)
 
 
+def ranking_dict(
+    counts: MeasuredCounts,
+    *,
+    models: Sequence[Mapping[str, Any]] = (),
+    paired: Sequence[Mapping[str, Any]] = (),
+) -> dict[str, Any]:
+    """The keys of ``Ranking.to_dict``. With no model, the output for counts with no circuit
+    that the score simulates."""
+    return {
+        "counts": counts.sha256,
+        "source": counts.source,
+        "backend": counts.backend,
+        "run_at": iso_z(counts.run_at),
+        "qubits": list(counts.qubits),
+        "models": list(models),
+        "paired": list(paired),
+    }
+
+
 @dataclass(frozen=True)
 class Ranking:
     """Named forecasts of the same counts, best first, and the paired test of the best one
@@ -433,20 +452,15 @@ class Ranking:
     __str__ = summary
 
     def to_dict(self) -> dict[str, Any]:
-        counts = self.models[0][1].counts
         best = self.models[0][0]
-        return {
-            "counts": counts.sha256,
-            "source": counts.source,
-            "backend": counts.backend,
-            "run_at": iso_z(counts.run_at),
-            "qubits": list(counts.qubits),
-            "models": [{"ref": name, **forecast.to_dict()} for name, forecast in self.models],
-            "paired": [
+        return ranking_dict(
+            self.models[0][1].counts,
+            models=[{"ref": name, **forecast.to_dict()} for name, forecast in self.models],
+            paired=[
                 {"best": best, "other": name, **test.to_dict()}
                 for (name, _), test in zip(self.models[1:], self.tests, strict=True)
             ],
-        }
+        )
 
     def _table(self, width: int) -> list[str]:
         cells: dict[str, Callable[[str, Forecast], str]] = {

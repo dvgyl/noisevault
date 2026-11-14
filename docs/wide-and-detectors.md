@@ -105,7 +105,8 @@ nv score ibm_fez@2026-11-12 ibm_fez@2026-10-13 run.counts.json --wide
 ```
 
 Without `--wide`, `nv score` leaves these circuits out and names them, because the samples take
-about a minute for each profile. `--samples N` sets the number of samples, and `--json` gives the
+about a minute for each profile. A counts file with only wide circuits gives no ranking, so it
+needs `--wide`. Then `nv score` prints only this report, and `--json` has no `models`. `--samples N` sets the number of samples, and `--json` gives the
 report under the key `wide`.
 
 ## Score the detection events of an experiment
@@ -212,7 +213,9 @@ Otherwise it gives the direction, the ratio and the z value.
 
 The next line names the bits whose rate differs most from the measured rate, at most three. A
 bit is on the line only when its difference is significant at the 5% level divided by the number
-of bits (a Bonferroni correction). Thus a line of many bits does not show bits by chance.
+of bits (a Bonferroni correction). Thus a line of many bits does not show bits by chance. The
+test of a bit uses the spread that the forecast gives. When the forecast expects fewer than 5
+events on the bit, the test is an exact binomial test.
 
 With two or more profiles, the report tests the best profile against each other profile. Each
 test is a paired test of the score differences of the shots. Both tests add the sampling

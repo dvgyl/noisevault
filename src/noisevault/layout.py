@@ -205,8 +205,8 @@ def suggest_layout(
 
     ``history`` is a sequence of earlier profiles of the same device. With a history, the costs
     come from ``typical([*history, profile], structure=profile)``: the median of each stated
-    value. The connectivity, the disabled marks and the unusable qubits still come from
-    ``profile``.
+    value. The connectivity, the disabled marks, the usable 2-qubit gates and the unusable
+    qubits still come from ``profile``.
     """
     table = profile.table
     if not 1 <= n <= table.num_qubits:
@@ -246,7 +246,7 @@ def suggest_layout(
         key = (min(a, b), max(a, b))
         if key not in edge_costs:
             ruled_out = usable_pair is not None and not usable_pair(*key)
-            edge_costs[key] = None if ruled_out else _edge_cost(costs, *key)
+            edge_costs[key] = None if ruled_out else _edge_cost(table, costs, *key)
         return edge_costs[key]
 
     complete = [q for q in usable if not lacking[q]]
@@ -329,13 +329,26 @@ def _qubit_cost(table: NoiseTable, q: int, lacking: tuple[str, ...]) -> _Cost:
     )
 
 
-def _edge_cost(table: NoiseTable, a: int, b: int) -> _Cost | None:
-    costs = [
-        found.avg_infidelity
-        for found in (table.typical(2, (a, b)), table.typical(2, (b, a)))
-        if isinstance(found, GateNoise) and found.avg_infidelity is not None and _works(found)
-    ]
-    return _Cost(0, 0, 0, min(costs)) if costs else None
+def _edge_cost(table: NoiseTable, costs: NoiseTable, a: int, b: int) -> _Cost | None:
+    """The cost of the pair in ``costs``, of the gates that ``table`` can use on it."""
+    values = []
+    for pair in ((a, b), (b, a)):
+        found = _usable_gate(table, pair)
+        if found is None:
+            continue
+        ranked = costs.gate(found.gate, found.qubits)
+        known = isinstance(ranked, GateNoise) and ranked.avg_infidelity is not None
+        values.append((ranked if known else found).avg_infidelity)
+    return _Cost(0, 0, 0, min(values)) if values else None
+
+
+def _usable_gate(table: NoiseTable, pair: tuple[int, int]) -> GateNoise | None:
+    """The typical 2-qubit gate on ``pair``, or else another usable native, or None."""
+    others = (table.gate(name, pair) for name in table.natives(2))
+    for found in (table.typical(2, pair), *others):
+        if isinstance(found, GateNoise) and found.avg_infidelity is not None and _works(found):
+            return found
+    return None
 
 
 def _works(found: GateNoise) -> bool:
