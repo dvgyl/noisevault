@@ -112,6 +112,14 @@ def test_scaled_keeps_failed_values_as_stated() -> None:
     assert found.provenance.notes[-1].endswith(" 2 failed gates or readouts stay as stated.")
 
 
+def test_scaled_multiplies_the_stderr_of_a_record_that_takes_the_default_error() -> None:
+    gates = {**toy()["gates"], "sx": {"avg_infidelity": 0.01, "duration_ns": 35}}
+    profile = _pair(gates=gates, calibrations=[{"gate": "sx", "qubits": [0], "stderr": 0.001}])
+    found = profile.scaled(one_qubit=2).table.gate("sx", (0,))
+    assert found.avg_infidelity == pytest.approx(0.02)
+    assert found.spec.stderr == pytest.approx(0.002)
+
+
 def test_scaled_refuses_fitted_factors() -> None:
     fitted = nv.load("ibm_fez")
     fit = {

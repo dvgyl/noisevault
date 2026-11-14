@@ -55,13 +55,20 @@ def scaled(
     group = {1: "one_qubit", 2: "two_qubit"}
     kept = 0
 
-    def gate(spec: dict[str, Any], arity: int | None, where: str) -> dict[str, Any]:
+    def gate(
+        spec: dict[str, Any], arity: int | None, where: str, default: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         nonlocal kept
         name = group.get(arity or 0)
-        stated = _metric_of(spec)
+        inherited = _metric_of(spec) is None and default is not None
+        stated = _metric_of(default if inherited else spec)
         if name is None or stated is None or factors[name] == 1:
             return spec
         kind, value = stated
+        if inherited:
+            if "stderr" not in spec or metrics.unscalable(kind, value, arity or 0):
+                return spec
+            return {**spec, "stderr": spec["stderr"] * factors[name]}
         if metrics.unscalable(kind, value, arity or 0):
             kept += 1
             return spec
@@ -76,13 +83,19 @@ def scaled(
             out["stderr"] = out["stderr"] * factor
         return out
 
+    defaults = data["gates"]
     data["gates"] = {
         name: gate(spec, table.arity(name), f"the default {name} error")
-        for name, spec in data["gates"].items()
+        for name, spec in defaults.items()
     }
     if "calibrations" in data:
         data["calibrations"] = [
-            gate(r, len(r["qubits"]), f"{r['gate']} on {qubit_loci(tuple(r['qubits']))}")
+            gate(
+                r,
+                len(r["qubits"]),
+                f"{r['gate']} on {qubit_loci(tuple(r['qubits']))}",
+                defaults[r["gate"]],
+            )
             for r in data["calibrations"]
         ]
 
