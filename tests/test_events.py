@@ -300,7 +300,7 @@ def test_no_measured_event_does_not_contradict_a_forecast_of_a_rare_event() -> N
     # 100 shots show no event with a probability of 0.82 when each bit has the rate 0.001.
     measured, samples = _rare(100, 0)
     text = events.score_events(measured, {"model": samples}).summary()
-    assert "model: no test of the number of events, the forecast has fewer than 25" in text
+    assert "model: no test of the number of events, the forecast has too few that vary" in text
     assert "largest differences" not in text
 
 
@@ -328,8 +328,30 @@ def test_a_forecast_with_an_event_in_almost_each_sample_gets_no_test_of_the_numb
     samples = np.ones((100_000, 1), dtype=bool)
     samples[:100, 0] = False
     text = events.score_events(measured, {"model": samples}).summary()
-    assert "the forecast has fewer than 25 bits with no event" in " ".join(text.split())
+    assert "model: no test of the number of events" in text
     assert "largest differences" not in text
+
+
+def test_a_bit_with_an_event_in_each_shot_does_not_hide_that_the_other_events_are_few() -> None:
+    # The second bit has one event in 100 shots, which occurs in 9.5% of the experiments at its
+    # forecast rate of 0.001. The 100 events of the first bit do not make a normal test valid.
+    measured = np.zeros((100, 2), dtype=bool)
+    measured[:, 0] = True
+    measured[0, 1] = True
+    samples = np.zeros((400_000, 2), dtype=bool)
+    samples[:, 0] = True
+    samples[:400, 1] = True
+    score = events.score_events(measured, {"model": samples})
+    assert score.models[0].events_skew > 3
+    assert "model: no test of the number of events" in score.summary()
+
+
+def test_many_events_that_vary_keep_the_test_of_the_number_of_events() -> None:
+    rng = np.random.default_rng(0)
+    measured, samples = rng.random((2000, 8)) < 0.2, rng.random((200_000, 8)) < 0.1
+    score = events.score_events(measured, {"model": samples})
+    assert score.models[0].events_skew < events.SKEW_LIMIT
+    assert "model: too few events, 0.50 times the measured number" in score.summary()
 
 
 def test_one_shot_and_one_sample_that_disagree_give_a_summary() -> None:
@@ -366,6 +388,9 @@ def test_the_test_of_a_rate_holds_its_level_for_a_rare_event_and_few_samples() -
     assert events.two_sample_p_value(4975, 5000, 1000, 1000) == pytest.approx(p)
     assert events.two_sample_p_value(13, 5000, 200, 200_000) == pytest.approx(0.004827, rel=1e-3)
     assert events.two_sample_p_value(0, 7, 0, 9) == 1.0
+    # The tail goes on past a measured number that is far above the mean.
+    far = events.two_sample_p_value(100, 1000, 900, 999_000)
+    assert far == pytest.approx(3.4267707384723345e-163, rel=1e-9)
 
 
 # wide circuits -------------------------------------------------------------------------------

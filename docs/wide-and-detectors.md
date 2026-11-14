@@ -211,8 +211,9 @@ One line for each profile answers the question "too few or too many events?". It
 forecast and the measured number of events, with the shot error and the sampling error of both.
 The line says "agrees ... within chance" when the difference is not significant at the 5% level.
 Otherwise it gives the direction, the ratio and the z value. The line gives no test when the
-forecast expects fewer than 25 events in all shots, or fewer than 25 bits with no event. A
-normal test is not valid for so few.
+forecast has too few events that vary. An example is a forecast of fewer than 25 rare events in
+all shots. A normal test is not valid then. The measure is the skewness of the number of events
+if the model is right, with a limit of 0.2.
 
 The next line names the bits whose rate differs most from the measured rate, at most three. A
 bit is on the line only when its difference is significant at the 5% level divided by the number

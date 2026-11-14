@@ -16,7 +16,8 @@ This file lists all notable changes to NoiseVault. Versions follow
   rule, is now public.
 - **More statistics of the IBM calibration archive.** `python -m study.archive_steps PARQUET`
   gives the change of a value in 1, 3 and 7 days, the rank correlation inside one day and the
-  minutes between two polls. It also gives the regression to the mean with chance alone.
+  minutes between two observation times. It also gives the regression to the mean with chance
+  alone.
   `python -m study.archive_vendor PARQUET` compares the values of the archive with the values
   of IBM's public calibration endpoint at 12 random times. `study.archive` makes `micros`,
   `micros_of`, `regression`, `sha256`, `spearman`, `utc_date` and `SERIES_STRIDE` public.

@@ -163,9 +163,10 @@ NoiseVault does not save an imported profile until you call `profile.save(path)`
 
 The dataset [phanerozoic/qiskit-calibration-drift](https://huggingface.co/datasets/phanerozoic/qiskit-calibration-drift)
 records IBM calibrations. Its poller reads IBM's backend properties every 30 minutes and adds a
-row for each new calibration of a property. The dataset covers `ibm_fez`, `ibm_marrakesh` and
-`ibm_torino` from 31 January 2026, and `ibm_kingston` from 16 March 2026. NoiseVault reads a
-local copy of its one parquet file and never downloads the file for you.
+row for each new calibration of a property. In the file of 12 November 2026, the rows of
+`ibm_fez`, `ibm_kingston`, `ibm_marrakesh` and `ibm_torino` start on 31 January 2026. The rows of
+`ibm_torino` end on 1 April 2026. NoiseVault reads a local copy of its one parquet file and never
+downloads the file for you.
 
 To get the file, install the `hf` extra and the Hugging Face command line. Then download the
 data folder. The file is about 66 MB.

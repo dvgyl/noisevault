@@ -114,6 +114,41 @@ def test_compares_the_value_in_force_on_a_day_with_the_value_days_later(
     assert not [key for key in found if key[1] == 7]
 
 
+def _file(tmp_path: Path, rows: list[dict[str, Any]]) -> Path:
+    path = tmp_path / "train.parquet"
+    table = pa.Table.from_pylist(rows)
+    index = table.schema.get_field_index("qubit_b")
+    pq.write_table(table.set_column(index, "qubit_b", table["qubit_b"].cast(pa.float64())), path)
+    return path
+
+
+def test_a_value_of_0_stays_in_the_number_of_pairs_and_in_the_fraction(tmp_path: Path) -> None:
+    # A readout error of 0 from 0 h, a new date with the same 0 at 24 h, and 1/4096 from 36 h.
+    # The days 0 h, 24 h and 48 h give the pairs (0, 0) and (0, 1/4096). No pair has a size.
+    values = [(0.0, 0), (0.0, 24), (1 / 4096, 36), (2 / 4096, 60)]
+    path = _file(tmp_path, [_row("prob_meas1_prep0", v, hours) for v, hours in values])
+    rows = archive.read_rows(path)
+    found = archive_steps.fixed_steps(rows.select(rows.change), T0, T0 + timedelta(days=2), [1])
+    assert found == [
+        {
+            "kind": "readout",
+            "step_days": 1,
+            "pairs": 2,
+            "new_fraction": 0.5,
+            "median_size": None,
+            "median_size_new": None,
+        }
+    ]
+
+
+def test_a_file_with_no_readout_value_still_gives_the_other_parts(tmp_path: Path) -> None:
+    # The T1 is in force from 0 h to its last change at 30 h, so one pair exists: 0 h and 24 h.
+    path = _file(tmp_path, [_row("T1", 100.0, 0), _row("T1", 110.0, 30)])
+    text = archive_steps.report(path, T0, END)
+    assert "t1, 1 d, 1, 0.000, 0.00%, -" in text
+    assert "4. Minutes between two observation times of a device" in text
+
+
 def test_gives_the_rank_correlation_of_each_day_with_20_pairs(rows: archive.Rows) -> None:
     found = archive_steps.day_correlations(_window_changes(rows))
     assert found == {"ibm_fez": {"readout": [pytest.approx(1.0), pytest.approx(-1.0)]}}
@@ -148,7 +183,7 @@ def test_chance_alone_with_many_shots_gives_no_regression(rows: archive.Rows) ->
         assert run["typical_size"] < 1e-3
 
 
-def test_gives_the_minutes_between_two_polls(tmp_path: Path) -> None:
+def test_gives_the_minutes_between_two_observation_times(tmp_path: Path) -> None:
     minutes = {"ibm_fez": [-10, 0, 30, 30, 90], "ibm_kingston": [5], "ibm_torino": [0, 1]}
     table = [
         {"backend": device, "observed_time": T0 + timedelta(minutes=m)}
@@ -157,7 +192,7 @@ def test_gives_the_minutes_between_two_polls(tmp_path: Path) -> None:
     ]
     path = tmp_path / "polls.parquet"
     pq.write_table(pa.Table.from_pylist(table), path)
-    found = archive_steps.poll_gaps(path, T0, END)
+    found = archive_steps.observation_times(path, T0, END)
     assert list(found) == ["ibm_fez", "ibm_kingston"]
     assert ((found["ibm_fez"] - archive.micros_of(T0)) / 6e7).tolist() == [0.0, 30.0, 90.0]
     assert found["ibm_kingston"].size == 1
@@ -179,7 +214,7 @@ def test_prints_the_four_parts(parquet: Path, capsys: pytest.CaptureFixture[str]
     # Each row has a poll 30 minutes after its calibration time. The window holds the polls at
     # 0.5 h, 30.5 h, 36.5 h, 50.5 h, 60.5 h and 84.5 h.
     assert text.endswith(
-        "ibm_fez: 6 polls, median 840.0, lowest tenth 456.0, highest tenth 1656.0,"
+        "ibm_fez: 6 observation times, median 840.0, lowest tenth 456.0, highest tenth 1656.0,"
         " share above 60 minutes 1.000\n"
     )
 

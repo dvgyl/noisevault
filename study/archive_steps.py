@@ -10,7 +10,8 @@ standard output.
    value in force on that day and 1, 3 and 7 days later. The value in force at a time is the
    value of the last change at or before that time. A series counts only from its first change
    to its last change. The size of a difference is ``abs(ln(later / earlier))``. The output
-   gives a size as the percent ``exp(size) - 1``.
+   gives a size as the percent ``exp(size) - 1``. A pair with a value of 0 counts as a pair,
+   but it has no size, so the two medians do not use it.
 2. Rank correlation inside one day. The pairs are the pairs of ``study.archive``: a change and
    the next change of the same series, 12 to 36 hours later. The script gives the Spearman
    correlation of the pairs of one device, one kind and one UTC day, if the day has
@@ -20,7 +21,9 @@ standard output.
    gets a new value: the number of wrong readouts in ``SHOTS`` shots with this error, divided
    by ``SHOTS``. The script then computes the regression to the mean of ``study.archive`` on
    these values.
-4. The minutes between two polls of a device, from ``observed_time``.
+4. The minutes between two observation times of a device, from ``observed_time``. The archive
+   has rows only for a poll that saw a new calibration, so the statistic does not hold a poll
+   that saw no new calibration.
 """
 
 from __future__ import annotations
@@ -62,7 +65,8 @@ def fixed_steps(
 ) -> list[dict[str, Any]]:
     """For each step in days and each kind: the number of pairs of a value in force on a day and
     the value in force ``step`` days later, the fraction of pairs with a new value, the median
-    size of all pairs and the median size of the pairs with a new value.
+    size of all pairs and the median size of the pairs with a new value. The two medians use
+    only the pairs with two values above 0.
 
     ``changes`` holds only changes, as ``rows.select(rows.change)`` gives them.
     """
@@ -90,7 +94,7 @@ def fixed_steps(
         later, alive_later = in_force(days + step * DAY_S)
         before, after = changes.value[now], changes.value[later]
         kept = alive_now & alive_later & ~excluded[now] & ~excluded[later]
-        kept &= (before > 0) & (after > 0)
+        sized = kept & (before > 0) & (after > 0)
         with np.errstate(divide="ignore", invalid="ignore"):
             size = np.abs(np.log(after / before))
         new = later != now
@@ -104,8 +108,8 @@ def fixed_steps(
                     "step_days": step,
                     "pairs": int(here.sum()),
                     "new_fraction": float(np.mean(new[here])),
-                    "median_size": _median(size[here]),
-                    "median_size_new": _median(size[here & new]),
+                    "median_size": _median(size[here & sized]),
+                    "median_size_new": _median(size[here & sized & new]),
                 }
             )
     return found
@@ -149,7 +153,8 @@ def chance_regression(
     ``typical_size``: the archive, then chance alone with the mean and with the median of each
     series as its fixed error. ``changes`` holds only the changes in the window.
     """
-    picked = changes.select(changes.prop == changes.properties.index(prop))
+    code = changes.properties.index(prop) if prop in changes.properties else -1
+    picked = changes.select(changes.prop == code)
     series = np.cumsum(picked.first) - 1
     usable = ~picked.excluded
     count = int(series.max()) + 1 if series.size else 0
@@ -184,7 +189,7 @@ def chance_regression(
     }
 
 
-def poll_gaps(path: Path, start: datetime, end: datetime) -> dict[str, np.ndarray]:
+def observation_times(path: Path, start: datetime, end: datetime) -> dict[str, np.ndarray]:
     """For each device: the distinct ``observed_time`` values in the window, in microseconds."""
     import pyarrow.compute as pc
     import pyarrow.parquet as pq
@@ -317,14 +322,14 @@ def report(path: Path, start: datetime, end: datetime) -> str:
                 f" median {_f5(fixed['median'])}"
             )
     del window_changes
-    lines += ["", "4. Minutes between two polls of a device (observed_time)"]
-    for device, times in poll_gaps(path, start, end).items():
+    lines += ["", "4. Minutes between two observation times of a device (observed_time)"]
+    for device, times in observation_times(path, start, end).items():
         gaps = np.diff(times) / 6e7
         if gaps.size == 0:
-            lines.append(f"{device}: {times.size} polls")
+            lines.append(f"{device}: {times.size} observation times")
             continue
         lines.append(
-            f"{device}: {times.size} polls, median {np.median(gaps):.1f},"
+            f"{device}: {times.size} observation times, median {np.median(gaps):.1f},"
             f" lowest tenth {np.quantile(gaps, 0.1):.1f},"
             f" highest tenth {np.quantile(gaps, 0.9):.1f},"
             f" share above 60 minutes {np.mean(gaps > 60):.3f}"

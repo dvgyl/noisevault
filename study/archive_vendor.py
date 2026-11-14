@@ -2,8 +2,8 @@
 
     python -m study.archive_vendor train.parquet
 
-The script picks a fixed random sample of times in a window. For each device and time, it makes
-two profiles:
+The script picks a fixed random sample of times in a window. Each time is inside the span of
+its device in the archive. For each device and time, it makes two profiles:
 
 - from the archive, with :func:`noisevault.sources.hf_archive.from_calibration_archive`;
 - from IBM's public calibration endpoint, with :func:`noisevault.sources.ibm_public.pull`. This
@@ -20,7 +20,7 @@ from __future__ import annotations
 import argparse
 import math
 import sys
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -30,6 +30,7 @@ import numpy as np
 import noisevault as nv
 from noisevault.profile import Profile
 from noisevault.sources import hf_archive, ibm_public
+from study.archive_steps import observation_times
 
 DEVICES = ("ibm_fez", "ibm_kingston", "ibm_marrakesh")
 START, END = datetime(2026, 2, 20, tzinfo=UTC), datetime(2026, 11, 9, tzinfo=UTC)
@@ -70,17 +71,48 @@ def kind(key: Key) -> str:
 
 
 def sample_times(
-    devices: Sequence[str], times_for_each: int, seed: int, start: datetime, end: datetime
+    devices: Sequence[str],
+    times_for_each: int,
+    seed: int,
+    start: datetime,
+    end: datetime,
+    spans: Mapping[str, tuple[datetime, datetime]] | None = None,
 ) -> list[tuple[str, datetime]]:
-    """``times_for_each`` random times for each device, to the minute, from ``start`` to
-    ``end``. The times of one device are in order."""
+    """``times_for_each`` random times for each device, to the minute, between ``start`` and
+    ``end``. The times of one device are in order.
+
+    ``spans`` gives the first and the last observation time of each device in the archive. A
+    time outside the span of its device is drawn again, because the archive holds no complete
+    calibration before the span, and no new calibration after it.
+    """
     rng = np.random.default_rng(seed)
-    span = int((end - start).total_seconds() // 60)
-    return [
-        (device, start + timedelta(minutes=minute))
-        for device in devices
-        for minute in sorted(rng.integers(0, span, times_for_each).tolist())
-    ]
+    minutes = int((end - start).total_seconds() // 60)
+    found = []
+    for device in devices:
+        first, last = (spans or {}).get(device, (start, end))
+        if max(first, start) >= min(last, end):
+            raise ValueError(
+                f"the archive holds no calibration of {device} between {start:%Y-%m-%d} and"
+                f" {end:%Y-%m-%d}"
+            )
+        drawn = rng.integers(0, minutes, times_for_each).tolist()
+        times = [start + timedelta(minutes=m) for m in drawn]
+        for i, at in enumerate(times):
+            while not first <= at <= last:
+                at = start + timedelta(minutes=int(rng.integers(0, minutes)))
+            times[i] = at
+        found += [(device, at) for at in sorted(times)]
+    return found
+
+
+def archive_spans(path: Path) -> dict[str, tuple[datetime, datetime]]:
+    """The first and the last observation time of each device in the archive file."""
+    whole = (datetime(1970, 1, 2, tzinfo=UTC), datetime(2200, 1, 1, tzinfo=UTC))
+    return {
+        device: tuple(datetime.fromtimestamp(int(t) / 1e6, UTC) for t in (times[0], times[-1]))
+        for device, times in observation_times(path, *whole).items()
+        if times.size
+    }
 
 
 def compare(
@@ -120,7 +152,8 @@ def report(
         "device, time, values in both, share that agree, only in the archive, only from the vendor",
     ]
     by_kind: dict[str, list[float]] = {}
-    for device, at in sample_times(devices, times_for_each, seed, START, END):
+    spans = archive_spans(path)
+    for device, at in sample_times(devices, times_for_each, seed, START, END, spans):
         found = compare(path, device, at, pull)
         both = sum(len(g) for g in found["gaps"].values())
         agree = sum(g <= TOLERANCE for gaps in found["gaps"].values() for g in gaps)

@@ -48,10 +48,11 @@ def test_finds_the_one_readout_value_that_differs() -> None:
 def test_reports_the_share_that_agrees() -> None:
     text = archive_vendor.report(FIXTURE, ("ibm_fez",), times_for_each=1, pull=_other_readout)
     lines = text.splitlines()
-    # With one time for each device, seed 3 gives 2026-09-20T14:44Z. The archive then gives its
-    # newest calibration, with 34 values. One of them differs.
+    # With one time for each device, seed 3 gives 2026-09-20T14:44Z first. The fixture ends on
+    # 2026-06-02, so the time is drawn again: 2026-03-14T10:33Z. The archive then gives a
+    # calibration with 27 values. One of them differs.
     assert lines[2] == (
-        "ibm_fez, 2026-09-20T14:44Z, 34, 0.9706, 0, 0; one-qubit gate 1.00, readout 0.88,"
+        "ibm_fez, 2026-03-14T10:33Z, 27, 0.9630, 0, 0; one-qubit gate 1.00, readout 0.88,"
         " t1 1.00, t2 1.00, two-qubit gate 1.00"
     )
     assert lines[3] == (
@@ -72,3 +73,24 @@ def test_takes_the_same_times_for_the_same_seed() -> None:
         "2026-09-20T14:44Z",
     ]
     assert [device for device, _ in times[4:]] == ["ibm_kingston"] * 4
+
+
+def test_draws_a_time_again_when_the_archive_has_no_calibration_of_the_device_then() -> None:
+    first, last = datetime(2026, 5, 1, tzinfo=UTC), datetime(2026, 5, 20, tzinfo=UTC)
+    spans = {"ibm_fez": (first, last)}
+    times = archive_vendor.sample_times(
+        ("ibm_fez", "ibm_kingston"), 4, 3, archive_vendor.START, archive_vendor.END, spans
+    )
+    assert all(first <= at <= last for device, at in times if device == "ibm_fez")
+    assert [device for device, _ in times] == ["ibm_fez"] * 4 + ["ibm_kingston"] * 4
+    assert archive_vendor.archive_spans(FIXTURE) == {
+        "ibm_fez": (
+            datetime(2026, 1, 31, 17, 5, 3, tzinfo=UTC),
+            datetime(2026, 6, 2, 9, 0, tzinfo=UTC),
+        )
+    }
+    outside = {"ibm_fez": (datetime(2025, 1, 1, tzinfo=UTC), datetime(2025, 2, 1, tzinfo=UTC))}
+    with pytest.raises(ValueError, match="the archive holds no calibration of ibm_fez between"):
+        archive_vendor.sample_times(
+            ("ibm_fez",), 1, 3, archive_vendor.START, archive_vendor.END, outside
+        )
