@@ -19,10 +19,10 @@ from typing import TYPE_CHECKING, Any, Literal
 import numpy as np
 
 from .compare import _duration, _wrap
-from .counts import refuse_wide
+from .counts import outcome_probabilities, refuse_wide
 from .errors import CountsError, NoiseVaultError, did_you_mean, joined, plural, qubit_loci
 from .profile import iso_z, ref_on_day
-from .reference import MAX_QUBITS, probabilities
+from .reference import MAX_QUBITS
 from .suite import ideal_result, role
 
 if TYPE_CHECKING:
@@ -170,6 +170,9 @@ class Forecast:
                 f" at 95% (p = {self.p_value:.2g})"
             )
         lines += ["", f"quadratic score {_number(self.quadratic_score)}", f"fit {fit}"]
+        if len(self.circuits) > 1:
+            top = max(self.circuits, key=lambda c: (c.ruled_out, c.excess))
+            lines.append(f"largest excess {top.name} ({_number(top.excess)})")
         lines += _left_out_lines(self.left_out, min(width, _WIDTH))
         return "\n".join(lines)
 
@@ -699,11 +702,13 @@ def probe_report(profile: Profile, counts: MeasuredCounts) -> ProbeReport | None
 def _probe(
     c: MeasuredCircuit, ideal: str, probs: np.ndarray, baselines: Mapping[int, float]
 ) -> ProbeCircuit:
-    n = len(c.qubits)
-    # Axis i of the reshaped array is circuit qubit i, the first character of an outcome.
+    n = c.width
+    if c.measured is not None:
+        ideal = "".join(ideal[i] for i in c.measured)
+    # Axis i of the reshaped array is bit i of a key, the first character of an outcome.
     grid = probs.reshape((2,) * n)
     wrong = []
-    for i, qubit in enumerate(c.qubits):
+    for i, qubit in enumerate(c.measured_qubits):
         others = tuple(j for j in range(n) if j != i)
         marginal = grid.sum(axis=others) if others else grid
         bad = "1" if ideal[i] == "0" else "0"
@@ -735,7 +740,7 @@ def _baselines(counts: MeasuredCounts) -> dict[int, float]:
         return {}
     return {
         qubit: sum(k for key, k in found.counts.items() if key[i] == "1") / found.shots
-        for i, qubit in enumerate(found.qubits)
+        for i, qubit in enumerate(found.measured_qubits)
     }
 
 
@@ -810,6 +815,8 @@ def _chosen(
             else:
                 left_out.append(LeftOut(c.name, reason))
         if not chosen:
+            if all(item.reason == "too_wide" for item in left_out):
+                refuse_wide(counts.circuits, "score can simulate")
             raise CountsError(
                 "the counts hold only probe circuits and circuits on more than"
                 f" {MAX_QUBITS} qubits, which a score leaves out",
@@ -864,9 +871,7 @@ def _named(counts: MeasuredCounts, names: Iterable[str]) -> list[MeasuredCircuit
 
 def _probabilities(profile: Profile, c: MeasuredCircuit) -> np.ndarray:
     try:
-        probs = probabilities(
-            profile, c.ops, len(c.qubits), layout=c.qubits, readout=True, unknown_gates="error"
-        )
+        probs = outcome_probabilities(profile, c)
     except NoiseVaultError as exc:
         raise CountsError(
             f"circuit {c.name}: {exc.message}",

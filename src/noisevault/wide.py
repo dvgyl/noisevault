@@ -114,6 +114,12 @@ def noisy_circuit(profile: Profile, circuit: PlannedCircuit) -> tuple[Any, np.nd
     A gate with no calibration on its qubits raises MissingCalibrationError, as for
     ``simulate``. An op that is not in ``CLIFFORD`` raises NoiseVaultError.
     """
+    if circuit.measured is not None:
+        raise NoiseVaultError(
+            f"circuit {circuit.name} sets measured, but the stabilizer forecast measures each"
+            " circuit qubit i into bit i",
+            hint="give a circuit with no measured field",
+        )
     stim = stim_module()
     table, physical = profile.table, circuit.qubits
     report = Report.start(profile, "reference", None, unknown_gates="error")

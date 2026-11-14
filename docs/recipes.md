@@ -631,7 +631,7 @@ or more over the qubits. On 80 qubits, readout error alone makes the ideal resul
 ideal result does not set the depth. The names are `clifford_n20_d16` and similar. Without Stim
 (the `stim` extra), `suite` makes no such circuit. `nv score` leaves these circuits and the
 probe circuits out of the score and names them. `nv compare` refuses these circuits, so select
-the circuits of 10 qubits or fewer first. `study/wide.py` scores two models on them.
+the circuits of 10 qubits or fewer first. `noisevault.events.score_wide` scores them ([Wide circuits and detection events](wide-and-detectors.md)).
 
 To run the set, add `--suite` to `scripts/run_on_ibm.py` or to the campaign:
 

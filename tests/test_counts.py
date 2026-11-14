@@ -225,8 +225,8 @@ _REFUSALS: dict[str, _Refusal] = {
     ),
     "measure in ops": _Refusal(
         _set("circuits", 0, "ops", 3, value=["measure", [0], []]),
-        "circuits[0].ops[3]: ops cannot hold measure, because the device measures every"
-        " circuit qubit",
+        "circuits[0].ops[3]: ops cannot hold measure, because the device measures each"
+        " measured circuit qubit",
         "remove the measure",
     ),
     "gate outside the registry": _Refusal(
@@ -852,8 +852,8 @@ def test_the_refusal_of_a_wide_circuit_says_what_to_do_instead(tmp_path: Path) -
         kingston().score(counts, circuits=[c.name for c in counts.circuits])
 
     assert caught.value.hint == (
-        "select the circuits of 10 qubits or fewer, or score the wider circuits with the"
-        " stabilizer score of study/wide.py"
+        "select the circuits of 10 qubits or fewer, or score the wider circuits with"
+        " noisevault.events.score_wide"
     )
 
 

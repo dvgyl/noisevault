@@ -9,6 +9,7 @@ from __future__ import annotations
 __version__ = "0.4.0"
 
 import importlib
+from collections.abc import Mapping, Sequence
 from datetime import timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -36,6 +37,7 @@ from .report import Report
 if TYPE_CHECKING:
     from datetime import date, datetime
 
+    from .counts import MeasuredCounts
     from .series import History
     from .sources.hf_archive import ArchiveSpan
 
@@ -150,6 +152,62 @@ def history(
     return collect(device, start, end, step=step, source=source, archive=archive)
 
 
+def counts_from_qiskit(
+    circuits: Any,
+    counts: Any,
+    *,
+    profile: Profile,
+    run_at: datetime,
+    backend: str | None = None,
+    job_ids: Sequence[str] = (),
+    source: str = "hardware",
+    client: str | None = None,
+    options: Mapping[str, Any] | None = None,
+    dt: float | None = None,
+    gate_twirling: bool = False,
+    measure_twirling: bool = False,
+    dynamical_decoupling: bool = False,
+    init_qubits: bool = True,
+) -> MeasuredCounts:
+    """A counts file for Qiskit circuits that a device ran, and their Qiskit counts.
+
+    Give the circuits as the device ran them: native gates on the physical qubits of the device,
+    with each measurement after the last gate on its qubit. ``counts`` holds one dict of Qiskit
+    bit strings for each circuit. ``profile`` is the calibration that the counts bind to, and
+    ``run_at`` is when the device started the first circuit. ``dt`` is the sample time of the
+    device in seconds, for delays in ``dt``. The run flags state how the device ran the circuits.
+    """
+    from .frameworks.qiskit import counts_from_qiskit as convert
+
+    return convert(
+        circuits,
+        counts,
+        profile=profile,
+        run_at=run_at,
+        backend=backend,
+        job_ids=job_ids,
+        source=source,
+        client=client,
+        options=options,
+        dt=dt,
+        gate_twirling=gate_twirling,
+        measure_twirling=measure_twirling,
+        dynamical_decoupling=dynamical_decoupling,
+        init_qubits=init_qubits,
+    )
+
+
+def from_ibm_job(job: Any, *, source: str = "ibm") -> tuple[Profile, MeasuredCounts]:
+    """The calibration in effect when a SamplerV2 job of IBM Quantum ran, and its counts.
+
+    The calibration comes from ``source`` (``"ibm"`` with no account, or ``"ibm-account"``) and
+    goes into the vault, as ``nv.pull`` saves it.
+    """
+    from .sources.ibm_job import from_ibm_job as read
+
+    return read(job, source=source)
+
+
 def __getattr__(name: str) -> Any:
     if name in _LAZY_MODULES:
         return importlib.import_module(_LAZY_MODULES[name])
@@ -177,10 +235,12 @@ __all__ = [
     "UnsupportedEffect",
     "__version__",
     "calibration_archive_devices",
+    "counts_from_qiskit",
     "from_braket",
     "from_calibration_archive",
     "from_cirq_google",
     "from_ibm_csv",
+    "from_ibm_job",
     "from_iqm",
     "from_qiskit_backend",
     "from_rigetti",

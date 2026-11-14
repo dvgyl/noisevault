@@ -415,6 +415,7 @@ class Pulled(NamedTuple):
     profile: Profile
     path: Path
     written: bool  # False when the vault already held this calibration
+    at: datetime | None = None
 
 
 def pull(
@@ -423,16 +424,19 @@ def pull(
     at: str | date | datetime | None = None,
     source: str | None = None,
     output: str | Path | None = None,
+    job: str | None = None,
 ) -> Profile:
     """Download a calibration from a live source and save it (to the vault, or to ``output``).
 
+    ``job`` is the id of an IBM Quantum job on ``device``. The pull then takes the calibration in
+    effect when the job started to run. Reading the job needs the saved IBM Quantum account.
     Pulling a calibration that the vault already holds (same id and fingerprint) writes nothing,
     so repeated pulls leave one file per calibration. A pull that imports the same calibration
     differently (for example, after a NoiseVault upgrade) replaces the older file and warns. A
     pull to the vault never replaces a file of another calibration. A pull to ``output``
     replaces the file that you name, whichever calibration the file holds.
     """
-    return pull_and_save(device, at=at, source=source, output=output).profile
+    return pull_and_save(device, at=at, source=source, output=output, job=job).profile
 
 
 def pull_and_save(
@@ -441,17 +445,37 @@ def pull_and_save(
     at: str | date | datetime | None = None,
     source: str | None = None,
     output: str | Path | None = None,
+    job: str | None = None,
 ) -> Pulled:
     source = source.strip().lower() if source else _default_source(device)
     if source not in _PULL_SOURCES:
         raise _unknown_source(source)
+    if job is not None:
+        at = _job_time(device, job, at)
     when = None if at is None else as_utc(at)
     module = importlib.import_module(_PULL_SOURCES[source])
     profile = module.pull(device, at=when)
     if output is not None:
-        return Pulled(profile, profile.save(output), written=True)
+        return Pulled(profile, profile.save(output), written=True, at=when)
     path = _earlier_path(profile) or vault_path(profile)
-    return Pulled(profile, path, _save_in_vault(profile, path))
+    return Pulled(profile, path, _save_in_vault(profile, path), at=when)
+
+
+def _job_time(device: str, job: str, at: str | date | datetime | None) -> datetime:
+    from .sources.ibm_job import job_start
+
+    if at is not None:
+        raise _BadArgument(
+            "give the time of the calibration with at= or job=, not both",
+            hint="remove at=, because the job gives the time",
+        )
+    ran_on, started = job_start(job)
+    if ran_on != device:
+        raise _BadArgument(
+            f"job {job} ran on {ran_on}, not on {device}",
+            hint=f"pull {ran_on}, the device of the job",
+        )
+    return started
 
 
 def _earlier_path(profile: Profile) -> Path | None:

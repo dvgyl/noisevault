@@ -18,10 +18,10 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from .counts import PlannedCircuit
+from .counts import PlannedCircuit, outcome_probabilities
 from .errors import NoiseVaultError
 from .metrics import METRIC_KEYS
-from .reference import MAX_QUBITS, probabilities
+from .reference import MAX_QUBITS
 from .suite import ASSUMED_GATE_FACTOR, role
 
 if TYPE_CHECKING:
@@ -98,7 +98,7 @@ def information(
         if has_readout:
             block["readout"] = {"factor": readout_factor * math.exp(log_readout)}
         scaled = base.model_copy(update={"unmodeled_error": block or None})
-        return probabilities(scaled, circuit.ops, len(circuit.qubits), layout=circuit.qubits)
+        return outcome_probabilities(scaled, circuit, unknown_gates="typical")
 
     def slope(present: bool, step: tuple[float, float]) -> np.ndarray:
         if not present:

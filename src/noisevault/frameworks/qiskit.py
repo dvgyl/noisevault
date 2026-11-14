@@ -22,7 +22,7 @@ cx -> sqrt_iswap rule to the session equivalence library of Qiskit. With this ru
 from __future__ import annotations
 
 from collections import Counter
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from functools import cache
 from itertools import permutations, product
@@ -30,8 +30,17 @@ from math import pi
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
+from pydantic import ValidationError
 
-from ..errors import DisabledGateError, LociText, NoiseVaultError, install_hint, qubit_loci
+from ..errors import (
+    CountsError,
+    DisabledGateError,
+    LociText,
+    NoiseVaultError,
+    install_hint,
+    plural,
+    qubit_loci,
+)
 
 try:
     import qiskit
@@ -43,11 +52,13 @@ except ImportError as exc:
 
 from qiskit.circuit import (
     Barrier,
+    ControlFlowOp,
     Delay,
     Gate,
     Measure,
     Operation,
     Parameter,
+    ParameterExpression,
     QuantumCircuit,
     Qubit,
     Reset,
@@ -80,6 +91,9 @@ from ..report import Report
 from ..table import GateNoise, NoiseTable, QubitNoise, Unavailable, refuse_disabled
 
 if TYPE_CHECKING:
+    from datetime import datetime
+
+    from ..counts import MeasuredCounts, PlannedCircuit
     from ..profile import Profile
 
 # Canonical natives with no Qiskit instruction, exported as the gate that contains them.
@@ -948,3 +962,260 @@ def _report_fixed(
     if timed:
         idle += " (insert delays with transpile(circuit, sim, scheduling_method='alap'))"
     report.omit(idle)
+
+
+# counts of a device run ---------------------------------------------------------------------
+
+_REGISTRY_NAMES = {
+    info.qiskit or name: name
+    for name, info in gates.GATES.items()
+    if info.unitary is not None and (info.qiskit is not None or name in _OWN_GATES)
+}
+_TRANSPILE_HINT = (
+    "transpile the circuit to the basis gates of the device, such as"
+    " transpile(circuit, backend), and give the circuit that the device ran"
+)
+_COUNTS_HINT = (
+    "give the counts of this circuit as Qiskit gives them, such as"
+    " result[0].join_data().get_counts()"
+)
+_BIND_HINT = "bind the parameters first, such as circuit.assign_parameters(values)"
+
+
+@dataclass(frozen=True)
+class _ReadCircuit:
+    planned: PlannedCircuit
+    clbits: int
+    written: tuple[int, ...]
+
+
+def planned_circuit(
+    circuit: QuantumCircuit, *, dt: float | None = None, name: str | None = None
+) -> PlannedCircuit:
+    """The circuit of a counts file for a Qiskit circuit that a device ran.
+
+    ``circuit`` uses the native gates of the device, on the physical qubits of the device, with
+    each measurement after the last gate on its qubit. The circuit qubits are the device qubits
+    with a gate or a measurement, in ascending order. The key bits are the classical bits that a
+    measurement writes, in ascending order. Barriers, the global phase and delays on unused
+    qubits drop out. ``dt`` is the sample time of the device in seconds, for delays in ``dt``.
+    ``name`` defaults to ``circuit.name``. Raises CountsError for a circuit that a counts file
+    cannot hold.
+    """
+    return _read_circuit(circuit, dt=dt, name=name).planned
+
+
+def counts_from_qiskit(
+    circuits: QuantumCircuit | Sequence[QuantumCircuit],
+    counts: Mapping[str, int] | Sequence[Mapping[str, int]],
+    *,
+    profile: Profile,
+    run_at: datetime,
+    backend: str | None = None,
+    job_ids: Sequence[str] = (),
+    source: str = "hardware",
+    client: str | None = None,
+    options: Mapping[str, Any] | None = None,
+    dt: float | None = None,
+    gate_twirling: bool = False,
+    measure_twirling: bool = False,
+    dynamical_decoupling: bool = False,
+    init_qubits: bool = True,
+) -> MeasuredCounts:
+    """A counts file for Qiskit circuits that a device ran, and their counts.
+
+    ``circuits`` are the circuits as the device ran them (see :func:`planned_circuit`), and
+    ``counts`` holds one dict of Qiskit bit strings for each circuit, classical bit 0 rightmost.
+    Spaces between registers are removed. ``profile`` is the calibration that the counts bind
+    to, and ``backend`` defaults to its device. ``run_at`` is when the device started the first
+    circuit. The run flags state how the device ran the circuits. A value that the counts format
+    does not accept raises CountsError, as ``load_counts`` does.
+    """
+    from ..counts import COUNTS_FORMAT, MEASURED_FORMAT, MeasuredCounts, _first_issue
+
+    many = not isinstance(circuits, QuantumCircuit)
+    listed = list(circuits) if many else [circuits]
+    found = list(counts) if many else [counts]
+    if len(found) != len(listed):
+        raise CountsError(
+            f"{plural(len(listed), 'circuit')} and {plural(len(found), 'counts dict')}",
+            hint="give one counts dict for each circuit, in the same order",
+        )
+    circuits_data = []
+    for read, keys in zip((_read_circuit(c, dt=dt) for c in listed), found, strict=True):
+        keyed = _keys(read, keys)
+        circuits_data.append(
+            {**read.planned.model_dump(), "shots": sum(keyed.values()), "counts": keyed}
+        )
+    uses_measured = any("measured" in c for c in circuits_data)
+    data = {
+        "nv_counts": MEASURED_FORMAT if uses_measured else COUNTS_FORMAT,
+        "source": source,
+        "profile": {"id": profile.id, "fingerprint": profile.calibration_fingerprint},
+        "backend": profile.device.name if backend is None else backend,
+        "run_at": run_at,
+        "bit_order": "clbit0_left",
+        "execution": {
+            "client": f"qiskit {qiskit.__version__}" if client is None else client,
+            "transpiled": False,
+            "gate_twirling": gate_twirling,
+            "measure_twirling": measure_twirling,
+            "dynamical_decoupling": dynamical_decoupling,
+            "init_qubits": init_qubits,
+            "job_ids": list(job_ids),
+            "options": dict(options or {}),
+        },
+        "circuits": circuits_data,
+    }
+    try:
+        return MeasuredCounts.model_validate(data)
+    except ValidationError as exc:
+        message, hint = _first_issue(exc)
+        raise CountsError(message, hint=hint) from None
+
+
+def _read_circuit(
+    circuit: QuantumCircuit, *, dt: float | None, name: str | None = None
+) -> _ReadCircuit:
+    from ..counts import MAX_CIRCUIT_QUBITS, PlannedCircuit, _first_issue
+    from ..reference import Op
+
+    label = circuit.name if name is None else name
+
+    def refuse(message: str, hint: str) -> CountsError:
+        return CountsError(f"circuit {label}: {message}", hint=hint)
+
+    qubit_index = {q: i for i, q in enumerate(circuit.qubits)}
+    clbit_index = {c: i for i, c in enumerate(circuit.clbits)}
+    measured_into: dict[int, int] = {}
+    measured: set[int] = set()
+    used: set[int] = set()
+    steps: list[tuple[str, tuple[int, ...], tuple[float, ...]]] = []
+    for instruction in circuit.data:
+        op = instruction.operation
+        qubits = tuple(qubit_index[q] for q in instruction.qubits)
+        if isinstance(op, Barrier):
+            continue
+        if isinstance(op, ControlFlowOp):
+            raise refuse(
+                f"{op.name} is a classical condition, and a counts file holds no classical control",
+                hint="give a circuit with no if_test, for_loop, while_loop or switch",
+            )
+        if isinstance(op, Measure):
+            (q,), (c,) = qubits, [clbit_index[b] for b in instruction.clbits]
+            if q in measured:
+                raise refuse(
+                    f"qubit {q} is measured twice",
+                    hint="measure each qubit once, after its last gate",
+                )
+            if c in measured_into:
+                raise refuse(
+                    f"classical bit {c} is written twice",
+                    hint="measure each qubit into its own classical bit",
+                )
+            measured.add(q)
+            measured_into[c] = q
+            used.add(q)
+            continue
+        if isinstance(op, Delay):
+            if not set(qubits) & measured:
+                steps.append(("delay", qubits, (_delay_in_ns(op, qubits[0], dt, refuse),)))
+            continue
+        after = next((q for q in qubits if q in measured), None)
+        if after is not None:
+            raise refuse(
+                f"{op.name} on qubit {after} comes after a measurement of that qubit (a"
+                " mid-circuit measurement)",
+                hint="measure each qubit after its last gate",
+            )
+        if isinstance(op, Reset):
+            raise refuse(
+                f"reset on qubit {qubits[0]}, but each shot of a counts file starts with each"
+                " qubit in 0",
+                hint="remove the reset",
+            )
+        registry = _REGISTRY_NAMES.get(op.name)
+        if registry is None:
+            raise refuse(f"{op.name} is not a gate that NoiseVault can simulate", _TRANSPILE_HINT)
+        unbound = next(
+            (p for p in op.params if isinstance(p, ParameterExpression) and p.parameters), None
+        )
+        if unbound is not None:
+            raise refuse(
+                f"{op.name} on qubit {qubits[0]} has the unbound parameter {unbound}", _BIND_HINT
+            )
+        used.update(qubits)
+        steps.append((registry, qubits, tuple(float(p) for p in op.params)))
+    if not measured_into:
+        raise refuse(
+            "the circuit measures no qubit",
+            hint="measure the qubits after their last gate, such as circuit.measure_all()",
+        )
+    if len(used) > MAX_CIRCUIT_QUBITS:
+        raise refuse(
+            f"the circuit uses {len(used)} qubits, more than the {MAX_CIRCUIT_QUBITS} that a"
+            " counts file holds for one circuit",
+            hint="give a circuit on fewer qubits",
+        )
+    order = sorted(used)
+    position = {q: i for i, q in enumerate(order)}
+    ops = tuple(
+        Op(op_name, tuple(position[q] for q in qubits), params)
+        for op_name, qubits, params in steps
+        if all(q in position for q in qubits)
+    )
+    written = tuple(sorted(measured_into))
+    try:
+        planned = PlannedCircuit(
+            name=label,
+            qubits=tuple(order),
+            ops=ops,
+            measured=tuple(position[measured_into[c]] for c in written),
+        )
+    except ValidationError as exc:
+        message, hint = _first_issue(exc)
+        raise refuse(message, hint or _TRANSPILE_HINT) from None
+    return _ReadCircuit(planned, len(circuit.clbits), written)
+
+
+def _delay_in_ns(
+    op: Delay, q: int, dt: float | None, refuse: Callable[[str, str], CountsError]
+) -> float:
+    if isinstance(op.duration, ParameterExpression):
+        raise refuse(f"the delay on qubit {q} has the unbound duration {op.duration}", _BIND_HINT)
+    if op.unit != "dt":
+        return float(op.duration) * _TIME_UNITS_NS[op.unit]
+    if dt is None:
+        raise refuse(
+            f"the delay on qubit {q} lasts {op.duration} dt, but the circuit does not say how"
+            " long dt is",
+            hint="give dt=, the sample time of the device in seconds, such as backend.dt",
+        )
+    return float(op.duration) * dt * 1e9
+
+
+def _keys(read: _ReadCircuit, counts: Mapping[str, int]) -> dict[str, int]:
+    """The counts with keys in the order of the key bits, the first key bit leftmost."""
+    label = read.planned.name
+    out: dict[str, int] = {}
+    for key, times in counts.items():
+        bits = key.replace(" ", "") if isinstance(key, str) else ""
+        if len(bits) != read.clbits or not set(bits) <= {"0", "1"}:
+            raise CountsError(
+                f"circuit {label}: key {key!r} is not {plural(read.clbits, 'bit')} of 0 or 1,"
+                " one for each classical bit of the circuit",
+                hint=_COUNTS_HINT,
+            )
+        stray = next(
+            (c for c in range(read.clbits) if c not in read.written and bits[-1 - c] == "1"),
+            None,
+        )
+        if stray is not None:
+            raise CountsError(
+                f"circuit {label}: key {key!r} has classical bit {stray} set to 1, but no"
+                " measurement writes that bit",
+                hint=_COUNTS_HINT,
+            )
+        kept = "".join(bits[-1 - c] for c in read.written)
+        out[kept] = out.get(kept, 0) + times
+    return out

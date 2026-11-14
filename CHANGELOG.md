@@ -32,6 +32,26 @@ This file lists all notable changes to NoiseVault. Versions follow
   IBM's public endpoint (no account), the profiles that load offline, and a local copy of the
   IBM calibration archive. A failed step stops the command, and the command writes no file.
   [docs/history.md](docs/history.md)
+- **Score a noise model on the device counts of your own circuit.**
+  `nv.counts_from_qiskit(circuits, counts, profile=..., run_at=...)` makes a counts file from
+  Qiskit circuits, as the device ran them, and their Qiskit counts.
+  `nv.from_ibm_job(job)` reads a SamplerV2 job of IBM Quantum and gives the calibration in
+  effect when the job ran, and the counts. Then `profile.score(counts)` measures the gap. The
+  functions refuse a circuit that a counts file cannot hold, such as a circuit with a
+  mid-circuit measurement, and the hint says what to do.
+  [docs/why-different.md](docs/why-different.md)
+- **`nv pull DEVICE --job JOB_ID`** saves the calibration in effect when an IBM Quantum job
+  started to run, and prints that time. `nv.pull(device, job=...)` does the same in Python.
+  Reading the job needs your saved IBM Quantum account.
+- **Counts format 1.1: a circuit can measure a part of its qubits, in any order.** The optional
+  field `measured` of a circuit lists the measured circuit qubits in the order of the key bits.
+  A file with no `measured` field stays format 1.0, byte for byte.
+  `noisevault.counts.outcome_probabilities` gives the forecast of each key. The stabilizer
+  forecast of `noisevault.wide` refuses a circuit with `measured`.
+  [docs/counts-format.md](docs/counts-format.md#measured-qubits)
+- **The score summary names the circuit with the largest excess**, in a last line such as
+  `largest excess mirror (0.01704)`.
+
 - **`nv score` works on a run of the deep circuit set and shows its probe circuits.** By
   default, `score` and `nv score` leave out the probe circuits and each circuit on more than 10
   qubits, and `Forecast.left_out` names them. A probe circuit has the name `axis_d` or

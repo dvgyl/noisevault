@@ -26,14 +26,17 @@ from pydantic import (
     BeforeValidator,
     Field,
     PlainSerializer,
+    SerializerFunctionWrapHandler,
     Strict,
     ValidationError,
     ValidationInfo,
     field_validator,
+    model_serializer,
     model_validator,
 )
 
 from . import __version__, check, gates
+from .conversion import UnknownGates
 from .errors import (
     CountsError,
     LayoutError,
@@ -62,14 +65,17 @@ from .profile import (
     write_atomically,
 )
 from .reference import MAX_QUBITS, Op, charged_as, outcome_bits, probabilities
+from .report import Report
 from .table import GateNoise
 
 COUNTS_FORMAT = "1.0"
+MEASURED_FORMAT = "1.1"
+COUNTS_FORMATS = (COUNTS_FORMAT, MEASURED_FORMAT)
 # A circuit can be wider than the exact simulator holds. Only the stabilizer forecast scores it.
 MAX_CIRCUIT_QUBITS = 256
 WIDE_HINT = (
-    f"select the circuits of {MAX_QUBITS} qubits or fewer, or score the wider circuits with the"
-    " stabilizer score of study/wide.py"
+    f"select the circuits of {MAX_QUBITS} qubits or fewer, or score the wider circuits with"
+    " noisevault.events.score_wide"
 )
 _MAX_OUTCOMES = 4096
 _MAX_SHOTS = 10_000_000_000
@@ -82,7 +88,7 @@ _OP_EXAMPLE = '["rz", [0], [1.5708]]'
 _KEY_HINT = "write each key in 0 and 1, one bit per circuit qubit"
 _DELAY_HINT = 'give the idle time in nanoseconds, 0 or more, such as ["delay", [0], [68.0]]'
 _NOT_OPS = {
-    "measure": "the device measures every circuit qubit once, after the last op",
+    "measure": "the device measures each measured circuit qubit once, after the last op",
     "reset": "every shot starts with each qubit in 0",
 }
 _OP_NAMES = sorted(["delay", *(n for n, g in gates.GATES.items() if g.unitary is not None)])
@@ -298,12 +304,62 @@ def _option(options: Mapping[str, Any], path: str) -> tuple[str, Any] | None:
 class PlannedCircuit(_Model):
     """A circuit on physical qubits. Circuit qubit i is ``qubits[i]``.
 
-    After every op, the device measures all qubits together, circuit qubit i into classical bit i.
+    After every op, the device measures the circuit qubits of ``measured`` together. Bit j of a
+    counts key is circuit qubit ``measured[j]``. With ``measured`` None, the device measures all
+    qubits, circuit qubit i into bit i.
     """
 
     name: Text
     qubits: Annotated[tuple[QubitIndex, ...], Field(min_length=1, max_length=MAX_CIRCUIT_QUBITS)]
     ops: tuple[WireOp, ...]
+    measured: tuple[QubitIndex, ...] | None = None
+
+    @field_validator("measured")
+    @classmethod
+    def _measured_fits(
+        cls, measured: tuple[int, ...] | None, info: ValidationInfo
+    ) -> tuple[int, ...] | None:
+        qubits = info.data.get("qubits")
+        if measured is None or qubits is None:
+            return measured
+        if not measured:
+            raise CountsError(
+                "measured lists no circuit qubit",
+                hint="list the measured circuit qubits, or remove measured to measure every qubit",
+            )
+        repeated = next((q for q, times in Counter(measured).items() if times > 1), None)
+        if repeated is not None:
+            raise CountsError(
+                f"measured lists circuit qubit {repeated} twice",
+                hint="the device measures each circuit qubit at most once",
+            )
+        outside = next((q for q in measured if q >= len(qubits)), None)
+        if outside is not None:
+            raise CountsError(
+                f"measured lists circuit qubit {outside}, but the circuit has"
+                f" {plural(len(qubits), 'qubit')}",
+                hint="measured lists circuit qubits, which are indices into qubits",
+            )
+        return None if measured == tuple(range(len(qubits))) else measured
+
+    @model_serializer(mode="wrap")
+    def _no_measured_field(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        data = handler(self)
+        if self.measured is None:
+            data.pop("measured", None)
+        return data
+
+    @property
+    def width(self) -> int:
+        """The number of bits in a counts key, which is the number of measured qubits."""
+        return len(self.qubits) if self.measured is None else len(self.measured)
+
+    @property
+    def measured_qubits(self) -> tuple[int, ...]:
+        """The physical qubits that the device measures, in the order of the key bits."""
+        if self.measured is None:
+            return self.qubits
+        return tuple(self.qubits[i] for i in self.measured)
 
     @model_validator(mode="after")
     def _ops_fit(self) -> PlannedCircuit:
@@ -345,7 +401,8 @@ class MeasuredCircuit(PlannedCircuit):
     @field_validator("counts")
     @classmethod
     def _canonical_counts(cls, counts: dict[str, int], info: ValidationInfo) -> FrozenDict:
-        width = len(info.data.get("qubits", ()))
+        measured = info.data.get("measured")
+        width = len(measured) if measured else len(info.data.get("qubits", ()))
         for key in counts:
             if not set(key) <= {"0", "1"}:
                 raise CountsError(
@@ -370,14 +427,14 @@ class MeasuredCircuit(PlannedCircuit):
         return self
 
     def vector(self) -> np.ndarray:
-        """A new int64 array of 2**n counts, big-endian, as in the reference model.
+        """A new int64 array of 2**width counts, in the order of :func:`outcome_probabilities`.
 
-        Circuit qubit 0 is the most significant bit. Each call makes a new array, so the model
-        stays immutable and its ``sha256`` stays correct. Raises CountsError for a circuit on more
-        than ``MAX_QUBITS`` qubits, whose counts stay a dict of bit strings.
+        The first bit of a key is the most significant bit. Each call makes a new array, so the
+        model stays immutable and its ``sha256`` stays correct. Raises CountsError for a circuit
+        on more than ``MAX_QUBITS`` qubits, whose counts stay a dict of bit strings.
         """
         refuse_wide([self], "a vector of all outcomes can hold")
-        width = len(self.qubits)
+        width = self.width
         keys = (outcome_bits(index, width) for index in range(2**width))
         return np.array([self.counts.get(key, 0) for key in keys], dtype=np.int64)
 
@@ -388,7 +445,7 @@ class MeasuredCounts(_Model):
     "clbit0_left".
     """
 
-    nv_counts: Literal["1.0"]
+    nv_counts: Literal["1.0", "1.1"]
     source: CountsSource
     profile: ProfileBinding
     backend: Text
@@ -396,6 +453,28 @@ class MeasuredCounts(_Model):
     bit_order: BitOrder
     execution: Execution
     circuits: Annotated[tuple[MeasuredCircuit, ...], Field(min_length=1)]
+
+    @model_validator(mode="before")
+    @classmethod
+    def _version(cls, data: Any) -> Any:
+        """Format 1.1 when a circuit has ``measured``, else format 1.0."""
+        if not isinstance(data, Mapping) or data.get("nv_counts") not in COUNTS_FORMATS:
+            return data
+        circuits = data.get("circuits")
+        if not isinstance(circuits, list | tuple):
+            return data
+        given = [
+            c.measured if isinstance(c, PlannedCircuit) else c.get("measured")
+            for c in circuits
+            if isinstance(c, PlannedCircuit | Mapping)
+        ]
+        if data["nv_counts"] == COUNTS_FORMAT and any(m is not None for m in given):
+            raise CountsError(
+                f'a circuit has measured, which counts format "{COUNTS_FORMAT}" does not have',
+                hint=f'set "nv_counts" to "{MEASURED_FORMAT}"',
+            )
+        uses = any(_sets_measured(c) for c in circuits)
+        return {**data, "nv_counts": MEASURED_FORMAT if uses else COUNTS_FORMAT}
 
     @model_validator(mode="before")
     @classmethod
@@ -412,7 +491,7 @@ class MeasuredCounts(_Model):
             counts = circuit.get("counts") if isinstance(circuit, Mapping) else None
             # With a refused count, no key turns, so the error names the key as the file has it.
             if isinstance(counts, Mapping) and all(map(_is_count, counts.values())):
-                qubits = circuit.get("qubits")
+                qubits = circuit.get("measured") or circuit.get("qubits")
                 width = len(qubits) if isinstance(qubits, list | tuple) else None
                 # A refused key keeps its order, so the error names the key as the file has it.
                 reverse = {(k[::-1] if _is_key(k, width) else k): v for k, v in counts.items()}
@@ -430,7 +509,7 @@ class MeasuredCounts(_Model):
                     hint="give each circuit its own name",
                 )
             names.add(circuit.name)
-        outcomes = sum(2 ** len(c.qubits) for c in self.circuits if len(c.qubits) <= MAX_QUBITS)
+        outcomes = sum(2**c.width for c in self.circuits if len(c.qubits) <= MAX_QUBITS)
         if outcomes > _MAX_OUTCOMES:
             raise CountsError(
                 f"the circuits have {outcomes} outcomes in all, more than the {_MAX_OUTCOMES}"
@@ -447,7 +526,7 @@ class MeasuredCounts(_Model):
     @property
     def qubits(self) -> tuple[int, ...]:
         """Every physical qubit measured, in first-seen order."""
-        return tuple(dict.fromkeys(q for c in self.circuits for q in c.qubits))
+        return tuple(dict.fromkeys(q for c in self.circuits for q in c.measured_qubits))
 
     def model_copy(
         self, *, update: Mapping[str, Any] | None = None, deep: bool = False
@@ -558,10 +637,10 @@ def load_counts(path: str | Path) -> MeasuredCounts:
             f"{path} is not a counts file (it has no nv_counts key)",
             hint=f'give a counts file, which holds "nv_counts": "{COUNTS_FORMAT}"',
         )
-    if data["nv_counts"] != COUNTS_FORMAT:
+    if data["nv_counts"] not in COUNTS_FORMATS:
         raise CountsError(
             f"{path} is counts format {_shown(data['nv_counts'])}, and this NoiseVault reads"
-            f' only "{COUNTS_FORMAT}"',
+            f' only "{COUNTS_FORMAT}" and "{MEASURED_FORMAT}"',
             hint="upgrade NoiseVault to read a newer format",
         )
     try:
@@ -669,27 +748,26 @@ def simulate(
     rng = np.random.default_rng(seed)
     measured = []
     for circuit in circuits:
-        n = len(circuit.qubits)
         try:
-            probs = probabilities(
-                truth, circuit.ops, n, layout=circuit.qubits, readout=True, unknown_gates="error"
-            )
+            probs = outcome_probabilities(truth, circuit)
         except NoiseVaultError as exc:
             raise type(exc)(f"circuit {circuit.name!r}: {exc.message}", hint=exc.hint) from None
         draws = rng.multinomial(shots, probs)
-        counts = {outcome_bits(i, n): int(k) for i, k in enumerate(draws)}
+        counts = {outcome_bits(i, circuit.width): int(k) for i, k in enumerate(draws)}
         measured.append(
             {
                 "name": circuit.name,
                 "qubits": circuit.qubits,
                 "ops": circuit.ops,
+                "measured": circuit.measured,
                 "shots": shots,
                 "counts": counts,
             }
         )
+    uses_measured = any(c.measured is not None for c in circuits)
     return MeasuredCounts.model_validate(
         {
-            "nv_counts": COUNTS_FORMAT,
+            "nv_counts": MEASURED_FORMAT if uses_measured else COUNTS_FORMAT,
             "source": "simulated",
             "profile": ProfileBinding(id=truth.id, fingerprint=truth.calibration_fingerprint),
             "backend": truth.device.name,
@@ -709,6 +787,39 @@ def simulate(
     )
 
 
+def outcome_probabilities(
+    profile: Profile,
+    circuit: PlannedCircuit,
+    *,
+    readout: bool = True,
+    unknown_gates: UnknownGates = "error",
+    report: Report | None = None,
+) -> np.ndarray:
+    """The probability of each counts key of ``circuit``, in the order of ``vector()``.
+
+    The reference simulator runs all circuit qubits. The result sums over the qubits that the
+    circuit does not measure, and puts the other qubits in the order of ``measured``. Readout
+    error acts on each qubit alone, so the sum is the same before and after readout.
+    """
+    n = len(circuit.qubits)
+    probs = probabilities(
+        profile,
+        circuit.ops,
+        n,
+        layout=circuit.qubits,
+        readout=readout,
+        unknown_gates=unknown_gates,
+        report=report,
+    )
+    if circuit.measured is None:
+        return probs
+    kept = sorted(circuit.measured)
+    dropped = tuple(i for i in range(n) if i not in circuit.measured)
+    grid = probs.reshape((2,) * n).sum(axis=dropped)
+    order = [kept.index(i) for i in circuit.measured]
+    return np.ascontiguousarray(np.transpose(grid, order)).reshape(-1)
+
+
 def refuse_wide(circuits: Iterable[PlannedCircuit], task: str) -> None:
     """Raise CountsError for the first circuit on more qubits than the exact simulator holds.
 
@@ -721,6 +832,20 @@ def refuse_wide(circuits: Iterable[PlannedCircuit], task: str) -> None:
             f" that {task}",
             hint=WIDE_HINT,
         )
+
+
+def _sets_measured(circuit: Any) -> bool:
+    """True when a circuit keeps a ``measured`` field after validation."""
+    if isinstance(circuit, PlannedCircuit):
+        return circuit.measured is not None
+    if not isinstance(circuit, Mapping) or circuit.get("measured") is None:
+        return False
+    measured, qubits = circuit["measured"], circuit.get("qubits")
+    return not (
+        isinstance(measured, list | tuple)
+        and isinstance(qubits, list | tuple)
+        and list(measured) == list(range(len(qubits)))
+    )
 
 
 def _is_key(key: Any, width: int | None) -> bool:

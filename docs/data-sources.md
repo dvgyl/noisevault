@@ -55,6 +55,8 @@ recalibrated the devices many times since then. To get current numbers, pull a n
 ## Pulled sources
 
 `nv pull DEVICE [--at TIME] [--source NAME] [-o FILE]` picks the source from the device id.
+With `--job JOB_ID` in place of `--at`, `nv pull` takes the start time of an IBM Quantum job as
+the time. Reading the job needs your saved IBM Quantum account, and `nv pull` prints the time.
 If the vault already has the calibration, `nv pull` writes nothing.
 With `-o FILE`, `nv pull` writes to FILE and replaces a file that is there.
 A download from a vendor can have at most 64 MiB, and `nv pull` follows a redirect only to

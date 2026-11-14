@@ -123,6 +123,10 @@ A profile gives three things that a fake backend does not:
 For a fake backend that NoiseVault does not bundle, `nv.from_qiskit_backend(backend)` makes a
 profile. This function needs the `ibm` extra.
 
+When your device result differs much from your fake-backend simulation,
+[My device result differs from my simulation](docs/why-different.md) measures the gap for your
+own circuit.
+
 ## Pin a calibration
 
 A bundled profile holds one calibration. `nv pull` fetches other calibrations from IBM's public

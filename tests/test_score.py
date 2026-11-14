@@ -595,7 +595,9 @@ def test_select_gives_the_forecast_of_the_named_circuits_with_no_new_simulation(
     kingston = nv.load(KINGSTON)
     counts = kingston_counts(shots=500)
     whole = score(kingston, counts)
-    monkeypatch.setattr("noisevault.score.probabilities", lambda *a, **k: pytest.fail("simulated"))
+    monkeypatch.setattr(
+        "noisevault.score.outcome_probabilities", lambda *a, **k: pytest.fail("simulated")
+    )
 
     part = whole.select(["readout", "mirror"])
 
@@ -680,6 +682,24 @@ def test_named_circuits_keep_a_probe_circuit_and_refuse_a_wide_one() -> None:
     with pytest.raises(CountsError, match="only probe circuits") as info:
         score(profile, counts.select(["axis_d4", "clifford_n12_d1"]))
     assert info.value.hint == "name the circuits to score with circuits="
+
+
+def test_the_summary_names_the_circuit_with_the_largest_excess() -> None:
+    result = score(nv.load(KINGSTON), kingston_counts())
+    top = max(result.circuits, key=lambda c: c.excess)
+    assert result.summary().splitlines()[-1] == f"largest excess {top.name} ({top.excess:.5f})"
+    one = result.select([top.name])
+    assert "largest excess" not in one.summary()
+
+
+def test_counts_of_only_wide_circuits_give_the_wide_circuit_error() -> None:
+    profile = two_qubit_device()
+    counts = run_of(profile, [READOUT, WIDE]).select(["clifford_n12_d1"])
+    with pytest.raises(CountsError) as info:
+        score(profile, counts)
+    assert info.value.message == (
+        "circuit clifford_n12_d1 has 12 qubits, more than the 10 that score can simulate"
+    )
 
 
 def test_a_long_list_of_left_out_circuits_is_cut() -> None:
