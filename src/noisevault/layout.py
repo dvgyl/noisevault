@@ -134,8 +134,9 @@ def has_chain(profile: Profile, n: int) -> bool:
 def unusable_qubits(profile: Profile) -> dict[int, str]:
     """Each qubit that a circuit should not use, with the reason, from the stated values.
 
-    A qubit is unusable when the profile disables it, when its P(1|0) or P(0|1) is 0.5 or more,
-    or when it has 2-qubit gates and each one is disabled or at or past full depolarization.
+    A qubit is unusable for one of three reasons. The profile disables it. Its P(1|0) or P(0|1)
+    is 0.5 or more. It has 2-qubit gates, and none is usable: the profile disables each one or
+    gives it an error at or past full depolarization.
     """
     table = profile.uncorrected().table
     others = _neighbors(table, list(range(table.num_qubits)))

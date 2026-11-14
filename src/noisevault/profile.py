@@ -1019,9 +1019,10 @@ class Profile(_Model):
     def unusable_qubits(self) -> dict[int, str]:
         """Each qubit that a circuit should not use, with the reason in words.
 
-        A qubit is unusable when the profile disables it, when its stated P(1|0) or P(0|1) is
-        0.5 or more, or when it has 2-qubit gates and each one is disabled or at or past full
-        depolarization. ``suggest_layout`` leaves these qubits out.
+        A qubit is unusable for one of three reasons. The profile disables it. Its stated
+        P(1|0) or P(0|1) is 0.5 or more. It has 2-qubit gates, and none is usable: the profile
+        disables each one or gives it an error at or past full depolarization.
+        ``suggest_layout`` leaves these qubits out.
         """
         from .layout import unusable_qubits
 

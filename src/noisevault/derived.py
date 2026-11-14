@@ -22,18 +22,19 @@ def scaled(
 
     ``one_qubit`` multiplies the error metric of each 1-qubit gate, ``two_qubit`` the metric of
     each 2-qubit gate, and ``readout`` each readout probability. A Pauli metric has each entry
-    multiplied. A stated standard error is multiplied with its value. A value of exactly 0 stays
+    multiplied. A stated standard error gets the factor of its value. A value of exactly 0 stays
     0. Gates on 3 or more qubits, T1, T2, durations, preparation errors, effects and
-    ``unmodeled_error`` do not change. Two kinds of value also stay as stated, because they mark
-    a failure and not a level of noise: a gate error at or past full depolarization, and the
-    readout of a qubit with a P(1|0) or P(0|1) of 0.5 or more. ``unusable_qubits`` names such
-    qubits.
+    ``unmodeled_error`` do not change.
 
-    A factor of 1.0 for each group gives ``profile`` itself. Any other factors give a new
-    fingerprint, ``provenance.derived_from`` set to the fingerprint of ``profile``, and a note
-    with the factors and the number of failed values that stay as stated. A factor that puts a
-    value outside the valid range of its field raises ValueError, which names the value and the
-    largest valid factor of the group.
+    Two kinds of value mark a failure and not a level of noise, so they also stay as stated. One
+    is a gate error at or past full depolarization. The other is the readout of a qubit with a
+    P(1|0) or P(0|1) of 0.5 or more. ``unusable_qubits`` names such qubits.
+
+    A factor of 1.0 for each group gives ``profile`` itself. Other factors give a new
+    fingerprint and set ``provenance.derived_from`` to the fingerprint of ``profile``. A note
+    gives the factors and the number of failed values that stay as stated. A factor can put a
+    value outside the valid range of its field. Then ValueError names the value and the largest
+    valid factor of the group.
     """
     factors = {"one_qubit": one_qubit, "two_qubit": two_qubit, "readout": readout}
     for name, factor in factors.items():
@@ -45,8 +46,8 @@ def scaled(
         return profile
     if profile.unmodeled_error is not None and profile.unmodeled_error.fit is not None:
         raise ValueError(
-            "the unmodeled_error factors of this profile are fitted to its calibration, so they"
-            " do not apply to scaled errors. Scale profile.uncorrected() instead"
+            "nv compare fitted the unmodeled_error factors of this profile to its calibration, so"
+            " they do not apply to scaled errors. Scale profile.uncorrected() instead"
         )
     table = profile.table
     data = profile.to_dict()
@@ -65,7 +66,7 @@ def scaled(
             kept += 1
             return spec
         total = math.fsum(value) if kind == "pauli" else value
-        upper = 1.0 if kind in ("pauli", "process_infidelity") else _upper(kind, arity or 0)
+        upper = _upper(kind, arity or 0)
         if total > 0:
             limits[name].append((upper / total, f"{where} ({kind} {total:.3g})"))
         out = dict(spec)
@@ -231,9 +232,12 @@ def _metric_of(spec: Mapping[str, Any]) -> tuple[str, Any] | None:
 
 
 def _upper(kind: str, arity: int) -> float:
-    if kind == "avg_infidelity":
-        return metrics.max_avg_infidelity(arity)
-    return metrics.max_depolarizing_param(arity)
+    """The largest valid value of a metric: 1 for a Pauli sum and a process infidelity."""
+    limits = {
+        "avg_infidelity": metrics.max_avg_infidelity(arity),
+        "depolarizing_param": metrics.max_depolarizing_param(arity),
+    }
+    return limits.get(kind, 1.0)
 
 
 def _floor(value: float) -> str:
