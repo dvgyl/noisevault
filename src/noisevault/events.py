@@ -55,7 +55,7 @@ from .counts import COUNTS_FORMAT, Execution, MeasuredCounts, ProfileBinding
 from .errors import CountsError, NoiseVaultError, joined, plural
 from .profile import Profile, ref_on_day
 from .reference import MAX_QUBITS
-from .score import LEVEL, Choice, RuleTest, _columns, _log, _number, _test
+from .score import LEVEL, Choice, RuleTest, _columns, _log, _number, rule_test
 
 if TYPE_CHECKING:
     from .counts import MeasuredCircuit, PlannedCircuit
@@ -302,7 +302,7 @@ def compare(measured: Sequence[Events], a: Sequence[Sampled], b: Sequence[Sample
     )
     bit_test, bit_sampling = with_sampling(_shot_test(bit), bit_variance, total, few=few_bits)
     count_test, count_sampling = with_sampling(
-        _test("log", count, _log, group_rare=False), count_variance, total, few=few_cells
+        rule_test("log", count, _log, group_rare=False), count_variance, total, few=few_cells
     )
     return Paired(
         a=_scores(none, count, bit, 1),

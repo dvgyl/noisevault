@@ -390,8 +390,8 @@ def paired(a: Forecast, b: Forecast) -> PairedTest:
     elif a.ruled_out or b.ruled_out:
         log = RuleTest("log", "ruled_out", None, None, None, None, "b" if a.ruled_out else "a")
     else:
-        log = _test("log", pairs, _log, group_rare=True)
-    quadratic = _test("quadratic", pairs, _quadratic, group_rare=False)
+        log = rule_test("log", pairs, _log, group_rare=True)
+    quadratic = rule_test("quadratic", pairs, _quadratic, group_rare=False)
     return PairedTest(a=a, b=b, log=log, quadratic=quadratic)
 
 
@@ -946,7 +946,7 @@ def _quadratic(probs: np.ndarray) -> np.ndarray:
     return 2 * probs - probs @ probs
 
 
-def _test(
+def rule_test(
     rule: Rule,
     circuits: Sequence[tuple[np.ndarray, np.ndarray, np.ndarray]],
     rule_score: Callable[[np.ndarray], np.ndarray],
@@ -955,6 +955,11 @@ def _test(
 ) -> RuleTest:
     """The paired test of one rule. Each circuit gives its counts and the outcome
     probabilities of model a and of model b. No measured outcome has probability 0.
+
+    ``rule_score`` gives the score of each outcome from the probabilities, such as ``np.log``
+    for the log rule. With ``group_rare``, the test first takes the rare outcomes of a circuit
+    together as one outcome, as :func:`paired` does for the log rule. :func:`paired` calls this
+    function, and a study can call it on probabilities that no profile gives.
 
     The variance of the score difference in a circuit has two parts. The first part comes from
     the measured frequencies. The second part is for the outcomes that no shot showed: the
