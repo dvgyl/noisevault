@@ -102,7 +102,7 @@ _COLUMNS = (
 _US_PER_HOUR = 3_600_000_000
 _US_PER_DAY = 24 * _US_PER_HOUR
 # A key of a series and a time in seconds in one int64: the seconds stay below 2**34 to year 2514.
-_SERIES_STRIDE = 2**34
+SERIES_STRIDE = 2**34
 
 
 @dataclass(frozen=True)
@@ -201,8 +201,8 @@ def read_rows(path: Path, include_retired: bool = False) -> Rows:
     seconds = int(np.count_nonzero(in_seconds))
     del coherence, in_seconds
     flagged = pc.fill_null(table["is_failure_ceiling"], False).to_numpy(zero_copy_only=False)
-    time_us = _micros(table["calibrated_time"])
-    observed = _micros(table["observed_time"])
+    time_us = micros(table["calibrated_time"])
+    observed = micros(table["observed_time"])
     del table
     order = np.lexsort((observed, time_us, qubit_b, qubit_a, prop, device))
     del observed
@@ -244,7 +244,7 @@ def _codes(column: pa.ChunkedArray) -> tuple[list[str], np.ndarray]:
     return names, np.concatenate([c.indices.to_numpy() for c in column.chunks]).astype(np.int16)
 
 
-def _micros(column: pa.ChunkedArray) -> np.ndarray:
+def micros(column: pa.ChunkedArray) -> np.ndarray:
     import pyarrow as pa
     import pyarrow.compute as pc
 
@@ -259,7 +259,7 @@ def analyze(
     rows = read_rows(path, include_retired)
     change = rows.change
     changes = rows.select(change)
-    inside = (rows.time_us >= _micros_of(start)) & (rows.time_us <= _micros_of(end))
+    inside = (rows.time_us >= micros_of(start)) & (rows.time_us <= micros_of(end))
     window = rows.select(inside)
     restamps = ~change[inside]
     window_changes = rows.select(inside & change)
@@ -267,7 +267,7 @@ def analyze(
         "format": FORMAT,
         "dataset": DATASET,
         "license": LICENSE,
-        "file_sha256": _sha256(path),
+        "file_sha256": sha256(path),
         "devices": sorted(set(rows.devices[d] for d in np.unique(rows.device).tolist())),
         "window": {"start": _iso_dt(start), "end": _iso_dt(end)},
         "rows": int(window.value.size),
@@ -286,7 +286,7 @@ def analyze(
         "change_size_note": CHANGE_SIZE_NOTE,
         "persistence": _persistence(window_changes),
         "readout_grid": _readout_grid(window),
-        "regression": {p: _regression(window_changes, p) for p in RANKED},
+        "regression": {p: regression(window_changes, p) for p in RANKED},
     }
 
 
@@ -350,14 +350,14 @@ def _since_change(
     grid = np.arange(_seconds(start), _seconds(end) + 1, int(GRID_STEP.total_seconds()))
     series = np.cumsum(changes.first) - 1
     seconds = changes.time_us // 1_000_000
-    keys = series * _SERIES_STRIDE + seconds
+    keys = series * SERIES_STRIDE + seconds
     labels, name = label(changes)
     series_labels = labels[changes.first]
     last_change = seconds[np.append(np.flatnonzero(changes.first)[1:], seconds.size) - 1]
     ages: list[np.ndarray] = []
     owners: list[np.ndarray] = []
     for block in np.array_split(np.arange(series_labels.size), max(1, series_labels.size // 512)):
-        query = (block[:, None] * _SERIES_STRIDE + grid[None, :]).ravel()
+        query = (block[:, None] * SERIES_STRIDE + grid[None, :]).ravel()
         last = np.searchsorted(keys, query, side="right") - 1
         valid = (last >= 0) & (series[np.maximum(last, 0)] == np.repeat(block, grid.size))
         valid &= (grid[None, :] <= last_change[block][:, None]).ravel()
@@ -430,12 +430,12 @@ def _persistence(changes: Rows) -> dict[str, dict[str, Any]]:
         device, kind = name(key)
         found.setdefault(device, {})[kind] = {
             "pairs": int(index.size),
-            "spearman": _spearman(changes.value[index - 1], changes.value[index]),
+            "spearman": spearman(changes.value[index - 1], changes.value[index]),
         }
     return found
 
 
-def _spearman(first: np.ndarray, second: np.ndarray) -> float | None:
+def spearman(first: np.ndarray, second: np.ndarray) -> float | None:
     """The Pearson correlation of the ranks of ``first`` and ``second``, or None when the ranks of
     one array have no spread. Tied values share their mean rank: with ranks in the order of the
     arrays, the ties of the two arrays would get the same order and push the correlation up."""
@@ -466,7 +466,7 @@ def _readout_grid(rows: Rows) -> dict[str, dict[str, Any]]:
     return found
 
 
-def _regression(changes: Rows, prop: str) -> dict[str, dict[str, Any]]:
+def regression(changes: Rows, prop: str) -> dict[str, dict[str, Any]]:
     """Definition 7: the changes of ``prop`` by their percent rank among the changes of ``prop``
     on the same device and UTC day, with the next change of the same series.
 
@@ -561,7 +561,7 @@ def _quantiles(values: np.ndarray, levels: Sequence[float]) -> dict[str, Any]:
     return found
 
 
-def _sha256(path: Path) -> str:
+def sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
         for block in iter(lambda: handle.read(1 << 20), b""):
@@ -573,7 +573,7 @@ def _seconds(when: datetime) -> int:
     return int(when.timestamp())
 
 
-def _micros_of(when: datetime) -> int:
+def micros_of(when: datetime) -> int:
     return _seconds(when) * 1_000_000
 
 
@@ -723,7 +723,7 @@ def _f(number: float | None, digits: int) -> str:
     return f"{number:.{digits}f}"
 
 
-def _date(text: str) -> datetime:
+def utc_date(text: str) -> datetime:
     return datetime.fromisoformat(text).replace(tzinfo=UTC)
 
 
@@ -738,9 +738,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("parquet", type=Path, help="the parquet file of the dataset")
     parser.add_argument("--out", type=Path, default=Path("results"), help="the output folder")
     parser.add_argument(
-        "--start", type=_date, default=_date("2026-02-15"), help="the first grid day"
+        "--start", type=utc_date, default=utc_date("2026-02-15"), help="the first grid day"
     )
-    parser.add_argument("--end", type=_date, default=_date("2026-11-10"), help="the last grid day")
+    parser.add_argument(
+        "--end", type=utc_date, default=utc_date("2026-11-10"), help="the last grid day"
+    )
     parser.add_argument(
         "--include-retired", action="store_true", help="keep the rows of ibm_torino"
     )
