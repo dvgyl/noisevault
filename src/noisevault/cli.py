@@ -1230,8 +1230,7 @@ _CHECK_DROPS = ("tolerance", "circuits")
 
 def _check_row(f: FrameworkCheck, result: CheckResult) -> dict[str, str]:
     reduced = {n.circuit for n in f.not_run if n.ran_without}
-    ran = len({c.circuit for c in f.circuits} - reduced)
-    counted = f"{ran} of {len(result.circuits)}"
+    counted = f"{f.complete} of {len(result.circuits)}"
     kinds = frozenset(c.sampled for c in f.circuits)
     method = {
         frozenset({False}): "exact",

@@ -702,6 +702,8 @@ def test_the_default_chain_leaves_out_qubits_no_one_qubit_native_calibrates(
     assert result.layout == layout
     assert result.passed, result
     assert result.summary().splitlines()[0].endswith(f" circuits {on}")
+    total = len(result.circuits)
+    assert f", {total} of {total} circuits, exact" in result.summary().splitlines()[1]
 
 
 @pytest.mark.parametrize("h", [{}, {"disabled": True}])

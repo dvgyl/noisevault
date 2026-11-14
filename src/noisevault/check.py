@@ -140,6 +140,15 @@ class FrameworkCheck:
         return bool(self.circuits) and all(c.passed for c in self.circuits)
 
     @property
+    def complete(self) -> int:
+        """The number of check circuits that the framework ran with each of their gates.
+
+        ``circuits`` can hold a circuit two times, once exact and once sampled.
+        """
+        reduced = {n.circuit for n in self.not_run if n.ran_without}
+        return len({c.circuit for c in self.circuits} - reduced)
+
+    @property
     def worst(self) -> CircuitCheck:
         return max(self.circuits, key=lambda c: c.deviation / c.tolerance)
 
@@ -198,7 +207,8 @@ class CheckResult:
             verdict, worst = "pass" if f.passed else "FAIL", f.worst
             lines.append(
                 f"  {f.framework:<10} {verdict}  deviation {worst.deviation:.2g} on {worst.circuit}"
-                f" (tolerance {worst.tolerance:.2g}), {len(f.circuits)} circuits, {f.method}"
+                f" (tolerance {worst.tolerance:.2g}), {f.complete} of {len(self.circuits)}"
+                f" circuits, {f.method}"
             )
             lines += [f"    {n.describe()}" for n in f.not_run]
         lines += [f"  {name:<10} skipped: {why}" for name, why in self.skipped]

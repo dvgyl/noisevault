@@ -183,6 +183,10 @@ This file lists all notable changes to NoiseVault. Versions follow
   a contradiction of each forecast above zero. The comparison now uses the spread of the
   forecast, and an exact binomial test below 5 expected events. The line of all events
   includes the spread of the shots.
+- **The circuit count in the text of a check result.** `CheckResult.summary()` gave 7 circuits
+  for a framework that ran 5 circuits, because it counted a sampled circuit two times. The
+  line now gives the same count as `nv check`, such as `5 of 5 circuits`.
+  `FrameworkCheck.complete` holds this count.
 - **The careful rule in the study summary.** `python -m study.summarize` gives, for each
   primary comparison, the estimate with rho of at least 0.5, its Holm p-value and its
   confirmation. The confirmation of the plan does not change. The summary format is `3`.
