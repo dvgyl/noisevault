@@ -87,9 +87,23 @@ def run_information(
 
 def relative_errors(info: np.ndarray, shots: int) -> tuple[float, float]:
     """The relative standard errors of the gate factor and of the readout factor, when each
-    circuit of the information ``info`` of :func:`run_information` gets ``shots`` shots."""
-    covariance = np.linalg.inv(shots * info)
-    return math.sqrt(covariance[0, 0]), math.sqrt(covariance[1, 1])
+    circuit of the information ``info`` of :func:`run_information` gets ``shots`` shots.
+
+    A factor with no information has the error infinity, and the other factor then has the
+    error of a fit with one factor. An example is the readout factor of a profile with a
+    readout error of 0. Both errors are infinite when the counts cannot separate the factors.
+    """
+    matrix = shots * np.asarray(info, dtype=float)
+    held = [i for i in range(len(matrix)) if matrix[i, i] > 0]
+    errors = [math.inf] * len(matrix)
+    if held:
+        try:
+            covariance = np.linalg.inv(matrix[np.ix_(held, held)])
+        except np.linalg.LinAlgError:
+            return math.inf, math.inf
+        for position, i in enumerate(held):
+            errors[i] = math.sqrt(covariance[position, position])
+    return errors[0], errors[1]
 
 
 def stated_errors(profile: Profile) -> dict[str, tuple[str, float]]:

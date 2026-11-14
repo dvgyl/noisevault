@@ -17,9 +17,13 @@ the factor F of each device. The n in the rules is the number of weeks, 8:
 
     none      rho = 0, so F = 1 (no correction)
     plan      rho = rho' + (1 + 3 rho') / n, the rule of the plan
-    four      rho = rho' + (1 + 4 rho') / n, the first-order bias of this form of rho'
-    inverse   rho = (rho' + 1 / n) / (1 - 4 / n), the solution of E[rho'] = rho - (1 + 4 rho) / n
-    inverse3  rho = (rho' + 1 / n) / (1 - 3 / n), the solution of E[rho'] = rho - (1 + 3 rho) / n
+    four      rho = rho' + (1 + 4 rho') / n, the first-order bias of rho' for one device
+    inverse   rho = (rho' + 1 / n) / (1 - 4 / n), the solution of rho' = rho - (1 + 4 rho) / n
+    inverse3  rho = (rho' + 1 / n) / (1 - 3 / n), the solution of rho' = rho - (1 + 3 rho) / n
+
+For D devices in one sum, the first-order bias of rho' is (1 + (2 + 2 / D) rho) / n. The value
+is (1 + 4 rho) / n for one device, and (1 + 8 rho / 3) / n for the three devices of the study.
+The rules ``four`` and ``inverse`` are thus candidates, not exact corrections.
 
 Each rule limits rho to the range of ``study.estimate.RHO_LIMITS``, 0 to 0.9. The rest is the
 estimate of the plan: F, the standard error and the two-sided t-test with 21 degrees of freedom.

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+
 import numpy as np
 import pytest
 
@@ -35,6 +37,17 @@ def test_the_short_circuits_of_the_bundled_kingston_profile_give_a_known_error()
         "avg_infidelity",
         pytest.approx(2.3033e-4, abs=1e-8),
     )
+
+
+def test_a_factor_with_no_information_has_an_infinite_error() -> None:
+    # A readout error of 0 gives the readout factor no information. The gate factor then has
+    # the error of a fit with one factor: 1 / sqrt(3000 * 2.2130576001).
+    info = np.array([[2.2130576001, 0.0], [0.0, 0.0]])
+    gate, readout = precision.relative_errors(info, 3000)
+    assert gate == pytest.approx(1 / math.sqrt(3000 * 2.2130576001)) and readout == math.inf
+    assert gate == pytest.approx(0.01227278, abs=1e-8)
+    assert precision.relative_errors(np.zeros((2, 2)), 100) == (math.inf, math.inf)
+    assert precision.relative_errors(np.ones((2, 2)), 100) == (math.inf, math.inf)
 
 
 @pytest.mark.parametrize(

@@ -66,12 +66,6 @@ MIN_EXPECTED = 5
 # The fewest samples on each side of a marginal, and in a cell with a measured shot, for which
 # the delta method of the sampling variance is valid.
 MIN_SAMPLES = 100
-# The Berry-Esseen theorem limits the error of a normal probability for a sum of independent
-# values: at most UNIFORM_BOUND * L, and at most TAIL_BOUND * L / (1 + abs(z)**3). L is the sum
-# of the third absolute central moments, divided by the variance to the power 1.5. The numbers
-# are from Shevtsova (2010) and Paditz (1989), for values with different distributions.
-UNIFORM_BOUND = 0.56
-TAIL_BOUND = 31.935
 # The largest chunk of samples, in bits. A chunk of 2^25 bits takes 128 MiB as float32.
 _CHUNK_BITS = 2**25
 _SHOWN_BITS = 3
@@ -451,10 +445,11 @@ class ModelScore:
     exact test of the samples with an event against the measured shots with an event.
     ``events`` is the forecast mean number of events in a shot, and
     ``events_error`` its sampling standard error. ``events_shot_error`` is the standard error
-    that the measured mean number of events has when the model is right. ``events_bound`` is
-    the number L of the Berry-Esseen theorem for the difference of the measured and the sampled
-    number of events when the model is right. It is infinite when the forecast gives the same
-    number of events to each shot. ``none`` is the
+    that the measured mean number of events has when the model is right.
+    ``events_sampled`` is the mean number of events in a shot from the counted samples, with
+    no smoothing. ``events_margin`` is the largest difference between ``events_sampled`` and
+    the measured mean that the empirical Bernstein bound does not prove at ``LEVEL``. It is
+    infinite when the counted samples are not known. ``none`` is the
     forecast share of shots with
     no event. ``few_samples`` is True when a bit or a measured count cell has fewer than
     ``MIN_SAMPLES`` samples. Then a test with this model can give no verdict.
@@ -469,7 +464,8 @@ class ModelScore:
     events: float
     events_error: float
     events_shot_error: float
-    events_bound: float
+    events_sampled: float
+    events_margin: float
     none: float
     scores: Scores
     few_samples: bool
@@ -632,25 +628,19 @@ class EventScore:
         return f"{what}, {plural(self.shots, 'shot')}, {drawn}"
 
     def _events_phrase(self, m: ModelScore) -> str:
-        # The spread of the shots comes from the forecast. The measured spread is 0 when no shot
-        # shows an event, and a test with it calls each forecast above 0 too high.
+        # The empirical Bernstein bound holds for each distribution of the number of events. A
+        # normal test does not: it gives false verdicts when few shots or samples have an event.
+        ratio = _ratio(m.events_sampled, self.events)
+        times = "" if ratio == "-" else f", {ratio} times the measured number"
+        difference = m.events_sampled - self.events
+        if abs(difference) <= m.events_margin:
+            if ratio == "-":
+                return "no proved difference in the number of events"
+            return f"{ratio} times the measured number of events, no proved difference"
+        side = "too many" if difference > 0 else "too few"
         error = math.hypot(m.events_shot_error, m.events_error)
-        if error == 0:
-            return "no verdict on the number of events, the forecast gives each shot the same"
-        z = (m.events - self.events) / error
-        normal = math.erfc(abs(z) / math.sqrt(2))
-        if normal >= LEVEL:
-            return "the number of events agrees with the measured number, within chance"
-        # The normal p-value plus its largest error, so the verdict holds for each distribution.
-        largest = 2 * m.events_bound * min(UNIFORM_BOUND, TAIL_BOUND / (1 + abs(z) ** 3))
-        if normal + largest >= LEVEL:
-            return (
-                "no verdict on the number of events, too few shots or samples vary for a safe"
-                f" test (z = {z:.1f})"
-            )
-        side = "too many" if z > 0 else "too few"
-        ratio = _ratio(m.events, self.events)
-        return f"{side} events, {ratio} times the measured number (z = {z:.1f})"
+        size = "" if error == 0 else f" (z = {difference / error:.1f})"
+        return f"{side} events{times}{size}"
 
     def _different_bits(self, m: ModelScore) -> str:
         """The bits whose forecast rate differs most from the measured rate. Each difference
@@ -920,12 +910,16 @@ def _report(
         shot_spread = sum(
             m.shots * _variance(f.count) for m, f in zip(measured, found, strict=True)
         )
-        # A shot adds its number of events, and a sample adds shots / samples times its number.
-        third = sum(
-            (m.shots + m.shots**3 / f.samples**2) * _absolute_third(f.count)
-            for m, f in zip(measured, found, strict=True)
-        )
-        difference_spread = shot_spread + forecast_spread
+        sampled_events = margin = 0.0
+        for m, h, f in zip(measured, hist, found, strict=True):
+            intervals = 2 * len(measured)
+            in_samples, sample_width = (
+                (float(f.rate.sum()), math.inf)
+                if f.count_samples is None
+                else _mean_interval(np.asarray(f.count_samples), intervals)
+            )
+            sampled_events += m.shots * in_samples
+            margin += m.shots * (_mean_interval(h, intervals)[1] + sample_width)
         few = any(few_rate_samples(f) for f in found) or any(
             few_count_samples(f, m, f, f) for m, f in zip(measured, found, strict=True)
         )
@@ -943,9 +937,8 @@ def _report(
                 events=forecast_events / shots,
                 events_error=math.sqrt(forecast_spread) / shots,
                 events_shot_error=math.sqrt(shot_spread) / shots,
-                events_bound=(
-                    third / difference_spread**1.5 if difference_spread > 0 else math.inf
-                ),
+                events_sampled=sampled_events / shots,
+                events_margin=margin / shots,
                 none=sum(m.shots * f.none for m, f in zip(measured, found, strict=True)) / shots,
                 scores=scores(measured, found),
                 few_samples=few,
@@ -1074,17 +1067,31 @@ def _histogram(m: Events) -> np.ndarray:
     return np.bincount(m.rows.sum(axis=1), weights=m.times, minlength=m.rows.shape[1] + 1)
 
 
+def _mean_interval(cells: np.ndarray, intervals: int) -> tuple[float, float]:
+    """The mean number of events of the shots or samples with the histogram ``cells``, and the
+    half width of an interval for the true mean.
+
+    ``cells[k]`` is the number of shots or samples with k events. The half width is the
+    empirical Bernstein bound of Maurer and Pontil (2009) for independent values in a range R:
+    ``sqrt(2 V L / n) + 7 R L / (3 (n - 1))``, with the sample variance V and
+    ``L = ln(4 * intervals / LEVEL)``. Each of ``intervals`` such intervals then holds its true
+    mean, all at one time, with a probability of ``1 - LEVEL`` or more.
+    """
+    n = float(cells.sum())
+    k = np.arange(len(cells))
+    mean = float(cells @ k) / n
+    if n < 2:
+        return mean, math.inf
+    variance = float(cells @ (k - mean) ** 2) / (n - 1)
+    log_term = math.log(4 * intervals / LEVEL)
+    width = math.sqrt(2 * variance * log_term / n) + 7 * (len(cells) - 1) * log_term / (3 * (n - 1))
+    return mean, width
+
+
 def _variance(probs: np.ndarray) -> float:
     k = np.arange(len(probs))
     mean = float(probs @ k)
     return max(0.0, float(probs @ k**2) - mean**2)
-
-
-def _absolute_third(probs: np.ndarray) -> float:
-    """The third absolute central moment of a number of events with the probabilities
-    ``probs``."""
-    k = np.arange(len(probs))
-    return float(probs @ np.abs(k - float(probs @ k)) ** 3)
 
 
 def _test_dict(test: RuleTest, sampling: Sampling) -> dict[str, Any]:

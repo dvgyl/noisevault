@@ -80,10 +80,10 @@ model        events  ratio  no event  bit score  count score
 device        4.989   0.99     0.046  -11.17801     -2.43872
 calibration   3.109   0.62     0.171  -11.80315     -2.69735
 
-device: the number of events agrees with the measured number, within chance
-calibration: too few events, 0.62 times the measured number (z = -42.2)
+device: 0.99 times the measured number of events, no proved difference
+calibration: too few events, 0.62 times the measured number (z = -48.0)
   largest differences, forecast against measured: q3 0.190 against 0.311, q6
-    0.175 against 0.290, q7 0.209 against 0.325
+    0.175 against 0.290, q17 0.165 against 0.274
 
 calibration against device:
   bit score: device is better by 0.62514 per shot than calibration
@@ -164,8 +164,8 @@ model        events  ratio  no event  bit score  count score
 device        2.207   1.01     0.274   -7.28779     -1.69683
 calibration   1.588   0.72     0.408   -7.40600     -1.76520
 
-device: the number of events agrees with the measured number, within chance
-calibration: too few events, 0.72 times the measured number (z = -45.1)
+device: 1.01 times the measured number of events, no proved difference
+calibration: too few events, 0.72 times the measured number (z = -51.5)
   largest differences, forecast against measured: D14 0.074 against 0.109, D10
     0.074 against 0.108, D5 0.074 against 0.107
 
@@ -208,13 +208,12 @@ The table has one row for each profile, best bit score first:
 | `count score` | The mean count score per shot. |
 
 One line for each profile answers the question "too few or too many events?". It compares the
-forecast and the measured number of events, with the shot error and the sampling error of both.
-The line says "agrees ... within chance" when the difference is not significant at the 5% level.
-Otherwise it gives the direction, the ratio and the z value. The test is a normal test, and a
-normal test has an error when few shots or samples vary. The Berry-Esseen theorem gives the
-largest size of this error, and the report adds it to the p-value. When the sum is 5% or more,
-the line says "no verdict" and gives the z value. Thus a few rare events give no verdict, and a
-large difference in many shots gives one.
+number of events in the samples of the forecast with the measured number. The line says "too
+few events" or "too many events" only when the difference is proved at the 5% level. The proof
+is the empirical Bernstein bound of Maurer and Pontil (2009). It holds for each distribution of
+the number of events. Thus it needs a larger difference than a normal test: more than about 3
+standard errors of each of the two numbers. In each other case, the line gives the ratio of the
+two numbers and says "no proved difference".
 
 The next line names the bits whose rate differs most from the measured rate, at most three. A
 bit is on the line only when its difference is significant at the 5% level divided by the number

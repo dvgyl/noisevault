@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 import sys
 import time
 from datetime import UTC, datetime
@@ -149,9 +150,13 @@ def test_the_paired_test_prefers_the_true_profile_on_detection_events(
     assert report.bits[0].coords == (1.0, 0.0)
     text = report.summary()
     assert "calibration: too few events, 0.7" in text
-    # The true model has no bit whose difference is more than chance over 24 bits.
-    assert "device: the number of events agrees with the measured number, within chance\n" in text
-    assert "within chance\ncalibration: too few events" in text
+    # The true model has no proved difference in the number of events, and no bit whose
+    # difference is more than chance over 24 bits: its line has no line of bits after it.
+    assert re.search(
+        r"device: [01]\.\d\d times the measured number of events, no proved difference\n"
+        r"calibration: too few events",
+        text,
+    )
     assert "device is better by" in text
 
 
@@ -300,19 +305,21 @@ def test_no_measured_event_does_not_contradict_a_forecast_of_a_rare_event() -> N
     # 100 shots show no event with a probability of 0.82 when each bit has the rate 0.001.
     measured, samples = _rare(100, 0)
     text = events.score_events(measured, {"model": samples}).summary()
-    assert "model: the number of events agrees with the measured number, within chance" in text
+    assert "model: no proved difference in the number of events" in text
     assert "largest differences" not in text
 
 
-def test_many_measured_events_contradict_a_forecast_of_a_rare_event() -> None:
+def test_many_measured_events_on_one_bit_show_in_the_line_of_the_bits() -> None:
+    # 30 events in 1000 shots against a rate of 0.001: the exact test of the bit proves the
+    # difference. The bound for the number of events on 2 bits needs a larger difference.
     measured, samples = _rare(1000, 30)
     text = events.score_events(measured, {"model": samples}).summary()
-    assert "model: too few events, 0.07 times the measured number (z = -19.6)" in text
+    assert "model: 0.07 times the measured number of events, no proved difference" in text
     assert "largest differences, forecast against measured: b0 0.001 against 0.030" in text
     assert "b1" not in text.split("largest differences")[1].splitlines()[0]
 
 
-def test_one_measured_event_gives_no_statement_on_the_number_of_events() -> None:
+def test_one_measured_event_gives_no_verdict_on_the_number_of_events() -> None:
     # One event in 100 shots occurs in 9.5% of the experiments at the forecast rate of 0.001.
     measured = np.zeros((100, 1), dtype=bool)
     measured[0, 0] = True
@@ -320,84 +327,79 @@ def test_one_measured_event_gives_no_statement_on_the_number_of_events() -> None
     samples[:100, 0] = True
     text = events.score_events(measured, {"model": samples}).summary()
     assert "too few events" not in text and "largest differences" not in text
-    assert "model: no verdict on the number of events" in text and "(z = -2.8)" in text
-
-
-def test_a_forecast_with_an_event_in_almost_each_sample_gets_no_verdict_on_the_number() -> None:
-    measured = np.ones((100, 1), dtype=bool)
-    measured[0, 0] = False
-    samples = np.ones((100_000, 1), dtype=bool)
-    samples[:100, 0] = False
-    text = events.score_events(measured, {"model": samples}).summary()
-    assert "model: no verdict on the number of events" in text
-    assert "largest differences" not in text
-
-
-def test_a_bit_with_an_event_in_each_shot_does_not_hide_that_the_other_events_are_few() -> None:
-    # The second bit has one event in 100 shots, which occurs in 9.5% of the experiments at its
-    # forecast rate of 0.001. The 100 events of the first bit do not make a normal test valid.
-    measured = np.zeros((100, 2), dtype=bool)
-    measured[:, 0] = True
-    measured[0, 1] = True
-    samples = np.zeros((400_000, 2), dtype=bool)
-    samples[:, 0] = True
-    samples[:400, 1] = True
-    score = events.score_events(measured, {"model": samples})
-    assert score.models[0].events_bound > 3
-    assert "model: no verdict on the number of events" in score.summary()
+    assert "model: 0.10 times the measured number of events, no proved difference" in text
 
 
 def test_rare_events_on_two_sides_give_no_verdict_on_the_number_of_events() -> None:
-    # One bit has an event in almost each shot, and one bit has a rare event. The number of
-    # events is then 1 in almost each shot, with 0 and 2 at equal small chances: no skewness.
-    # One shot with no event gives z = 2.0, and it occurs in 21% of the experiments.
+    # One bit has an event in almost each shot, and one bit has a rare event. One shot with
+    # no event occurs in 21% of the experiments, and a normal test calls it a difference.
     measured = np.zeros((100, 2), dtype=bool)
     measured[1:, 0] = True
     samples = np.zeros((400_000, 2), dtype=bool)
     samples[500:, 0] = True
     samples[500:1000, 1] = True
+    text = events.score_events(measured, {"model": samples}).summary()
+    assert "model: 1.01 times the measured number of events, no proved difference" in text
+
+
+def test_the_smoothing_of_the_rates_gives_no_verdict_on_the_number_of_events() -> None:
+    # No shot and no sample has an event. The smoothed rate of the bit is 0.5 / 1001, far above
+    # the measured rate of 0 in 200,000 shots. The verdict uses the counted samples, so it
+    # sees no difference.
+    measured, samples = np.zeros((200_000, 1), dtype=bool), np.zeros((1000, 1), dtype=bool)
     score = events.score_events(measured, {"model": samples})
-    assert score.models[0].events_bound == pytest.approx(2.0, abs=0.01)
-    assert "model: no verdict on the number of events" in score.summary()
-    assert "(z = 2.0)" in score.summary()
+    assert score.models[0].events_sampled == 0.0
+    assert score.models[0].events == pytest.approx(0.5 / 1001)
+    assert "model: no proved difference in the number of events" in score.summary()
 
 
-def test_many_events_that_vary_keep_the_verdict_on_the_number_of_events() -> None:
+def _half_width(counts: np.ndarray, bits: int, intervals: int) -> float:
+    """The empirical Bernstein bound for the mean of ``counts``, each from 0 to ``bits``."""
+    n, log_term = len(counts), math.log(4 * intervals / events.LEVEL)
+    return math.sqrt(2 * counts.var(ddof=1) * log_term / n) + 7 * bits * log_term / (3 * (n - 1))
+
+
+def test_a_large_difference_in_the_number_of_events_gets_a_verdict() -> None:
     rng = np.random.default_rng(0)
     measured, samples = rng.random((2000, 8)) < 0.2, rng.random((200_000, 8)) < 0.1
     score = events.score_events(measured, {"model": samples})
-    assert score.models[0].events_bound == pytest.approx(0.0366, abs=0.001)
-    assert "model: too few events, 0.50 times the measured number" in score.summary()
+    model = score.models[0]
+    by_hand = _half_width(measured.sum(axis=1), 8, 2) + _half_width(samples.sum(axis=1), 8, 2)
+    assert model.events_margin == pytest.approx(by_hand, rel=1e-9)
+    assert model.events_margin == pytest.approx(0.132, abs=0.001)
+    assert model.events_sampled == pytest.approx(samples.sum() / 200_000, rel=1e-12)
+    assert "model: too few events, 0.50 times the measured number (z = -41.8)" in score.summary()
+    near = events.score_events(rng.random((2000, 8)) < 0.108, {"model": samples})
+    assert "times the measured number of events, no proved difference" in near.summary()
 
 
-def test_the_verdict_on_the_number_of_events_adds_the_largest_error_of_the_normal_test() -> None:
-    # z = -2.8 has the normal p-value 0.005. With a bound L of 0.037, the largest error is
-    # 2 * 0.037 * 0.56 = 0.041, so the sum is below 0.05 and the verdict stays. With one tenth
-    # of the shots, L is 0.117, and the same z gives no verdict.
-    score = events.score_events(*_dense(2000))
-    lines = score.summary()
-    assert score.models[0].events_bound == pytest.approx(0.037, abs=0.002)
-    assert "model: too few events" in lines or "model: too many events" in lines
-    few = events.score_events(*_dense(200))
-    assert few.models[0].events_bound == pytest.approx(0.117, abs=0.006)
-    assert "model: no verdict on the number of events" in few.summary()
+def test_the_bound_for_ten_shots_is_the_one_computed_by_hand() -> None:
+    # Ten shots with 0, 0, 0, 0, 0, 0, 1, 1, 2 and 2 events on 2 bits: mean 0.6, sample
+    # variance 6.4 / 9. One sample with the same numbers gives the same half width.
+    counts = np.array([0, 0, 0, 0, 0, 0, 1, 1, 2, 2])
+    rows = np.array([[k >= 1, k == 2] for k in counts])
+    log_term = math.log(160)
+    by_hand = math.sqrt(2 * (6.4 / 9) * log_term / 10) + 7 * 2 * log_term / (3 * 9)
+    score = events.score_events(rows, {"model": rows})
+    assert score.models[0].events_margin == pytest.approx(2 * by_hand, rel=1e-12)
+    assert score.models[0].events_sampled == pytest.approx(0.6)
 
 
-def _dense(shots: int) -> tuple[np.ndarray, dict[str, np.ndarray]]:
-    """Measured bits and samples of 8 bits with a rate of 0.1. The measured number of events
-    is 2.8 standard errors above the forecast number."""
-    rng = np.random.default_rng(3)
-    samples = rng.random((400_000, 8)) < 0.1
-    spread = math.sqrt(8 * 0.1 * 0.9 * shots)
-    events_ = round(0.8 * shots + 2.8 * spread)
-    measured = np.zeros((shots, 8), dtype=bool)
-    measured.reshape(-1)[:events_] = True
-    return measured, {"model": samples}
+def test_the_bound_is_wider_when_a_wide_score_has_two_circuits(line_14: Profile) -> None:
+    def margin(circuits: list[PlannedCircuit]) -> float:
+        counts = events.simulate_wide(line_14, circuits, shots=300, seed=2, run_at=RUN_AT)
+        return (
+            events.score_wide({"stated": line_14}, counts, samples=20_000).models[0].events_margin
+        )
+
+    one, two = margin([_mirror(12, 2)]), margin([_mirror(12, 2), _mirror(12, 3)])
+    # Two circuits need four intervals at one time, so each interval is wider.
+    assert two > one * math.sqrt(math.log(320) / math.log(160)) * 0.9
 
 
 def test_one_shot_and_one_sample_that_disagree_give_a_summary() -> None:
     text = events.score_events([[1]], {"model": np.array([[0]])}).summary()
-    assert "model: " in text
+    assert "model: 0.00 times the measured number of events, no proved difference" in text
 
 
 def _tail_p_value(events_: int, shots: int, sampled: int, samples: int) -> float:
@@ -508,7 +510,7 @@ def test_samples_from_any_simulator_give_the_same_report() -> None:
     assert [m.name for m in report.models] == ["right", "low"]
     assert report.tests[0].better == "right"
     assert report.models[1].profile is None
-    assert "low: too few events, 0.7" in report.summary()
+    assert "low: 0.74 times the measured number of events, no proved difference" in report.summary()
 
 
 @pytest.mark.timing
