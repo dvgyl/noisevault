@@ -14,7 +14,8 @@ This file lists all notable changes to NoiseVault. Versions follow
   `python -m study.precision budget` gives designs for a fixed amount of money with
   `noisevault.design`. `python -m study.overrotation` gives the probability of the right result
   of each circuit when `sx` and `x` turn too far. `python -m study.archive_zeros PARQUET` counts
-  the readout probabilities of exactly 0 in each observation of the IBM calibration archive.
+  the readout probabilities of exactly 0 in each observation of the IBM calibration archive,
+  stated in the observation and in force at it.
   `study.error_rates` makes `measured` and `standard_error` public.
 - **More statistics of the IBM calibration archive.** `python -m study.archive_steps PARQUET`
   gives the change of a value in 1, 3 and 7 days, the rank correlation inside one day and the

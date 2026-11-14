@@ -70,6 +70,8 @@ def test_each_observation_counts_its_rows_its_zeros_and_its_qubits(found) -> Non
     assert found.zeros.tolist() == [3, 1, 1, 0]
     assert found.zeros_p10.tolist() == [1, 1, 1, 0]
     assert found.qubits.tolist() == [2, 1, 1, 0]
+    # The 0 of qubit 0 from before the window is in force at A; the 0 of qubit 3 stays in force.
+    assert found.in_force.tolist() == [3, 4, 4, 0]
 
 
 def test_the_statistics_of_a_device_are_over_its_observations(found) -> None:
@@ -90,7 +92,33 @@ def test_the_months_and_the_last_days_use_utc(found) -> None:
     assert month["2026-03"]["devices"]["ibm_fez"]["mean"] == pytest.approx(5 / 3)
     days = archive_zeros.by_period(archive_zeros.last_days(found, END, 2), "day")
     assert list(days) == ["2026-03-02", "2026-03-03"]
-    assert days["2026-03-03"]["devices"] == {"ibm_fez": {"mean": 1.0, "most": 1}}
+    assert days["2026-03-03"]["devices"] == {
+        "ibm_fez": {"mean": 1.0, "most": 1, "mean_in_force": 4.0}
+    }
+
+
+def test_a_zero_that_is_not_stated_again_stays_in_force(tmp_path: Path) -> None:
+    rows = [
+        _row(-5, 2, P10, 0.0),
+        _row(1, 0, P10, 0.0),
+        _row(1, 1, P10, 0.01),
+        _row(2, 1, P10, 0.02),
+        _row(3, 0, P10, 0.05),
+    ]
+    path = tmp_path / "train.parquet"
+    pq.write_table(pa.Table.from_pylist(rows), path)
+    found = archive_zeros.observations(path, T0, END)
+    assert found.zeros.tolist() == [1, 0, 0]
+    assert found.in_force.tolist() == [2, 2, 1]
+    fez = archive_zeros.device_statistics(found)["ibm_fez"]
+    assert (fez["mean_zeros"], fez["share_with_a_zero"]) == (
+        pytest.approx(1 / 3),
+        pytest.approx(1 / 3),
+    )
+    assert (fez["mean_in_force"], fez["median_in_force"]) == (pytest.approx(5 / 3), 2)
+    assert fez["share_with_a_zero_in_force"] == 1
+    month = archive_zeros.by_period(found, "month")["2026-03"]["devices"]["ibm_fez"]
+    assert month["mean_in_force"] == pytest.approx(5 / 3)
 
 
 def test_the_report_gives_each_device(parquet: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -101,6 +129,8 @@ def test_the_report_gives_each_device(parquet: Path, capsys: pytest.CaptureFixtu
     assert "  2026-03 1.67 0.00 4" in out
     assert "  ibm_fez 2026-03-03 1.0 1" in out
     assert "ibm_torino" not in out
+    assert "ibm_fez: mean 3.67, median 4; observations with a zero in force: 100.0%" in out
+    assert out.rstrip().endswith("  2026-03 3.67 0.00 4")
 
 
 def test_an_end_before_the_start_is_refused(parquet: Path) -> None:
