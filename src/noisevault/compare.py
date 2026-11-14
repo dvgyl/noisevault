@@ -1709,7 +1709,6 @@ def _varies(rows: ByPointByCell, rounding: ByCell) -> bool:
 
 
 def _rounding(circuits: Sequence[PlannedCircuit]) -> ByCell:
-    # A key that leaves out k qubits sums 2**k outcomes of the simulator, and their rounding.
     steps = [
         (len(c.ops) + len(c.qubits) + 1) * EPS * 2 ** (len(c.qubits) - c.width) for c in circuits
     ]

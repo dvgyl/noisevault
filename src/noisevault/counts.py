@@ -69,7 +69,6 @@ from .report import Report
 from .table import GateNoise
 
 COUNTS_FORMAT = "1.0"
-# Format 1.1 adds the field measured of a circuit. A file with no measured field is format 1.0.
 MEASURED_FORMAT = "1.1"
 COUNTS_FORMATS = (COUNTS_FORMAT, MEASURED_FORMAT)
 # A circuit can be wider than the exact simulator holds. Only the stabilizer forecast scores it.

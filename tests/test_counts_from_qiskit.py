@@ -154,6 +154,7 @@ def test_delays_keep_their_time_in_ns_and_a_delay_on_an_unused_qubit_drops_out()
     qc.delay(100, 148, unit="dt")
     qc.delay(300, 10, unit="ns")
     qc.measure(148, 0)
+    qc.delay(50, 148, unit="ns")
     planned = planned_circuit(qc, dt=2e-9)
     assert planned.qubits == (148,)
     assert [op.name for op in planned.ops] == ["x", "delay", "delay"]

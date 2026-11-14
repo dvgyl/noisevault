@@ -415,7 +415,7 @@ class Pulled(NamedTuple):
     profile: Profile
     path: Path
     written: bool  # False when the vault already held this calibration
-    at: datetime | None = None  # the time of the pull, None for the newest calibration
+    at: datetime | None = None
 
 
 def pull(

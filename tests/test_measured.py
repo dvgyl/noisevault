@@ -53,7 +53,6 @@ def routed(measured: tuple[int, ...] | None = (2, 0)) -> PlannedCircuit:
 
 
 def _file(**circuit: Any) -> dict[str, Any]:
-    # A second circuit keeps a refused first circuit from leaving the file with no circuit.
     circuits = [_bell(), _bell(name="other")]
     counts = simulate(kingston(), circuits, shots=100, seed=1, run_at=RUN_AT).to_dict()
     counts["circuits"][0].update(circuit)
@@ -74,7 +73,6 @@ def _refusal(tmp_path: Path, data: dict[str, Any]) -> CountsError:
 
 
 def test_the_forecast_of_a_circuit_sums_over_the_qubit_it_does_not_measure() -> None:
-    # Key bit 0 is circuit qubit 2 (state 0) and key bit 1 is circuit qubit 0 (state 1).
     right, wrong = 1 - READOUT, READOUT
     expected = [right * wrong, right * right, wrong * wrong, wrong * right]
     found = outcome_probabilities(clean(), routed())
@@ -99,7 +97,6 @@ def test_simulate_draws_keys_of_the_measured_qubits_and_the_score_reads_them() -
 
 
 def test_a_measured_circuit_scores_as_the_same_circuit_with_its_qubits_reordered() -> None:
-    # bell with measured (1, 0) on qubits 148, 149 is bell on qubits 149, 148 with each op moved.
     swapped = PlannedCircuit(
         name="bell",
         qubits=(149, 148, 150),
