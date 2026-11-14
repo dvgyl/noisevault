@@ -19,7 +19,7 @@ import zlib
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any, NamedTuple, NoReturn, get_args
@@ -64,6 +64,7 @@ from .profile import (
     read_json_file,
     ref_on_day,
     unmodeled_note,
+    write_atomically,
 )
 from .table import GateNoise
 from .value_times import LABELS, hours
@@ -180,6 +181,10 @@ _VALUE_HINTS = {
     "--framework": "one or more of qiskit,cirq,pennylane,stim, for example --framework cirq,stim",
     "--top": "a count, for example --top 10",
     "--at": "a date or time, for example --at 2025-02-26",
+    "--from": "a date or time, for example --from 2026-11-01",
+    "--to": "a date or time, for example --to 2026-11-07",
+    "--step": "a step, for example --step 1d or --step 12h",
+    "--archive": "a file name, for example --archive train-00000-of-00001.parquet",
     "--source": "ibm, ibm-account or ionq, for example --source ionq",
     "--output": "a file name, for example --output fez.json",
     "-o": "a file name, for example -o fez.json",
@@ -1010,6 +1015,95 @@ def _change(change: Any) -> str:
     return f"[red]{text}[/red]" if change.worse else f"[green]{text}[/green]"
 
 
+# history ------------------------------------------------------------------------------------
+
+
+@app.command()
+def history(
+    device: Annotated[str, _argument("DEVICE", "Device, for example ibm_fez.")],
+    start: Annotated[
+        str, typer.Option("--from", metavar="DATE", help="First date or time of the range (UTC).")
+    ],
+    end: Annotated[
+        str, typer.Option("--to", metavar="DATE", help="Last date or time of the range (UTC).")
+    ],
+    step: Annotated[
+        str, typer.Option("--step", metavar="STEP", help="Time between two pulls: 1d, 12h or 30m.")
+    ] = "1d",
+    source: Annotated[
+        str | None,
+        typer.Option(
+            "--source",
+            metavar="NAME",
+            help="ibm (network), vault (offline) or archive. The default is ibm.",
+        ),
+    ] = None,
+    archive: Annotated[
+        Path | None,
+        typer.Option(
+            "--archive", metavar="FILE", help="A local copy of the IBM calibration archive."
+        ),
+    ] = None,
+    output: Annotated[
+        Path | None,
+        typer.Option(
+            "--output", "-o", metavar="FILE", help="Write the table to FILE. Replaces FILE."
+        ),
+    ] = None,
+    as_json: Annotated[bool, typer.Option("--json", help="Print JSON instead of CSV.")] = False,
+) -> None:
+    """Show the calibration values of a device over a range of dates, as one table."""
+    every = _parse_step(step)
+    with _friendly():
+        from . import series
+
+        if output is not None:
+            _check_writable(output)
+        kind = source or ("archive" if archive is not None else "ibm")
+        verb = "Pulling" if kind == "ibm" else "Reading"
+        with err.status(f"{verb} {device}...") as status:
+
+            def progress(number: int, count: int, at: datetime) -> None:
+                status.update(f"{verb} {device} at {iso_z(at)} (step {number} of {count})...")
+
+            result = series.history(
+                device, start, end, step=every, source=kind, archive=archive, progress=progress
+            )
+        if output is None:
+            _print_table(result.to_json() + "\n" if as_json else str(result.to_csv()))
+            return
+        if as_json:
+            write_atomically(output, (result.to_json() + "\n").encode())
+        else:
+            result.to_csv(output)
+        out.print(f"{result.summary()}\nsaved: {output}", markup=False, soft_wrap=True)
+
+
+def _print_table(text: str) -> None:
+    """Write ``text`` to standard output. A reader that stops early, such as ``head``, ends the
+    output with no error."""
+    try:
+        sys.stdout.write(text)
+        sys.stdout.flush()
+    except BrokenPipeError:
+        os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
+
+
+_STEP = re.compile(r"\s*(\d+)\s*([dhm])\s*")
+_STEP_UNITS = {"d": "days", "h": "hours", "m": "minutes"}
+
+
+def _parse_step(text: str) -> timedelta:
+    match = _STEP.fullmatch(text.lower())
+    if match is None or int(match[1]) == 0:
+        raise typer.BadParameter(
+            f"{text!r} is not a step; give a whole number of days, hours or minutes, such as 1d,"
+            " 12h or 30m",
+            param_hint="--step",
+        )
+    return timedelta(**{_STEP_UNITS[match[2]]: int(match[1])})
+
+
 # check --------------------------------------------------------------------------------------
 
 
@@ -1553,6 +1647,10 @@ _CLI_TERMS = (
     (re.compile(r"""nv\.load\((['"])([\w.@:-]+)\1\)"""), r"nv show \2"),
     (re.compile(r"\bat=(?= )"), "--at"),
     (re.compile(r"\bat=(?=['\"])"), "--at "),
+    (re.compile(r"\bstart=(?=['\"])"), "--from "),
+    (re.compile(r"\bend=(?=['\"])"), "--to "),
+    (re.compile(r"\barchive=PATH\b"), "--archive FILE"),
+    (re.compile(r"\barchive=(?=['\"])"), "--archive "),
     (
         re.compile(r"pass expect='nv:\.\.\.' or load one of their files:"),
         "give one of their files:",
