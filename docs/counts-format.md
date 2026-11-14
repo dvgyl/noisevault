@@ -1,9 +1,13 @@
-# Counts format 1.0
+# Counts format 1.1
 
 A counts file records what a device measured when it ran a set of circuits. The counts file binds
 the run to the profile that the circuits were planned from. The file also binds the run to the
 physical qubits that the circuits ran on and to the exact ops that the device executed.
 `nv compare` scores a profile on a counts file.
+
+Format 1.1 adds one optional field to a circuit, [`measured`](#measured-qubits). A file with no
+`measured` field is format 1.0. NoiseVault reads both formats, and writes `"1.1"` only for a file
+with a `measured` field. Thus each file of format 1.0 keeps its bytes.
 
 NoiseVault reads a counts file with `load_counts(path)` from `noisevault.counts`. A file may be
 gzip-compressed (`.json.gz`). A file can hold at most 64 MiB of JSON, after decompression.
@@ -60,7 +64,7 @@ means that qubit 150 read 1.
 
 | Field | Content |
 | --- | --- |
-| `nv_counts` | The format version, `"1.0"`. |
+| `nv_counts` | The format version: `"1.1"` when a circuit has `measured`, else `"1.0"`. |
 | `source` | `hardware`, or `simulated` for counts drawn from a profile. |
 | `profile` | The `id` and the calibration `fingerprint` of the profile the circuits were planned from. |
 | `backend` | The device that ran the circuits, as the profile's `device.name` spells it. |
@@ -121,11 +125,12 @@ the job ids.
 | `name` | The circuit's name. Names are unique within a file. The names `axis_d` and `periodic_d` with a number, such as `axis_d64`, are the names of the [probe circuits](scoring.md#probe-circuits-and-what-a-score-leaves-out) of the deep circuit set. A default score leaves out a circuit with such a name. |
 | `qubits` | The physical qubits, 1 to 256 and distinct. Circuit qubit i is `qubits[i]`. |
 | `ops` | The ops the device ran, in order, on circuit qubits. Can be empty. |
+| `measured` | Format 1.1 only, optional. The measured circuit qubits, in the order of the key bits. |
 | `shots` | The number of shots, at least 1 and at most 10^10 (10000000000). |
 | `counts` | The number of shots that gave each outcome. The counts add up to `shots`. |
 
-The device measures every circuit qubit once, after the last op, into the classical bit with the
-same index. `simulate` also refuses `shots` above 10^10.
+With no `measured` field, the device measures every circuit qubit once, after the last op, into
+the classical bit with the same index. `simulate` also refuses `shots` above 10^10.
 
 A file has two qubit limits:
 
@@ -138,8 +143,9 @@ A circuit on 11 to 256 qubits loads, saves, and goes through `select` and `split
 a dict of bit strings. `nv compare` and `simulate` refuse such a circuit and name it, so select
 the circuits of 10 qubits or fewer first. `nv score` and `score` leave such a circuit out and
 name it, and `score` refuses it when `circuits=` names it. For a wide Clifford circuit, use the
-stabilizer forecast of `noisevault.wide` instead. The circuits of 10 qubits or fewer in one file
-hold at most 4096 outcomes in all, where a circuit on n qubits has 2^n.
+stabilizer forecast of `noisevault.wide` instead. The stabilizer forecast refuses a circuit with
+`measured`. The circuits of 10 qubits or fewer in one file
+hold at most 4096 outcomes in all. A circuit with n key bits has 2^n outcomes.
 
 ### Ops
 
@@ -153,7 +159,7 @@ qubit. `measure` and `reset` are not ops.
 
 ### Counts keys
 
-A key has one character, `0` or `1`, per circuit qubit. `bit_order` says which end holds
+A key has one character, `0` or `1`, per measured qubit. `bit_order` says which end holds
 classical bit 0:
 
 | `bit_order` | Classical bit 0 | Key for "circuit qubit 0 read 1, qubit 1 read 0" |
@@ -163,7 +169,33 @@ classical bit 0:
 
 `load_counts` stores keys as `clbit0_left`, sorted, with zero counts dropped. `circuit.vector()`
 gives the counts as an array in the order of the reference simulator's probabilities, with
-circuit qubit 0 as the most significant bit. A circuit on more than 10 qubits has no such array.
+the first key bit as the most significant bit. A circuit on more than 10 qubits has no such
+array.
+
+### Measured qubits
+
+A transpiled circuit often acts on a routing qubit that it does not measure. `measured` lists
+the circuit qubits that the device measures, in the order of the key bits. Bit j of a key is
+circuit qubit `measured[j]`. Each entry is an index into `qubits`, and no entry occurs two
+times. A list of all circuit qubits in order is the same as no `measured` field, so the loaded
+file drops it.
+
+```json
+{"name": "routed", "qubits": [148, 149, 150],
+ "ops": [["x", [0], []], ["cz", [0, 1], []]],
+ "measured": [2, 0],
+ "shots": 1000, "counts": {"01": 941, "11": 30, "00": 27, "10": 2}}
+```
+
+Here the device measures qubit 150 into the first key bit and qubit 148 into the second key bit.
+Qubit 149 has a gate and no measurement. The forecast of the circuit sums over the outcomes of
+qubit 149. The 10-qubit limit counts all qubits of the circuit, the unmeasured qubits too,
+because the reference simulator runs all of them.
+
+`nv.counts_from_qiskit(circuits, counts, profile=..., run_at=...)` makes a counts file from Qiskit
+circuits, as the device ran them, and their Qiskit counts. It sets `measured` from the
+measurements of each circuit. [My device result differs from my simulation](why-different.md)
+shows the steps.
 
 ## Planned circuits
 
