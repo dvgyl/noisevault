@@ -1090,7 +1090,7 @@ def _read_circuit(
     measured_into: dict[int, int] = {}
     measured: set[int] = set()
     used: set[int] = set()
-    steps: list[tuple[str, tuple[int, ...], tuple[float, ...]]] = []
+    steps: list[tuple[str, tuple[int, ...], tuple[float, ...] | Delay]] = []
     for instruction in circuit.data:
         op = instruction.operation
         qubits = tuple(qubit_index[q] for q in instruction.qubits)
@@ -1119,7 +1119,7 @@ def _read_circuit(
             continue
         if isinstance(op, Delay):
             if not set(qubits) & measured:
-                steps.append(("delay", qubits, (_delay_in_ns(op, qubits[0], dt, refuse),)))
+                steps.append(("delay", qubits, op))
             continue
         after = next((q for q in qubits if q in measured), None)
         if after is not None:
@@ -1160,7 +1160,11 @@ def _read_circuit(
     order = sorted(used)
     position = {q: i for i, q in enumerate(order)}
     ops = tuple(
-        Op(op_name, tuple(position[q] for q in qubits), params)
+        Op(
+            op_name,
+            tuple(position[q] for q in qubits),
+            (_delay_in_ns(params, qubits[0], dt, refuse),) if isinstance(params, Delay) else params,
+        )
         for op_name, qubits, params in steps
         if all(q in position for q in qubits)
     )

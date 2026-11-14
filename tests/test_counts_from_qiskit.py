@@ -161,6 +161,16 @@ def test_delays_keep_their_time_in_ns_and_a_delay_on_an_unused_qubit_drops_out()
     assert [op.params for op in planned.ops[1:]] == [(500.0,), (pytest.approx(200.0),)]
 
 
+def test_a_delay_in_dt_on_an_unused_qubit_drops_out_with_no_dt() -> None:
+    qc = QuantumCircuit(2, 1, name="wait")
+    qc.delay(8, 1, unit="dt")
+    qc.x(0)
+    qc.measure(0, 0)
+    planned = planned_circuit(qc)
+    assert planned.qubits == (0,)
+    assert [op.name for op in planned.ops] == ["x"]
+
+
 def _circuit(
     change: Callable[[QuantumCircuit], None], qubits: int = DEVICE_QUBITS
 ) -> QuantumCircuit:
