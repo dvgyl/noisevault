@@ -18,6 +18,7 @@ from typing import Any
 from unittest import mock
 
 import pytest
+from conftest import close_text
 from rich.console import Console
 from rich.terminal_theme import TerminalTheme
 from typer.testing import CliRunner
@@ -444,7 +445,7 @@ def test_compare_output_matches_a_run_on_the_downloaded_example() -> None:
     block = compare_block()
     shown = block.group(0)[block.group(0).index("```text\n") + 8 :].removesuffix("```\n")
     current = compare_output(block["command"], block["url"])
-    assert shown.rstrip("\n") == current, (
+    assert close_text(shown, current), (
         "README.md must show this nv compare output; regenerate it with"
         f" python tests/test_readme.py:\n{current}"
     )

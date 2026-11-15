@@ -17,6 +17,8 @@ from typing import Any, NamedTuple
 import pytest
 from conftest import (
     MANILA_V01,
+    close_text,
+    close_word,
     deeper_than_the_parser_takes,
     migrated,
     rename_an_aer_class,
@@ -2197,9 +2199,13 @@ def test_each_compare_output_is_the_pinned_text(name: str, monkeypatch) -> None:
     result = _compare([ref, counts], cwd, monkeypatch)
     assert result.exit_code == 0, result.output
     text = _unstyled(result.stdout)
-    assert text == (FITS / f"{name}.txt").read_text(encoding="utf-8"), (
+    pinned = (FITS / f"{name}.txt").read_text(encoding="utf-8")
+    assert close_text(pinned, text), (
         f"tests/fixtures/compare/{name}.txt is stale; regenerate it with python tests/test_cli.py"
     )
+    assert [len(line) - len(line.lstrip()) for line in text.splitlines()] == [
+        len(line) - len(line.lstrip()) for line in pinned.splitlines()
+    ]
     lines = text.splitlines()
     _layout(lines)
     assert lines[4].endswith("  impossible shots") == (name == "ruled-out")
@@ -2233,7 +2239,11 @@ def test_a_narrow_terminal_gets_compare_lines_that_fit_and_break_between_words(
     lines = _unstyled(result.stdout).splitlines()
     wide = (FITS / f"{name}.txt").read_text(encoding="utf-8").splitlines()
     assert max(map(len, lines)) <= columns, max(lines, key=len)
-    assert set(" ".join(lines).split()) <= set(" ".join(wide).split())
+    wide_words = set(" ".join(wide).split())
+    assert all(
+        word in wide_words or any(close_word(word, other) for other in wide_words)
+        for word in " ".join(lines).split()
+    )
     assert all(line.count("(") == line.count(")") for line in lines), lines
     head = lines.index(next(line for line in lines if line.startswith("circuit ")))
     wide_head = wide.index(next(line for line in wide if line.startswith("circuit ")))

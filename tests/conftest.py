@@ -13,6 +13,7 @@ import importlib
 import importlib.util
 import json
 import os
+import re
 import sys
 import warnings
 from collections.abc import Iterator
@@ -70,6 +71,36 @@ _TOY: dict[str, Any] = {
         "cz": {"avg_infidelity": 1e-2, "duration_ns": 70},
     },
 }
+
+
+_NUMBER = re.compile(r"-?\d+(?:\.\d+)?")
+
+
+def close_word(word: str, other: str) -> bool:
+    """True when two words of an output are equal, or hold one number each that differs by at
+    most 1 unit of its last digit, with the same text around it."""
+    if word == other:
+        return True
+    numbers = _NUMBER.findall(word), _NUMBER.findall(other)
+    if any(len(found) != 1 for found in numbers):
+        return False
+    if _NUMBER.sub("", word) != _NUMBER.sub("", other):
+        return False
+    first, second = numbers[0][0], numbers[1][0]
+    digits = max(len(text.partition(".")[2]) for text in (first, second))
+    return abs(float(first) - float(second)) <= 1.5 * 10**-digits
+
+
+def close_text(shown: str, current: str) -> bool:
+    """True when ``current`` has the words of ``shown``, or differs only in the last digit of
+    some numbers.
+
+    The output of ``nv compare`` has numbers from 400 fits of resampled counts. One of these
+    fits can fall on the other side of a limit with another release of numpy or of Python.
+    The last printed digit of a p-value or of a shot noise limit then changes by 1.
+    """
+    words, others = shown.split(), current.split()
+    return len(words) == len(others) and all(map(close_word, words, others))
 
 
 def require(module: str) -> ModuleType:
