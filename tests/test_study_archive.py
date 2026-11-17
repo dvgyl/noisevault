@@ -140,6 +140,20 @@ def test_reads_a_t1_or_t2_in_seconds_as_microseconds(tmp_path: Path) -> None:
     assert "- T1 and T2 values in seconds: 2." in archive.markdown(data)
 
 
+def test_does_not_read_a_row_with_no_value(tmp_path: Path) -> None:
+    rows = [
+        _row("T2", 80.0, 0),
+        _row("T2", math.nan, 24),
+        _row("T2", None, 48),
+        _row("T2", 90.0, 72),
+        _row("cz_gate_error", 0.004, 0, qubit_a=0, qubit_b=1),
+    ]
+    path = tmp_path / "train.parquet"
+    pq.write_table(pa.Table.from_pylist(rows), path)
+    found = archive.read_rows(path)
+    assert found.value[found.prop == found.properties.index("T2")].tolist() == [80.0, 90.0]
+
+
 def test_counts_a_change_only_when_the_value_changes(data: dict[str, Any]) -> None:
     sx = data["intervals"]["ibm_fez"]["one_qubit"]
     assert sx["between_changes_h"] == {"count": 3, "median": 24.0, "p90": 24.0}

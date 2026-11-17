@@ -179,7 +179,8 @@ class Rows:
 
 
 def read_rows(path: Path, include_retired: bool = False) -> Rows:
-    """The rows of the properties of ``KINDS`` in the parquet file at ``path``."""
+    """The rows of the properties of ``KINDS`` in the parquet file at ``path``. A row with no
+    value (null or NaN) is not a row of a series."""
     import pyarrow.compute as pc
     import pyarrow.parquet as pq
 
@@ -187,6 +188,7 @@ def read_rows(path: Path, include_retired: bool = False) -> Rows:
         pc.field("property").isin(list(KINDS))
         & pc.field("calibrated_time").is_valid()
         & pc.field("value").is_valid()
+        & ~pc.field("value").is_nan()
         & pc.field("qubit_a").is_valid()
     )
     if not include_retired:

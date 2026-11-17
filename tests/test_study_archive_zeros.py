@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -119,6 +120,14 @@ def test_a_zero_that_is_not_stated_again_stays_in_force(tmp_path: Path) -> None:
     assert fez["share_with_a_zero_in_force"] == 1
     month = archive_zeros.by_period(found, "month")["2026-03"]["devices"]["ibm_fez"]
     assert month["mean_in_force"] == pytest.approx(5 / 3)
+
+
+def test_a_row_with_no_value_is_not_a_row_of_an_observation(tmp_path: Path) -> None:
+    rows = [_row(1, 0, P10, 0.0), _row(1, 1, P10, math.nan), _row(2, 1, P10, math.nan)]
+    path = tmp_path / "train.parquet"
+    pq.write_table(pa.Table.from_pylist(rows), path)
+    found = archive_zeros.observations(path, T0, END)
+    assert (found.zeros.tolist(), found.in_force.tolist()) == ([1], [1])
 
 
 def test_the_report_gives_each_device(parquet: Path, capsys: pytest.CaptureFixture[str]) -> None:

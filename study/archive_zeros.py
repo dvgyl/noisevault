@@ -87,6 +87,7 @@ def observations(path: Path, start: datetime, end: datetime) -> Observations:
     stamp = pa.timestamp("us", tz="UTC")
     wanted = (
         pc.field("property").isin(list(READOUT))
+        & ~pc.field("value").is_nan()
         & ~pc.field("backend").isin(list(RETIRED))
         & (pc.field("observed_time") < pa.scalar(end + timedelta(days=1), stamp))
     )

@@ -14,6 +14,12 @@ This file lists all notable changes to NoiseVault. Versions follow
   `ecr_gate_error` as 2-qubit errors. It gives their regression to the mean when the file holds
   them.
 
+### Fixed
+
+- **A row with no value is not a row of the archive statistics.** `study.archive` and
+  `study.archive_zeros` now drop a row whose value is NaN. Before, such a row counted as a
+  value and as a change.
+
 ## 0.5.0 (2026-11-15)
 
 ### Added
