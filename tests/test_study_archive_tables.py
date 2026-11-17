@@ -168,6 +168,21 @@ def test_keeps_one_row_of_a_repeat_and_the_last_value_of_a_key(
     assert "rows out: 10" in report
 
 
+def test_equal_zeros_and_two_missing_values_are_one_value_of_a_key(tmp_path: Path) -> None:
+    qubits = [
+        _qubit("prob_meas1_prep0", 0.0, 0, device="ibm_b"),
+        _qubit("prob_meas1_prep0", -0.0, 0, device="ibm_b"),
+        _qubit("readout_error", math.nan, 0, device="ibm_b"),
+        _qubit("readout_error", math.nan, 0, device="ibm_b"),
+        _qubit("prob_meas0_prep1", 0.0, 0, device="ibm_b"),
+        _qubit("prob_meas0_prep1", 0.01, 0, device="ibm_b"),
+    ]
+    out = tmp_path / "history.parquet"
+    counts = archive_tables.convert(_folder(tmp_path / "tables", qubits, []), out)
+    assert counts.conflicts == {"ibm_b": 1}
+    assert len(pq.read_table(out)) == 3
+
+
 def test_drops_an_early_date_and_a_device_name_with_an_underscore(
     converted: tuple[Path, archive_tables.Counts], table: pa.Table
 ) -> None:

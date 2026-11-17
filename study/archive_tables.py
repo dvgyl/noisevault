@@ -151,9 +151,9 @@ def unique_rows(part: Part) -> Part:
     )
     last = np.append(~same, True)
     key = np.cumsum(np.concatenate(([True], ~same))) - 1
-    # Bit patterns, so that two NaN values of the same key are one value.
-    bits = rows.value.view(np.int64)
-    differs = same & (bits[1:] != bits[:-1])
+    # Two NaN values of the same key are one value, and so are 0.0 and -0.0.
+    now, before = rows.value[1:], rows.value[:-1]
+    differs = same & (now != before) & ~(np.isnan(now) & np.isnan(before))
     mixed = np.zeros(int(key[-1]) + 1 if key.size else 0, dtype=bool)
     mixed[key[1:][differs]] = True
     mixed[key[rows.conflict]] = True
