@@ -65,6 +65,8 @@ KINDS = {
     "prob_meas1_prep0": "readout",
     "sx_gate_error": "one_qubit",
     "cz_gate_error": "two_qubit",
+    "cx_gate_error": "two_qubit",
+    "ecr_gate_error": "two_qubit",
     "rzz_gate_error": "rzz",
 }
 KIND_ORDER = ("t1", "t2", "readout", "one_qubit", "two_qubit", "rzz")
@@ -75,6 +77,9 @@ COHERENCE = ("T1", "T2")
 SECONDS_BELOW = 0.01
 READOUT = ("prob_meas0_prep1", "prob_meas1_prep0")
 RANKED = ("prob_meas1_prep0", "cz_gate_error")
+# The 2-qubit errors of older devices. The output has their regression only when the file holds
+# them, so that the output of a file with no such rows does not change.
+RANKED_IF_HELD = ("cx_gate_error", "ecr_gate_error")
 RETIRED = ("ibm_torino",)
 GRID_STEP = timedelta(hours=6)
 ENDED_AFTER = timedelta(days=30)
@@ -286,7 +291,10 @@ def analyze(
         "change_size_note": CHANGE_SIZE_NOTE,
         "persistence": _persistence(window_changes),
         "readout_grid": _readout_grid(window),
-        "regression": {p: regression(window_changes, p) for p in RANKED},
+        "regression": {
+            **{p: regression(window_changes, p) for p in RANKED},
+            **{p: found for p in RANKED_IF_HELD if (found := regression(window_changes, p))},
+        },
     }
 
 
@@ -689,15 +697,15 @@ def markdown(data: Mapping[str, Any]) -> str:
         "|---|---|---:|---:|",
         *(
             f"| {prop} | {device} | {found['days']} | {found['next_excluded']} |"
-            for prop in RANKED
-            for device, found in sorted(data["regression"][prop].items())
+            for prop, devices in data["regression"].items()
+            for device, found in sorted(devices.items())
         ),
         "",
         "| Property | Device | Part | Changes | Mean now | Median now | Mean next | Median next |",
         "|---|---|---|---:|---:|---:|---:|---:|",
     ]
-    for prop in RANKED:
-        for device, found in sorted(data["regression"][prop].items()):
+    for prop, devices in data["regression"].items():
+        for device, found in sorted(devices.items()):
             for part in PARTS:
                 row = found["parts"][part]
                 lines.append(
