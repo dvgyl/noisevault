@@ -3,6 +3,17 @@
 This file lists all notable changes to NoiseVault. Versions follow
 [Semantic Versioning](https://semver.org).
 
+## Unreleased
+
+### Added
+
+- **A converter for a calibration history in four tables.**
+  `python -m study.archive_tables FOLDER --out FILE` converts a calibration history of IBM
+  devices in four tables, collected through the public API, to one parquet table. The archive
+  scripts read this table with no other change. `study.archive` now reads `cx_gate_error` and
+  `ecr_gate_error` as 2-qubit errors. It gives their regression to the mean when the file holds
+  them.
+
 ## 0.5.0 (2026-11-15)
 
 ### Added
