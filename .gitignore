@@ -11,6 +11,8 @@ dist/
 *.egg-info/
 .env
 .DS_Store
+# Companion files that macOS writes on a disk with no extended attributes
+._*
 _site/
 
 # Weekly IBM campaign data: account data under IBM's terms (docs/recipes.md)

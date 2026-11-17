@@ -2203,9 +2203,6 @@ def test_each_compare_output_is_the_pinned_text(name: str, monkeypatch) -> None:
     assert close_text(pinned, text), (
         f"tests/fixtures/compare/{name}.txt is stale; regenerate it with python tests/test_cli.py"
     )
-    assert [len(line) - len(line.lstrip()) for line in text.splitlines()] == [
-        len(line) - len(line.lstrip()) for line in pinned.splitlines()
-    ]
     lines = text.splitlines()
     _layout(lines)
     assert lines[4].endswith("  impossible shots") == (name == "ruled-out")

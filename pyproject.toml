@@ -97,6 +97,11 @@ replacement = '\g<1>https://github.com/dvgyl/noisevault/blob/main/'
 pattern = '(\]\()(?![a-zA-Z][a-zA-Z0-9+.-]*:|[#/])'
 replacement = '\g<1>https://github.com/dvgyl/noisevault/blob/main/'
 
+# A local build must not take files that are not in git: companion files of macOS, and folders
+# with a name such as tests or docs below a folder that git does not track.
+[tool.hatch.build]
+exclude = ["._*", "/_private", "/.claude", "/.venv"]
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/noisevault"]
 

@@ -17,6 +17,7 @@ import re
 import sys
 import warnings
 from collections.abc import Iterator
+from decimal import Decimal
 from importlib.metadata import version
 from pathlib import Path
 from types import ModuleType
@@ -73,34 +74,48 @@ _TOY: dict[str, Any] = {
 }
 
 
-_NUMBER = re.compile(r"-?\d+(?:\.\d+)?")
+_DECIMAL = re.compile(r"([^\d.-]*)(-?)(\d+\.\d+)([^\d.]*)")
 
 
 def close_word(word: str, other: str) -> bool:
-    """True when two words of an output are equal, or hold one number each that differs by at
-    most 1 unit of its last digit, with the same text around it."""
+    """True when two words of an output are equal, or are one decimal number each that differs
+    by at most 1 unit of its last digit.
+
+    Only a number with a decimal point can differ: a p-value, a factor or a shot noise limit.
+    The sign and the text around the number must be the same. A whole number, such as a number
+    of shots, and a name with a digit, such as T1, must be equal.
+    """
     if word == other:
         return True
-    numbers = _NUMBER.findall(word), _NUMBER.findall(other)
-    if any(len(found) != 1 for found in numbers):
+    first, second = _DECIMAL.fullmatch(word), _DECIMAL.fullmatch(other)
+    if first is None or second is None:
         return False
-    if _NUMBER.sub("", word) != _NUMBER.sub("", other):
+    if (first[1], first[2], first[4]) != (second[1], second[2], second[4]):
         return False
-    first, second = numbers[0][0], numbers[1][0]
-    digits = max(len(text.partition(".")[2]) for text in (first, second))
-    return abs(float(first) - float(second)) <= 1.5 * 10**-digits
+    digits = max(len(found[3].partition(".")[2]) for found in (first, second))
+    return abs(Decimal(first[3]) - Decimal(second[3])) <= Decimal(1).scaleb(-digits)
 
 
 def close_text(shown: str, current: str) -> bool:
-    """True when ``current`` has the words of ``shown``, or differs only in the last digit of
-    some numbers.
+    """True when ``current`` is ``shown``, or differs only in the last digit of some decimal
+    numbers. The lines and the spaces must be the same, apart from line ends at the end.
 
     The output of ``nv compare`` has numbers from 400 fits of resampled counts. One of these
     fits can fall on the other side of a limit with another release of numpy or of Python.
     The last printed digit of a p-value or of a shot noise limit then changes by 1.
     """
-    words, others = shown.split(), current.split()
-    return len(words) == len(others) and all(map(close_word, words, others))
+    lines, others = shown.rstrip("\n").split("\n"), current.rstrip("\n").split("\n")
+    if len(lines) != len(others):
+        return False
+    for line, other in zip(lines, others, strict=True):
+        parts, other_parts = re.split(r"(\s+)", line), re.split(r"(\s+)", other)
+        if len(parts) != len(other_parts):
+            return False
+        for i, (part, other_part) in enumerate(zip(parts, other_parts, strict=True)):
+            same = part == other_part if i % 2 else close_word(part, other_part)
+            if not same:
+                return False
+    return True
 
 
 def require(module: str) -> ModuleType:

@@ -22,7 +22,7 @@ block below is a part of that script.
 Mitiq supports Python up to 3.12. This tutorial uses Cirq, so it does not need `ply`:
 
 ```bash
-pip install "noisevault[cirq] @ git+https://github.com/dvgyl/noisevault" mitiq
+pip install "noisevault[cirq]" mitiq
 ```
 
 ## 1. Load the noise model
