@@ -7,8 +7,8 @@
 <meta name="description" content="Simulate quantum circuits with the noise of a real device. One profile works in Qiskit, Cirq, PennyLane and Stim, and a fingerprint pins the numbers.">
 <link rel="canonical" href="https://dvgyl.github.io/noisevault/">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23fcfcfa'/%3E%3Cpolyline points='3,21 6,15 9,21 12,11 15,21' fill='none' stroke='%23b5590b' stroke-width='2.4' stroke-linejoin='round' stroke-linecap='round'/%3E%3Cpath d='M20 11V25H29' fill='none' stroke='%232f5fe0' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3Ccircle cx='20' cy='9' r='3' fill='%231d1c1a'/%3E%3C/svg%3E">
-<meta name="theme-color" content="#fcfcfa" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#fcfcfa">
+<meta name="color-scheme" content="light only">
 <meta property="og:type" content="website">
 <meta property="og:title" content="NoiseVault">
 <meta property="og:description" content="Simulate quantum circuits with the noise of a real device. One profile works in Qiskit, Cirq, PennyLane and Stim.">
@@ -71,20 +71,6 @@
   --col-gap: clamp(var(--s-16), 2.2vw, var(--s-32));
   --header-h: 64px;
   color-scheme: light;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #000000;
-    --ink: #f2f1ec;
-    --ink-2: #a3a19b;
-    --rule: #2a2a28;
-    --code: #111110;
-    --ok: #6f93ff;
-    --err: #f08a3c;
-    --pass: #2fc4bb;
-    color-scheme: dark;
-  }
 }
 
 *, *::before, *::after {
@@ -1766,7 +1752,6 @@ const DATA = __DATA__;
 
   const rootEl = document.documentElement;
   const reduceMQ = matchMedia("(prefers-reduced-motion: reduce)");
-  const darkMQ = matchMedia("(prefers-color-scheme: dark)");
 
   rootEl.classList.add("js");
   if (!reduceMQ.matches && window.scrollY < 40) {
@@ -2214,7 +2199,6 @@ const DATA = __DATA__;
     const loadEdgeT = opts.loadEdgeT ?? 1;
     const loadDotT = opts.loadDotT ?? 1;
     const useFlicker = opts.useFlicker ?? false;
-    const dark = darkMQ.matches;
     const sansFont = '"Geist", -apple-system, BlinkMacSystemFont, Helvetica, Arial, sans-serif';
     const monoFont = '"Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace';
 
@@ -2232,7 +2216,7 @@ const DATA = __DATA__;
     const t67 = seg(S, 6.32, 6.86); // K6 -> K7 (shrink grid + large code)
 
     // 1. Chip couplers (visible during K0 and K1, fade out during K1 -> K2)
-    const couplerAlpha = (1 - seg(S, 1.22, 1.54)) * (dark ? 0.34 : 0.25) * (1 - 0.18 * t01);
+    const couplerAlpha = (1 - seg(S, 1.22, 1.54)) * 0.25 * (1 - 0.18 * t01);
     if (couplerAlpha > 0.005 && loadEdgeT > 0) {
       ctx.strokeStyle = rgba(TOK["--ink-2"], couplerAlpha);
       ctx.lineWidth = 1.1;
@@ -3702,10 +3686,6 @@ print(counts)`,
       }
     });
 
-    darkMQ.addEventListener("change", () => {
-      readTokens();
-      stageCtrl.redraw();
-    });
   }
 
   if (document.readyState === "loading") addEventListener("DOMContentLoaded", init);
