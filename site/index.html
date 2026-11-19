@@ -38,9 +38,37 @@
   --pass: #0b8a84;
   --sans: "Geist", "Geist Fallback", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
   --mono: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  --gutter: clamp(24px, 5.5vw, 84px);
+
+  /* Type scale */
+  --text-xs: 13px;
+  --text-sm: 14px;
+  --text-ui: 15px;
+  --text-md: 16px;
+  --text-body: 19px;
+  --text-h3: 20px;
+  --text-h2: clamp(30px, 3.4vw, 46px);
+  --text-h1: clamp(40px, 4.6vw, 72px);
+
+  /* Spacing scale */
+  --s-4: 4px;
+  --s-8: 8px;
+  --s-12: 12px;
+  --s-16: 16px;
+  --s-20: 20px;
+  --s-22: 22px;
+  --s-24: 24px;
+  --s-28: 28px;
+  --s-32: 32px;
+  --s-40: 40px;
+  --s-48: 48px;
+  --s-56: 56px;
+  --s-72: 72px;
+  --s-112: 112px;
+  --s-168: 168px;
+
+  --gutter: clamp(var(--s-24), 5.5vw, 84px);
   --maxw: 1380px;
-  --col-gap: clamp(16px, 2.2vw, 32px);
+  --col-gap: clamp(var(--s-16), 2.2vw, var(--s-32));
   --header-h: 64px;
   color-scheme: light;
 }
@@ -75,8 +103,8 @@ body {
   color: var(--ink);
   font-family: var(--sans);
   font-weight: 400;
-  font-size: 18px;
-  line-height: 1.6;
+  font-size: var(--text-body);
+  line-height: 1.58;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
   overflow-x: clip;
@@ -86,7 +114,7 @@ a {
   color: var(--ok);
   text-decoration: underline;
   text-decoration-thickness: 1px;
-  text-underline-offset: 4px;
+  text-underline-offset: var(--s-4);
   transition: color 150ms ease;
 }
 
@@ -100,7 +128,7 @@ code {
   font-variant-ligatures: none;
   background: var(--code);
   color: var(--ink);
-  padding: 0.1em 0.35em;
+  padding: 2px 5px;
   border-radius: 4px;
   white-space: nowrap;
 }
@@ -128,33 +156,35 @@ h1, h2, h3 {
 
 h1 {
   font-weight: 500;
-  font-size: clamp(40px, 5vw, 84px);
-  line-height: 1.04;
-  letter-spacing: -0.032em;
+  font-size: var(--text-h1);
+  line-height: 1.02;
+  letter-spacing: -0.035em;
 }
 
 h2 {
   font-weight: 500;
-  font-size: clamp(28px, 3.6vw, 48px);
-  line-height: 1.1;
-  letter-spacing: -0.025em;
+  font-size: var(--text-h2);
+  line-height: 1.08;
+  letter-spacing: -0.03em;
 }
 
 h3 {
   font-weight: 500;
-  font-size: 20px;
+  font-size: var(--text-h3);
   line-height: 1.3;
-  letter-spacing: -0.015em;
+  letter-spacing: -0.01em;
 }
 
 p {
   margin: 0;
-  max-width: 58ch;
-  color: var(--ink-2);
+  max-width: 34em;
+  color: var(--ink);
+  text-wrap: pretty;
 }
 
 p + p {
-  margin-top: 1em;
+  margin-top: var(--s-16);
+  color: var(--ink-2);
 }
 
 figure {
@@ -230,7 +260,7 @@ html:not(.js) .site-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px 28px;
+  gap: var(--s-16) var(--s-28);
 }
 
 .logo-link {
@@ -250,8 +280,8 @@ html:not(.js) .site-header {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 8px 28px;
-  font-size: 15px;
+  gap: var(--s-8) var(--s-28);
+  font-size: var(--text-ui);
   font-weight: 400;
   line-height: 1.2;
 }
@@ -259,7 +289,7 @@ html:not(.js) .site-header {
 .nav-links a {
   color: var(--ink);
   text-decoration: none;
-  padding: 6px 0;
+  padding: var(--s-8) 0;
   white-space: nowrap;
 }
 
@@ -281,14 +311,28 @@ html:not(.js) .site-header {
 }
 
 .code-block pre {
-  padding: 15px 12px 15px 18px;
-  font-size: 14px;
+  padding: var(--s-16) var(--s-12) var(--s-16) var(--s-20);
+  font-size: var(--text-sm);
   line-height: 1.65;
   color: var(--ink);
   overflow-x: auto;
   white-space: pre;
   min-width: 0;
   -webkit-overflow-scrolling: touch;
+}
+
+/* A one-line block centres its Copy button on the command. */
+.hero-install {
+  align-items: center;
+}
+.hero-install .copy-btn {
+  padding-block: 12px;
+}
+@media (max-width: 480px) {
+  .hero-install pre {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
 }
 
 /* With JavaScript the stage draws this call large, so the caption copy would repeat it. */
@@ -299,8 +343,8 @@ html.js #k7-code {
 .code-block .copy-btn {
   background: transparent;
   border: 0;
-  padding: 16px 16px 12px 10px;
-  font-size: 13px;
+  padding: var(--s-16) var(--s-16) var(--s-12) var(--s-12);
+  font-size: var(--text-xs);
   font-weight: 500;
   line-height: 1.3;
   color: var(--ink-2);
@@ -345,14 +389,14 @@ html.js #k7-code {
 .code-more {
   grid-column: 1 / -1;
   border-top: 1px solid var(--rule);
-  padding: 10px 18px;
+  padding: var(--s-12) var(--s-20);
 }
 
 .text-btn {
   background: none;
   border: 0;
-  padding: 4px 0;
-  font-size: 15px;
+  padding: var(--s-4) 0;
+  font-size: var(--text-ui);
   font-weight: 500;
   line-height: 1.3;
   color: var(--ink);
@@ -390,6 +434,12 @@ html.no-gsap .stage-pin-wrap {
   margin-bottom: -100svh;
 }
 
+#story-canvas,
+.step-static-canvas canvas {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+
 #story-canvas {
   display: block;
   width: 100%;
@@ -407,14 +457,14 @@ html.no-gsap .stage-pin-wrap {
   column-gap: var(--col-gap);
   align-items: center;
   min-height: 92vh;
-  padding: 72px 0;
+  padding: var(--s-72) 0;
 }
 
 .story-step.is-hero {
   min-height: 100vh;
   min-height: 100svh;
-  padding-top: calc(var(--header-h) + 32px);
-  padding-bottom: 48px;
+  padding-top: var(--s-72);
+  padding-bottom: var(--s-72);
 }
 
 .story-step:last-child {
@@ -426,54 +476,57 @@ html.no-gsap .stage-pin-wrap {
   min-width: 0;
 }
 
-.step-body h2 {
-  margin-bottom: 20px;
+.story-step.is-hero .step-body {
+  grid-column: 1 / span 6;
 }
 
-.step-body p {
-  color: var(--ink);
+.step-body h2 {
+  margin-bottom: var(--s-20);
 }
 
 .step-body .code-block {
-  margin-top: 24px;
+  margin-top: var(--s-24);
 }
 
-.hero-install {
-  margin-top: 32px;
+.step-body .hero-install {
+  margin-top: var(--s-40);
+  width: fit-content;
+  max-width: 100%;
 }
 
 .hero-links {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 12px 28px;
-  margin-top: 24px;
-  font-size: 18px;
+  gap: var(--s-12) var(--s-28);
+  margin-top: var(--s-24);
+  font-size: var(--text-body);
   font-weight: 500;
 }
 
 .hero-links a {
   color: var(--ink);
-  text-decoration: underline;
-  text-decoration-color: var(--rule);
-  text-underline-offset: 5px;
-  text-decoration-thickness: 1.5px;
+  text-decoration: none;
+  text-underline-offset: var(--s-4);
+  text-decoration-thickness: 1px;
 }
 
 .hero-links a:first-child {
   color: var(--ok);
+  text-decoration: underline;
   text-decoration-color: var(--ok);
 }
 
 .hero-links a:hover {
   color: var(--ok);
+  text-decoration: underline;
   text-decoration-color: var(--ok);
 }
 
 .hero-meta {
-  margin-top: 28px;
-  font-size: 18px;
-  line-height: 1.6;
+  margin-top: var(--s-28);
+  font-size: var(--text-body);
+  line-height: 1.58;
   color: var(--ink-2);
 }
 
@@ -514,12 +567,12 @@ html:not(.js) .stage-pin-wrap {
 
 html:not(.js) .story-step {
   min-height: 0;
-  padding: 40px 0;
+  padding: var(--s-40) 0;
   border-bottom: 1px solid var(--rule);
 }
 
 html:not(.js) .story-step.is-hero {
-  padding-top: calc(var(--header-h) + 40px);
+  padding-top: calc(var(--header-h) + var(--s-40));
 }
 
 html:not(.js) .step-body {
@@ -531,7 +584,7 @@ html:not(.js) .step-body {
    ========================================================================== */
 .band {
   border-top: 1px solid var(--rule);
-  padding: clamp(76px, 11vh, 136px) 0;
+  padding: clamp(var(--s-112), 14vw, var(--s-168)) 0;
   scroll-margin-top: var(--header-h);
 }
 
@@ -546,12 +599,13 @@ html:not(.js) .step-body {
   min-width: 0;
 }
 
-.band-head h2 {
-  margin-bottom: 20px;
+.band-head h2 + p,
+.cite-col h2 + p {
+  margin-top: var(--s-20);
 }
 
 .band-body {
-  margin-top: clamp(40px, 6vh, 64px);
+  margin-top: var(--s-56);
 }
 
 /* ==========================================================================
@@ -570,23 +624,23 @@ html:not(.js) .step-body {
   grid-template-columns: repeat(12, minmax(0, 1fr));
   column-gap: var(--col-gap);
   align-items: baseline;
-  padding: 22px 0;
+  padding: var(--s-22) 0;
 }
 
 .report-cat {
   grid-column: 1 / span 3;
   display: inline-flex;
   align-items: center;
-  gap: 14px;
+  gap: var(--s-12);
   font-weight: 500;
-  font-size: 17px;
+  font-size: var(--text-md);
   color: var(--ink);
   white-space: nowrap;
 }
 
 .cat-rule {
   display: inline-block;
-  width: 24px;
+  width: var(--s-24);
   height: 2px;
   flex-shrink: 0;
 }
@@ -594,8 +648,8 @@ html:not(.js) .step-body {
 .report-text {
   grid-column: 4 / span 9;
   font-weight: 400;
-  font-size: 18px;
-  line-height: 1.55;
+  font-size: var(--text-body);
+  line-height: 1.58;
   color: var(--ink);
 }
 
@@ -632,7 +686,7 @@ html.js .report-row .row-rule {
 
 .svg-label {
   font-family: var(--sans);
-  font-size: 14px;
+  font-size: var(--text-sm);
   font-weight: 400;
   fill: var(--ink-2);
   font-variant-numeric: tabular-nums;
@@ -640,7 +694,7 @@ html.js .report-row .row-rule {
 
 .svg-strong {
   font-family: var(--sans);
-  font-size: 15px;
+  font-size: var(--text-sm);
   font-weight: 500;
   fill: var(--ink);
   font-variant-numeric: tabular-nums;
@@ -648,7 +702,7 @@ html.js .report-row .row-rule {
 
 .svg-ok {
   font-family: var(--sans);
-  font-size: 14px;
+  font-size: var(--text-sm);
   font-weight: 500;
   fill: var(--ok);
   font-variant-numeric: tabular-nums;
@@ -656,7 +710,7 @@ html.js .report-row .row-rule {
 
 .svg-tick {
   font-family: var(--sans);
-  font-size: 13.5px;
+  font-size: var(--text-xs);
   font-weight: 400;
   fill: var(--ink-2);
   font-variant-numeric: tabular-nums;
@@ -673,7 +727,7 @@ html.js .report-row .row-rule {
    4. FLEET TABLE (PLAIN TYPESET ROWS, 1px RULES, NO ARROWS)
    ========================================================================== */
 .fleet-controls {
-  margin-top: 32px;
+  margin-top: var(--s-32);
 }
 
 .fleet-collapse {
@@ -692,7 +746,7 @@ html.js .report-row .row-rule {
 }
 
 .table-scroll {
-  margin-top: 28px;
+  margin-top: var(--s-28);
   overflow-x: auto;
   overscroll-behavior-x: contain;
   -webkit-overflow-scrolling: touch;
@@ -702,7 +756,7 @@ html.js .report-row .row-rule {
   width: 100%;
   border-collapse: collapse;
   font-family: var(--sans);
-  font-size: 15px;
+  font-size: var(--text-ui);
   line-height: 1.45;
   font-variant-numeric: tabular-nums;
 }
@@ -711,14 +765,14 @@ html.js .report-row .row-rule {
   text-align: left;
   font-weight: 500;
   color: var(--ink);
-  padding: 12px 16px;
+  padding: var(--s-12) var(--s-16);
   border-top: 1px solid var(--ink);
   border-bottom: 1px solid var(--ink);
   white-space: nowrap;
 }
 
 .fleet-tbl td {
-  padding: 12px 16px;
+  padding: var(--s-12) var(--s-16);
   border-bottom: 1px solid var(--rule);
   color: var(--ink);
   white-space: nowrap;
@@ -776,7 +830,7 @@ html.js .report-row .row-rule {
   display: inline-block;
   width: 10px;
   height: 10px;
-  margin-right: 8px;
+  margin-right: var(--s-8);
   vertical-align: -1px;
 }
 
@@ -785,14 +839,14 @@ html.js .report-row .row-rule {
    ========================================================================== */
 .start-track {
   position: relative;
-  margin-top: clamp(40px, 6vh, 64px);
+  margin-top: var(--s-56);
 }
 
 .start-rail {
   position: absolute;
-  left: 20px;
-  top: 46px;
-  bottom: 28px;
+  left: var(--s-20);
+  top: var(--s-48);
+  bottom: var(--s-28);
   width: 1px;
   pointer-events: none;
 }
@@ -819,13 +873,14 @@ html.js .start-rail-fill {
   margin: 0;
   padding: 0;
   display: grid;
-  gap: clamp(44px, 6vh, 68px);
+  gap: var(--s-72);
 }
 
 .start-step {
   display: grid;
   grid-template-columns: repeat(12, minmax(0, 1fr));
   column-gap: var(--col-gap);
+  row-gap: var(--s-20);
   align-items: start;
 }
 
@@ -835,8 +890,8 @@ html.js .start-rail-fill {
   z-index: 2;
   width: 42px;
   background: var(--bg);
-  padding: 0 0 8px;
-  font-size: clamp(36px, 3.6vw, 48px);
+  padding: 0 0 var(--s-8);
+  font-size: var(--text-h2);
   font-weight: 500;
   line-height: 0.95;
   letter-spacing: -0.03em;
@@ -850,7 +905,7 @@ html.js .start-rail-fill {
 }
 
 .start-copy h3 {
-  margin-bottom: 10px;
+  margin-bottom: var(--s-16);
 }
 
 .start-code {
@@ -872,14 +927,14 @@ html.js .start-rail-fill {
   grid-template-columns: repeat(12, minmax(0, 1fr));
   column-gap: var(--col-gap);
   align-items: baseline;
-  padding: 20px 0;
+  padding: var(--s-22) 0;
   border-bottom: 1px solid var(--rule);
 }
 
 .limit-row dt {
   grid-column: 1 / span 4;
   font-weight: 600;
-  font-size: 18px;
+  font-size: var(--text-body);
   color: var(--ink);
 }
 
@@ -887,12 +942,13 @@ html.js .start-rail-fill {
   grid-column: 5 / span 8;
   margin: 0;
   font-weight: 400;
-  font-size: 18px;
+  font-size: var(--text-body);
   color: var(--ink-2);
 }
 
 .limits-foot {
-  margin-top: 32px;
+  margin-top: var(--s-32);
+  color: var(--ink-2);
 }
 
 /* ==========================================================================
@@ -912,17 +968,17 @@ html.js .start-rail-fill {
 .tabs {
   position: relative;
   display: flex;
-  gap: 28px;
-  margin-top: 32px;
-  margin-bottom: 20px;
+  gap: var(--s-28);
+  margin-top: var(--s-56);
+  margin-bottom: var(--s-20);
   border-bottom: 1px solid var(--rule);
 }
 
 .tabs button {
   all: unset;
   cursor: pointer;
-  padding: 10px 0 12px;
-  font-size: 16px;
+  padding: var(--s-12) 0;
+  font-size: var(--text-md);
   font-weight: 500;
   color: var(--ink-2);
   transition: color 150ms ease;
@@ -958,7 +1014,7 @@ html.js .tabpanel[hidden] {
 
 html:not(.js) .tabpanel[hidden] {
   display: block;
-  margin-top: 16px;
+  margin-top: var(--s-16);
 }
 
 html:not(.js) .tabs {
@@ -966,22 +1022,18 @@ html:not(.js) .tabs {
 }
 
 .refs-heading {
-  margin-top: 48px;
-  margin-bottom: 16px;
-  font-size: 18px;
-  font-weight: 500;
-  color: var(--ink);
-  letter-spacing: -0.01em;
+  margin-top: var(--s-48);
+  margin-bottom: var(--s-16);
 }
 
 .refs {
   margin: 0;
-  padding: 0 0 0 22px;
+  padding: 0 0 0 var(--s-20);
   color: var(--ink-2);
-  font-size: 17px;
+  font-size: var(--text-md);
   line-height: 1.65;
   display: grid;
-  gap: 8px;
+  gap: var(--s-8);
 }
 
 /* ==========================================================================
@@ -989,7 +1041,7 @@ html:not(.js) .tabs {
    ========================================================================== */
 .site-footer {
   border-top: 1px solid var(--rule);
-  padding: 36px 0 44px;
+  padding: var(--s-40) 0 var(--s-48);
 }
 
 .footer-inner {
@@ -997,7 +1049,7 @@ html:not(.js) .tabs {
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 16px 32px;
+  gap: var(--s-16) var(--s-32);
 }
 
 .site-footer .logo {
@@ -1008,8 +1060,8 @@ html:not(.js) .tabs {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 10px 28px;
-  font-size: 15px;
+  gap: var(--s-12) var(--s-28);
+  font-size: var(--text-ui);
 }
 
 .footer-links a {
@@ -1022,7 +1074,7 @@ html:not(.js) .tabs {
 }
 
 .footer-license {
-  font-size: 15px;
+  font-size: var(--text-ui);
   color: var(--ink-2);
 }
 
@@ -1032,12 +1084,12 @@ html:not(.js) .tabs {
   left: 0;
   top: 0;
   max-width: 300px;
-  padding: 7px 11px;
+  padding: var(--s-8) var(--s-12);
   border-radius: 4px;
   background: var(--ink);
   color: var(--bg);
   font-family: var(--sans);
-  font-size: 13.5px;
+  font-size: var(--text-sm);
   line-height: 1.4;
   font-variant-numeric: tabular-nums;
   pointer-events: none;
@@ -1086,7 +1138,7 @@ html:not(.js) .tabs {
   .story-step:last-child {
     display: block;
     min-height: 46svh;
-    padding: 28px 0 44px;
+    padding: var(--s-28) 0 var(--s-48);
     background: var(--bg);
   }
 
@@ -1094,7 +1146,8 @@ html:not(.js) .tabs {
     min-height: 54svh;
   }
 
-  .step-body {
+  .step-body,
+  .story-step.is-hero .step-body {
     max-width: 100%;
   }
 
@@ -1105,11 +1158,11 @@ html:not(.js) .tabs {
 
   .report-row {
     display: block;
-    padding: 18px 0;
+    padding: var(--s-20) 0;
   }
 
   .report-cat {
-    margin-bottom: 6px;
+    margin-bottom: var(--s-8);
   }
 
   .report-text {
@@ -1121,14 +1174,14 @@ html:not(.js) .tabs {
   }
 
   .start-rail {
-    left: 16px;
-    top: 38px;
+    left: var(--s-16);
+    top: var(--s-40);
   }
 
   .start-step {
     grid-template-columns: 44px minmax(0, 1fr);
-    column-gap: 16px;
-    row-gap: 14px;
+    column-gap: var(--s-16);
+    row-gap: var(--s-20);
   }
 
   .start-num {
@@ -1149,22 +1202,20 @@ html:not(.js) .tabs {
 
   .limit-row {
     display: block;
-    padding: 16px 0;
+    padding: var(--s-22) 0;
   }
 
   .limit-row dt {
-    margin-bottom: 4px;
+    margin-bottom: var(--s-4);
   }
 }
 
 @media (max-width: 640px) {
   :root {
-    --gutter: 16px;
+    --text-body: 17px;
+    --text-h1: clamp(36px, 10vw, 44px);
+    --gutter: var(--s-16);
     --header-h: 56px;
-  }
-
-  body {
-    font-size: 17px;
   }
 
   .logo {
@@ -1172,35 +1223,33 @@ html:not(.js) .tabs {
   }
 
   .nav-links {
-    gap: 6px 16px;
-    font-size: 14px;
-  }
-
-  .hero-install {
-    margin-top: 18px;
+    gap: var(--s-8) var(--s-16);
+    font-size: var(--text-sm);
   }
 
   .story-step.is-hero {
-    padding-top: 18px;
+    padding-top: var(--s-20);
+  }
+
+  .step-body .hero-install {
+    margin-top: var(--s-24);
   }
 
   .hero-links {
-    margin-top: 14px;
-    font-size: 17px;
+    margin-top: var(--s-20);
   }
 
   .hero-meta {
-    margin-top: 14px;
-    font-size: 17px;
+    margin-top: var(--s-20);
   }
 
   .code-block pre {
-    font-size: 13px;
-    padding: 14px 8px 14px 14px;
+    font-size: var(--text-xs);
+    padding: var(--s-16) var(--s-8) var(--s-16) var(--s-16);
   }
 
   .code-block .copy-btn {
-    padding: 15px 12px 12px 8px;
+    padding: var(--s-16) var(--s-12) var(--s-12) var(--s-8);
   }
 }
 
@@ -1214,19 +1263,18 @@ html:not(.js) .tabs {
   }
 
   .nav-links {
-    gap: 4px 14px;
-    font-size: 13.5px;
+    gap: var(--s-4) var(--s-12);
+    font-size: var(--text-xs);
   }
 
   .hero-install pre {
-    font-size: 11.5px;
-    padding-left: 12px;
-    padding-right: 4px;
+    padding-left: var(--s-12);
+    padding-right: var(--s-4);
   }
 
   .hero-install .copy-btn {
-    padding-left: 6px;
-    padding-right: 10px;
+    padding-left: var(--s-8);
+    padding-right: var(--s-12);
   }
 }
 
@@ -1269,7 +1317,7 @@ html:not(.js) .tabs {
     column-gap: var(--col-gap);
     align-items: center;
     min-height: 0;
-    padding: 56px 0;
+    padding: var(--s-56) 0;
     border-bottom: 1px solid var(--rule);
   }
 
@@ -1281,9 +1329,17 @@ html:not(.js) .tabs {
     grid-column: 1 / span 5;
   }
 
+  .story-step.is-hero .step-body {
+    grid-column: 1 / span 6;
+  }
+
   .step-static-canvas {
     display: block;
     grid-column: 6 / span 7;
+  }
+
+  .story-step.is-hero .step-static-canvas {
+    grid-column: 8 / span 5;
   }
 
   .step-static-canvas canvas {
@@ -1305,11 +1361,11 @@ html:not(.js) .tabs {
     .story-step.is-hero,
     .story-step:last-child {
       display: block;
-      padding: 36px 0;
+      padding: var(--s-40) 0;
     }
 
     .step-static-canvas {
-      margin-top: 24px;
+      margin-top: var(--s-24);
     }
 
     .step-static-canvas canvas {
@@ -1366,7 +1422,7 @@ html:not(.js) .tabs {
       <article class="story-step" data-kf="1" id="step-1" aria-labelledby="h-k1">
         <div class="step-body">
           <h2 id="h-k1">Real qubits make mistakes</h2>
-          <p>This is IBM Fez. Each of its 156 qubits makes errors at its own rate. IBM measures those rates in a regular calibration, and the rates change from one calibration to the next.</p>
+          <p>This is IBM Fez, a quantum computer with 156 qubits. Every qubit makes errors at its own rate, and IBM measures those rates in a regular check called a calibration. The rates drift over time, so each calibration gives a new set of numbers.</p>
         </div>
         <div class="step-static-canvas" data-static-kf="1" aria-hidden="true"></div>
         <p class="sr-only" id="alt-k1">The 156 qubits of IBM Fez in their chip layout, scaled in both size and colour from 0.15% to 10.6% readout error.</p>
@@ -1374,7 +1430,7 @@ html:not(.js) .tabs {
 
       <article class="story-step" data-kf="2" id="step-2">
         <div class="step-body">
-          <p>On 26 February 2025, the readout error of IBM Fez went from 0.15% to 10.6% across its 156 qubits. A readout error is the chance that a measurement gives the wrong bit.</p>
+          <p>Take one kind of error, the readout error. It is the chance that a measurement gives the wrong bit, and on 26 February 2025 it went from 0.15% to 10.6% across the 156 qubits.</p>
         </div>
         <div class="step-static-canvas" data-static-kf="2" aria-hidden="true"></div>
         <p class="sr-only" id="alt-k2">Log-scale dot plot of all 156 IBM Fez qubits sorted by readout error from 0.15% on the left to 10.6% on the right.</p>
@@ -1383,7 +1439,7 @@ html:not(.js) .tabs {
       <article class="story-step" data-kf="3" id="step-3" aria-labelledby="h-k3">
         <div class="step-body">
           <h2 id="h-k3">Most simulators leave the mistakes out</h2>
-          <p>A GHZ circuit links three qubits so that their measurements always agree. An ideal simulator runs it 1,024 times, and every run gives 000 or 111.</p>
+          <p>A simulator calculates what a quantum computer would output. Take a GHZ circuit, which links three qubits so that they always agree when you measure them. An ideal simulator runs it 1,024 times, and every run gives 000 or 111.</p>
         </div>
         <div class="step-static-canvas" data-static-kf="3" aria-hidden="true"></div>
         <p class="sr-only" id="alt-k3">A 32 by 32 grid of 1,024 runs on an ideal simulator showing 0 wrong runs.</p>
@@ -1391,7 +1447,7 @@ html:not(.js) .tabs {
 
       <article class="story-step" data-kf="4" id="step-4">
         <div class="step-body">
-          <p>Load the IBM Fez profile instead, and 27 of 1,024 runs come out wrong. Those wrong runs are the effect you want to study.</p>
+          <p>Now run the same circuit with the IBM Fez profile, and 27 of 1,024 runs come out wrong. A real device gives wrong runs like these, so any work on handling errors needs them in the simulation too.</p>
         </div>
         <div class="step-static-canvas" data-static-kf="4" aria-hidden="true"></div>
         <p class="sr-only" id="alt-k4">The same 32 by 32 grid of 1,024 runs with the IBM Fez profile showing 27 wrong runs marked as filled orange squares.</p>
@@ -1400,7 +1456,7 @@ html:not(.js) .tabs {
       <article class="story-step" data-kf="5" id="step-5" aria-labelledby="h-k5">
         <div class="step-body">
           <h2 id="h-k5">One profile, four simulators</h2>
-          <p>A profile is one file with the measured numbers of one device on one date. NoiseVault builds it into the noise model of each simulator, and <code>nv check</code> tests each build against an exact calculation.</p>
+          <p>NoiseVault stores the calibration of one device on one date in a single file, called a profile. It builds that profile into the noise model of Qiskit, Cirq, PennyLane or Stim, so the same numbers reach whichever simulator you use. <code>nv check</code> then runs small test circuits through each build and compares the results with an exact calculation.</p>
         </div>
         <div class="step-static-canvas" data-static-kf="5" aria-hidden="true"></div>
         <p class="sr-only" id="alt-k5">One IBM Fez profile file connecting to Qiskit, Cirq, PennyLane and Stim, each marked with a pass check mark.</p>
@@ -1409,7 +1465,7 @@ html:not(.js) .tabs {
       <article class="story-step" data-kf="6" id="step-6" aria-labelledby="h-k6">
         <div class="step-body">
           <h2 id="h-k6">A fingerprint pins the numbers</h2>
-          <p>Every profile has a fingerprint, calculated from every number in it. Change one gate error of IBM Fez by 1%, and 116 of the 256 bits change.</p>
+          <p>Every profile has a fingerprint, a code calculated from every number in the profile. Even a tiny change gives a different code. If one gate error of IBM Fez grows by 1%, 116 of the 256 bits change.</p>
         </div>
         <div class="step-static-canvas" data-static-kf="6" aria-hidden="true"></div>
         <p class="sr-only" id="alt-k6">A 16 by 16 grid of the 256 fingerprint bits of IBM Fez showing 116 changed bits outlined in orange after a 1% gate error change.</p>
@@ -1417,7 +1473,7 @@ html:not(.js) .tabs {
 
       <article class="story-step" data-kf="7" id="step-7">
         <div class="step-body">
-          <p>Put the fingerprint in your paper. If a reader's numbers differ from yours, the load stops with an error.</p>
+          <p>Put the fingerprint in your paper. When a reader loads the profile with it, NoiseVault checks the numbers first and stops with an error if they differ. So a reader either gets exactly your noise or finds out at once.</p>
           <div class="code-block" id="k7-code">
             <pre>fez = nv.load("ibm_fez@2025-02-26", expect="...")</pre>
             <button class="copy-btn" type="button" aria-label="Copy code">Copy</button>
@@ -1437,7 +1493,7 @@ html:not(.js) .tabs {
       <div class="band-head">
         <div class="band-head-inner">
           <h2 id="h-report">Every build says what it lost</h2>
-          <p>A simulator can't represent every effect in a calibration. So each build comes with a report of what it kept exactly, what it approximated and what it left out.</p>
+          <p>A simulator can't always represent everything that a calibration measures. So instead of approximating in silence, each build writes a report of what it kept exactly, what it approximated and what it left out. Save the report next to your results, and a reader can see what your simulation contained.</p>
         </div>
       </div>
 
@@ -1487,12 +1543,13 @@ html:not(.js) .tabs {
       <div class="band-head">
         <div class="band-head-inner">
           <h2 id="h-compare">Score a profile against a device</h2>
-          <p><code>nv compare</code> fits two factors that say how much the gate errors and the readout errors must be scaled to match measured counts. This example uses counts simulated with known factors, and both 95% intervals contain the true values.</p>
+          <p>A profile is a model of the hardware, so it helps to know how far it is from the real thing. <code>nv compare</code> takes counts measured on a device and fits two factors, one for the gate errors and one for the readout errors. A factor of 1 means the errors in the profile already fit the counts, and each factor comes with a 95% interval.</p>
+          <p>In this example the counts come from a simulation with known factors, and both intervals contain the true values.</p>
         </div>
       </div>
 
       <figure class="band-body" aria-labelledby="cap-compare">
-        <figcaption id="cap-compare" class="sr-only">Fitted gate and readout error factors with 95% intervals containing the true values, above a small multiple of profile and fitted TVD across four circuits.</figcaption>
+        <figcaption id="cap-compare" class="sr-only">Fitted gate and readout error factors with 95% intervals containing the true values, above a small multiple of profile and fitted distance to counts across four circuits.</figcaption>
         <div class="chart-scroll" id="fig-compare"></div>
       </figure>
     </div>
@@ -1506,7 +1563,7 @@ html:not(.js) .tabs {
       <div class="band-head">
         <div class="band-head-inner">
           <h2 id="h-fleet">25 devices, ready offline</h2>
-          <p>The package includes 25 devices, 18 from IBM, 5 from Quantinuum and 2 from Google. They load with no network and no account, and <code>nv pull</code> gets newer calibrations from IBM.</p>
+          <p>The package includes 25 devices, 18 from IBM, 5 from Quantinuum and 2 from Google. They load with no network and no account, so a test suite gets the same numbers on every machine. When you need a newer calibration, <code>nv pull</code> gets it from IBM.</p>
         </div>
       </div>
 
@@ -1549,7 +1606,7 @@ html:not(.js) .tabs {
             <span class="start-num" aria-hidden="true">1</span>
             <div class="start-copy">
               <h3>Try it without an install</h3>
-              <p>This needs <a href="https://docs.astral.sh/uv/">uv</a>. It prints the IBM Fez profile.</p>
+              <p>With <a href="https://docs.astral.sh/uv/">uv</a>, this one command prints the IBM Fez profile.</p>
             </div>
             <div class="start-code">
               <div class="code-block win" data-win="0">
@@ -1562,7 +1619,7 @@ html:not(.js) .tabs {
             <span class="start-num" aria-hidden="true">2</span>
             <div class="start-copy">
               <h3>Install for your simulator</h3>
-              <p>Use <code>cirq</code>, <code>pennylane</code> or <code>stim</code> in place of <code>qiskit</code>.</p>
+              <p>Replace <code>qiskit</code> with <code>cirq</code>, <code>pennylane</code> or <code>stim</code> if you use another simulator.</p>
             </div>
             <div class="start-code">
               <div class="code-block win" data-win="1">
@@ -1575,7 +1632,7 @@ html:not(.js) .tabs {
             <span class="start-num" aria-hidden="true">3</span>
             <div class="start-copy">
               <h3>Simulate with real noise</h3>
-              <p>This is the GHZ circuit from above, and it runs offline.</p>
+              <p>This is the GHZ circuit from above. It runs offline and prints the counts, with a few wrong runs among them.</p>
             </div>
             <div class="start-code">
               <div class="code-block win" data-win="2">
@@ -1609,7 +1666,7 @@ print(counts)</pre>
       <div class="band-head">
         <div class="band-head-inner">
           <h2 id="h-limits">What the model leaves out</h2>
-          <p>The models use average error rates and treat each error as independent. So they don't include the five effects below.</p>
+          <p>The models use average error rates and treat every error as independent of the others. As a result, they don't include these five effects.</p>
         </div>
       </div>
 
@@ -1629,14 +1686,14 @@ print(counts)</pre>
           </div>
           <div class="limit-row">
             <dt>Idle noise</dt>
-            <dd>Errors while a qubit waits, unless the circuit has explicit delays.</dd>
+            <dd>A waiting qubit makes errors, and the model adds them only where the circuit has explicit delays.</dd>
           </div>
           <div class="limit-row">
             <dt>Correlated readout</dt>
-            <dd>Readout errors that depend on each other.</dd>
+            <dd>The readout errors of different qubits depend on each other.</dd>
           </div>
         </dl>
-        <p class="limits-foot">No counts from a real device have been compared yet. The <a href="https://github.com/dvgyl/noisevault/blob/main/docs/limitations.md">limitations page</a> gives the full list.</p>
+        <p class="limits-foot">No profile has been scored against counts from a real device yet. The <a href="https://github.com/dvgyl/noisevault/blob/main/docs/limitations.md">limitations page</a> gives the full list.</p>
       </div>
     </div>
   </section>
@@ -1649,7 +1706,7 @@ print(counts)</pre>
       <div class="cite-grid">
         <div class="cite-col">
           <h2 id="h-cite">Cite your noise</h2>
-          <p style="margin-top:20px">Cite the software and the fingerprint of each profile that you used.</p>
+          <p>Cite the software, and give the fingerprint of each profile that you used. A reader can then load exactly the same numbers.</p>
 
           <div class="tabs" role="tablist" aria-label="Citation format">
             <button role="tab" id="tab-0" aria-selected="true" aria-controls="cite-0">Software</button>
@@ -1915,14 +1972,14 @@ const DATA = __DATA__;
     const compact = w < 440 || h < 340;
 
     // Chip geometry (K0 & K1)
-    const padX = Math.max(18, w * 0.06);
-    const padTop = Math.max(16, h * 0.06);
-    const padBot = Math.max(52, h * 0.13);
+    const padX = Math.max(14, w * 0.03);
+    const padTop = Math.max(12, h * 0.03);
+    const padBot = Math.max(48, h * 0.08);
     const chipW = Math.min(w - padX * 2, (h - padTop - padBot) * (15 / 14));
     const chipH = chipW * (14 / 15);
     const chipX0 = cx - chipW / 2;
     const chipY0 = y0 + padTop + (h - padTop - padBot - chipH) / 2;
-    const rK0 = clamp(chipW / 92, 2.8, 5.8);
+    const rK0 = clamp(chipW / 92, 2.8, 6.2);
 
     const k0 = new Array(PARTICLE_COUNT);
     const k1 = new Array(PARTICLE_COUNT);
@@ -2051,7 +2108,7 @@ const DATA = __DATA__;
     const codeGap7 = compact ? 14 : clamp(w * 0.05, 28, 48);
     const availCodeW = Math.max(150, w - g7Side - codeGap7 - 16);
     const maxFitFs = availCodeW / (0.61 * 26);
-    const codeFontSize = Math.min(maxFitFs, compact ? clamp(w * 0.036, 12, 15) : clamp(w * 0.029, 16, 23));
+    const codeFontSize = Math.max(13, Math.min(maxFitFs, compact ? clamp(w * 0.036, 13, 15) : clamp(w * 0.029, 16, 23)));
     const estCodeW = codeFontSize * 0.61 * 26;
     const total7W = Math.min(w - 16, g7Side + codeGap7 + estCodeW);
     const g7X0 = cx - total7W / 2;
@@ -2246,7 +2303,7 @@ const DATA = __DATA__;
       ctx.stroke();
 
       // Three log tick labels: 0.1%, 1%, 10%
-      ctx.font = `400 ${layout.compact ? 13 : 13.5}px ${sansFont}`;
+      ctx.font = `400 ${layout.compact ? 13 : 14}px ${sansFont}`;
       ctx.textBaseline = "middle";
       for (const tick of [0.1, 1, 10]) {
         const ty = b.logY(tick);
@@ -2269,7 +2326,7 @@ const DATA = __DATA__;
       // Direct labels on first and last dots
       const pFirst = layout.k2[minQubitIdx];
       const pLast = layout.k2[maxQubitIdx];
-      ctx.font = `500 ${layout.compact ? 13.5 : 14}px ${sansFont}`;
+      ctx.font = `500 ${layout.compact ? 13 : 14}px ${sansFont}`;
       ctx.fillStyle = rgba(TOK["--ink"], 1);
       ctx.textAlign = "left";
       ctx.textBaseline = "top";
@@ -2550,6 +2607,18 @@ const DATA = __DATA__;
       }
     }
 
+    // Helper: draw tabular big counter with -0.04em tracking across all browsers
+    const drawBigCounter = (numStr, x, y, size) => {
+      if ("letterSpacing" in ctx) ctx.letterSpacing = "0px";
+      const digitW = ctx.measureText("0").width;
+      const step = digitW - size * 0.04;
+      ctx.textAlign = "center";
+      for (let i = 0; i < numStr.length; i++) {
+        ctx.fillText(numStr[i], x + digitW * 0.5 + i * step, y);
+      }
+      ctx.textAlign = "left";
+    };
+
     // 6. K3 & K4 Big Geist counter beside 32x32 grid
     const c34A = easeIO(seg(S, 2.68, 2.94)) * (1 - easeIO(seg(S, 4.22, 4.44)));
     if (c34A > 0.005) {
@@ -2558,12 +2627,11 @@ const DATA = __DATA__;
       const bigSize = layout.compact ? clamp(layout.rect.w * 0.14, 46, 68) : clamp(layout.rect.w * 0.13, 64, 108);
       ctx.save();
       ctx.globalAlpha = c34A;
-      ctx.font = `500 ${bigSize}px ${sansFont}`;
+      ctx.font = `400 ${bigSize}px ${sansFont}`;
       ctx.fillStyle = rgba(shownNum > 0 ? TOK["--err"] : TOK["--ink"], 1);
-      ctx.textAlign = "left";
       ctx.textBaseline = "middle";
-      ctx.fillText(String(shownNum), b.counterX, b.cy - 10);
-      ctx.font = `400 ${layout.compact ? 13.5 : 15}px ${sansFont}`;
+      drawBigCounter(String(shownNum), b.counterX, b.cy - 10, bigSize);
+      ctx.font = `400 ${layout.compact ? 13 : 14}px ${sansFont}`;
       ctx.fillStyle = rgba(TOK["--ink-2"], 1);
       ctx.textBaseline = "top";
       ctx.fillText("Wrong runs", b.counterX + 2, b.cy + bigSize * 0.42);
@@ -2578,12 +2646,11 @@ const DATA = __DATA__;
       const bigSize = layout.compact ? clamp(layout.rect.w * 0.14, 46, 68) : clamp(layout.rect.w * 0.13, 64, 108);
       ctx.save();
       ctx.globalAlpha = c6A;
-      ctx.font = `500 ${bigSize}px ${sansFont}`;
+      ctx.font = `400 ${bigSize}px ${sansFont}`;
       ctx.fillStyle = rgba(shownFlips > 0 ? TOK["--err"] : TOK["--ink"], 1);
-      ctx.textAlign = "left";
       ctx.textBaseline = "middle";
-      ctx.fillText(String(shownFlips), b.counterX, b.cy - 10);
-      ctx.font = `400 ${layout.compact ? 13.5 : 15}px ${sansFont}`;
+      drawBigCounter(String(shownFlips), b.counterX, b.cy - 10, bigSize);
+      ctx.font = `400 ${layout.compact ? 13 : 14}px ${sansFont}`;
       ctx.fillStyle = rgba(TOK["--ink-2"], 1);
       ctx.textBaseline = "top";
       ctx.fillText("Changed bits", b.counterX + 2, b.cy + bigSize * 0.42);
@@ -2693,10 +2760,11 @@ const DATA = __DATA__;
       if (W >= 960) {
         const wrapR = stepsWrap.getBoundingClientRect();
         const colR = heroCol.getBoundingClientRect();
-        const gap = clamp(wrapR.width * 0.04, 28, 56);
+        const gap = clamp(wrapR.width * 0.03, 24, 40);
         const x0 = Math.max(W * 0.44, colR.right + gap);
-        const x1 = Math.min(W - 20, wrapR.right);
-        return { x0, y0: headerH + 24, w: Math.max(260, x1 - x0), h: Math.max(260, H - headerH - 48) };
+        // Keep the same margin on the right of the stage as on the left of the text.
+        const x1 = Math.min(W - Math.max(20, colR.left), wrapR.right);
+        return { x0, y0: headerH + 16, w: Math.max(260, x1 - x0), h: Math.max(260, H - headerH - 32) };
       }
       return { x0: 16, y0: headerH + 10, w: Math.max(240, W - 32), h: Math.max(180, H - headerH - 22) };
     }
@@ -2936,7 +3004,7 @@ const DATA = __DATA__;
     const capEl = document.getElementById("cap-compare");
     if (capEl) {
       const fStr = factors.map((f) => `${f.name} estimate ${f.est}, 95% interval ${f.lo} to ${f.hi}, true value ${f.truth}`).join(". ");
-      capEl.textContent = `${fStr}. Small multiple of TVD for four circuits comparing profile and fitted values against sampling noise.`;
+      capEl.textContent = `${fStr}. Small multiple of distance to counts for four circuits comparing profile and fitted values against sampling noise.`;
     }
 
     let animState = { p: reduceMQ.matches ? 1 : 0 };
@@ -2949,7 +3017,7 @@ const DATA = __DATA__;
       const svg = S(root, "svg", {
         viewBox: `0 0 ${W} ${H}`,
         role: "img",
-        "aria-label": "Fitted gate and readout error factors and four circuit TVD small multiples",
+        "aria-label": "Fitted gate and readout error factors and four circuit distance to counts small multiples",
       });
       svg.style.minWidth = "660px";
 
@@ -3031,7 +3099,7 @@ const DATA = __DATA__;
       S(smLeg, "text", { x: 104, y: 0, class: "svg-label" }, "Fitted");
       S(smLeg, "rect", { x: 172, y: -11, width: 20, height: 12, fill: "var(--code)", stroke: "var(--rule)", "stroke-width": 1 });
       S(smLeg, "text", { x: 200, y: 0, class: "svg-label" }, "Sampling noise");
-      S(smLeg, "text", { x: W, y: 0, "text-anchor": "end", class: "svg-label" }, "TVD");
+      S(smLeg, "text", { x: W, y: 0, "text-anchor": "end", class: "svg-label" }, "Distance to counts");
 
       const maxTvd = Math.ceil(Math.max(...circuits.flatMap((c) => [c.profile, c.fitted, c.noise])) * 100 + 0.4) / 100;
       const colGap = Math.max(20, Math.min(34, W * 0.03));
@@ -3079,12 +3147,12 @@ const DATA = __DATA__;
         const profDot = S(svg, "circle", {
           cx: px, cy: trackY, r: 5.5,
           fill: "var(--bg)", stroke: "var(--ink)", "stroke-width": 2, opacity: 0,
-          "data-tip": `${c.name}, profile TVD ${c.profile}`,
+          "data-tip": `${c.name}, profile distance to counts ${c.profile}`,
         });
         const fitDot = S(svg, "circle", {
           cx: fitX, cy: trackY, r: 6,
           fill: "var(--ok)", opacity: 0,
-          "data-tip": `${c.name}, fitted TVD ${c.fitted}`,
+          "data-tip": `${c.name}, fitted distance to counts ${c.fitted}`,
         });
 
         return { cx0, noiseW, noiseRect, noiseEdge, px, fitX, join, profDot, fitDot, idx };
