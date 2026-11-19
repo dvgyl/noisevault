@@ -16,17 +16,8 @@
 <meta name="twitter:card" content="summary">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600&family=Literata:opsz,wght@7..72,400;7..72,500&family=Geist+Mono:wght@400&display=swap" rel="stylesheet">
 <style>
-@font-face {
-  font-family: "Geist Fallback";
-  src: local("Helvetica Neue"), local("Arial");
-  size-adjust: 100%;
-  ascent-override: 96%;
-  descent-override: 24%;
-  line-gap-override: 0%;
-}
-
 :root {
   --bg: #fcfcfa;
   --ink: #1d1c1a;
@@ -36,7 +27,8 @@
   --ok: #2f5fe0;
   --err: #b5590b;
   --pass: #0b8a84;
-  --sans: "Geist", "Geist Fallback", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  --sans: "Instrument Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  --serif: "Literata", Georgia, "Times New Roman", serif;
   --mono: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 
   /* Type scale */
@@ -159,6 +151,17 @@ h3 {
   font-size: var(--text-h3);
   line-height: 1.3;
   letter-spacing: -0.01em;
+}
+
+/* Running text is set in the serif. Headings, labels, links and controls stay in the sans. */
+p, dd {
+  font-family: var(--serif);
+  font-size: calc(var(--text-body) * 0.95);
+  line-height: 1.62;
+}
+p.hero-meta {
+  font-family: var(--sans);
+  font-size: 1em;
 }
 
 p {
@@ -928,7 +931,7 @@ html.js .start-rail-fill {
   grid-column: 5 / span 8;
   margin: 0;
   font-weight: 400;
-  font-size: var(--text-body);
+  font-size: calc(var(--text-body) * 0.95);
   color: var(--ink-2);
 }
 
@@ -1488,32 +1491,32 @@ html:not(.js) .tabs {
         <ul class="report-ledger" id="report-ledger">
           <li class="report-row">
             <span class="report-cat"><span class="cat-rule" style="background:var(--pass)" aria-hidden="true"></span>Exact</span>
-            <span class="report-text">Errors of every gate on every qubit and qubit pair</span>
+            <span class="report-text">The error of every gate on every qubit and every pair of qubits</span>
             <span class="row-rule" aria-hidden="true"></span>
           </li>
           <li class="report-row">
             <span class="report-cat"><span class="cat-rule" style="background:var(--ok)" aria-hidden="true"></span>Approximated</span>
-            <span class="report-text">The two-qubit error already contains some one-qubit error</span>
+            <span class="report-text">The stated cz error already includes some one-qubit error, and one-qubit gates in the circuit add their own on top</span>
             <span class="row-rule" aria-hidden="true"></span>
           </li>
           <li class="report-row">
             <span class="report-cat"><span class="cat-rule" style="background:var(--ok)" aria-hidden="true"></span>Approximated</span>
-            <span class="report-text">T2 of qubit 87 lowered to 2 × T1, the physical limit</span>
+            <span class="report-text">Qubit 87 has a stated T2 above the physical limit of 2 × T1, so the model lowers it to that limit</span>
             <span class="row-rule" aria-hidden="true"></span>
           </li>
           <li class="report-row">
             <span class="report-cat"><span class="cat-rule" style="background:var(--err)" aria-hidden="true"></span>Clamped</span>
-            <span class="report-text">82 gates noisier than stated, because energy loss alone is larger</span>
+            <span class="report-text">For 82 gates, energy loss alone gives more error than IBM stated, so the model uses the larger value</span>
             <span class="row-rule" aria-hidden="true"></span>
           </li>
           <li class="report-row">
             <span class="report-cat"><span class="cat-rule" style="background:var(--ink-2)" aria-hidden="true"></span>Not modeled</span>
-            <span class="report-text">Noise while a qubit waits, outside explicit delays</span>
+            <span class="report-text">Noise while a qubit waits, except where the circuit has explicit delays</span>
             <span class="row-rule" aria-hidden="true"></span>
           </li>
           <li class="report-row">
             <span class="report-cat"><span class="cat-rule" style="background:var(--ink-2)" aria-hidden="true"></span>Unknown</span>
-            <span class="report-text">Reset error of the 156 qubits, so none is added</span>
+            <span class="report-text">The reset error of the 156 qubits, so the model adds none</span>
             <span class="row-rule" aria-hidden="true"></span>
           </li>
         </ul>
@@ -1574,6 +1577,46 @@ html:not(.js) .tabs {
   <!-- ====================================================================
        5. GET STARTED
        ==================================================================== -->
+  <section class="band" id="uses" aria-labelledby="h-uses">
+    <div class="wrap">
+      <div class="band-head">
+        <div class="band-head-inner">
+          <h2 id="h-uses">What you can do with it</h2>
+          <p>Each of these has a short script in the examples folder, so you can start from working code.</p>
+        </div>
+      </div>
+
+      <div class="band-body">
+        <dl class="limits-list uses-list">
+          <div class="limit-row">
+            <dt><a href="https://github.com/dvgyl/noisevault/blob/main/examples/mitiq_zne_pec.py">Test error mitigation</a></dt>
+            <dd>Run two error mitigation methods from Mitiq on the noise of IBM Fez, and compare each result with the ideal value.</dd>
+          </div>
+          <div class="limit-row">
+            <dt><a href="https://github.com/dvgyl/noisevault/blob/main/examples/compare_devices.py">Compare devices</a></dt>
+            <dd>Run the same GHZ circuit on two IBM and two Quantinuum devices and one hypothetical device, and plot how the success rate falls as the circuit grows.</dd>
+          </div>
+          <div class="limit-row">
+            <dt><a href="https://github.com/dvgyl/noisevault/blob/main/examples/pennylane_gradient.py">Train under device noise</a></dt>
+            <dd>Train a small PennyLane circuit on IBM Fez, with gradients that flow through the calibrated noise.</dd>
+          </div>
+          <div class="limit-row">
+            <dt><a href="https://github.com/dvgyl/noisevault/blob/main/examples/qec_surface_code.py">Correct errors in Stim</a></dt>
+            <dd>Run a surface code memory in Stim with calibrated noise, and decode it with PyMatching.</dd>
+          </div>
+          <div class="limit-row">
+            <dt><a href="https://github.com/dvgyl/noisevault/blob/main/examples/drift.py">Track drift</a></dt>
+            <dd>Pull the IBM Fez calibrations of today and of 90 days ago, and see what changed.</dd>
+          </div>
+          <div class="limit-row">
+            <dt><a href="https://github.com/dvgyl/noisevault/blob/main/examples/custom_device.py">Design a device</a></dt>
+            <dd>Describe a device that doesn't exist yet, save it as a profile, and run it in Qiskit and Stim.</dd>
+          </div>
+        </dl>
+      </div>
+    </div>
+  </section>
+
   <section class="band" id="start" aria-labelledby="h-start">
     <div class="wrap">
       <div class="band-head">
@@ -2199,7 +2242,7 @@ const DATA = __DATA__;
     const loadEdgeT = opts.loadEdgeT ?? 1;
     const loadDotT = opts.loadDotT ?? 1;
     const useFlicker = opts.useFlicker ?? false;
-    const sansFont = '"Geist", -apple-system, BlinkMacSystemFont, Helvetica, Arial, sans-serif';
+    const sansFont = '"Instrument Sans", -apple-system, BlinkMacSystemFont, Helvetica, Arial, sans-serif';
     const monoFont = '"Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace';
 
     ctx.clearRect(0, 0, W, H);
@@ -2603,7 +2646,7 @@ const DATA = __DATA__;
       ctx.textAlign = "left";
     };
 
-    // 6. K3 & K4 Big Geist counter beside 32x32 grid
+    // 6. K3 & K4 Big counter beside 32x32 grid
     const c34A = easeIO(seg(S, 2.68, 2.94)) * (1 - easeIO(seg(S, 4.22, 4.44)));
     if (c34A > 0.005) {
       const b = layout.k3Box;
@@ -2622,7 +2665,7 @@ const DATA = __DATA__;
       ctx.restore();
     }
 
-    // 7. K6 Big Geist counter beside 16x16 grid
+    // 7. K6 Big counter beside 16x16 grid
     const c6A = easeIO(seg(S, 5.52, 5.72)) * (1 - easeIO(seg(S, 6.28, 6.50)));
     if (c6A > 0.005) {
       const b = layout.k6Box;
